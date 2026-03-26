@@ -49,59 +49,74 @@ lto = true
 
     // Execute Soroban CLI (or cargo block)
     // Note: In a real server you might queue these or containerize. Here we spawn.
-    const command = \`cargo build --target wasm32-unknown-unknown --release\`;
+    const command = `cargo build --target wasm32-unknown-unknown --release`;
 
-    exec(command, { cwd: tempDir, timeout: 30000 }, async (err, stdout, stderr) => {
-      // Setup cleanup task
-      const cleanUp = async () => {
-        try {
-          await fs.rm(tempDir, { recursive: true, force: true });
-        } catch (e) {
-          console.error("Failed to clean up:", e);
-        }
-      };
-
-      if (err) {
-        await cleanUp();
-        return res.status(500).json({ 
-          error: "Compilation failed", 
-          status: "error",
-          details: stderr || err.message,
-          logs: stderr ? stderr.split('\n').filter(l => l.trim()) : []
-        });
-      }
-
-      // Check if wasm exists
-      const wasmPath = path.join(tempDir, "target", "wasm32-unknown-unknown", "release", "soroban_contract.wasm");
-      try {
-        const fileStats = await fs.stat(wasmPath);
-        // It's built successfully
-        await cleanUp();
-        return res.json({ 
-          success: true, 
-          status: "success",
-          message: "Contract compiled successfully",
-          logs: (stdout + (stderr ? "\n" + stderr : "")).split('\n').filter(l => l.trim()),
-          artifact: {
-            name: "soroban_contract.wasm",
-            sizeBytes: fileStats.size,
-            createdAt: fileStats.birthtime
+    exec(
+      command,
+      { cwd: tempDir, timeout: 30000 },
+      async (err, stdout, stderr) => {
+        // Setup cleanup task
+        const cleanUp = async () => {
+          try {
+            await fs.rm(tempDir, { recursive: true, force: true });
+          } catch (e) {
+            console.error("Failed to clean up:", e);
           }
-        });
-      } catch (e) {
-        await cleanUp();
-        return res.status(500).json({ 
-          error: "WASM file not generated", 
-          status: "error",
-          details: stderr || e.message,
-          logs: stderr ? stderr.split('\n').filter(l => l.trim()) : []
-        });
-      }
-    });
+        };
 
+        if (err) {
+          await cleanUp();
+          return res.status(500).json({
+            error: "Compilation failed",
+            status: "error",
+            details: stderr || err.message,
+            logs: stderr ? stderr.split("\n").filter((l) => l.trim()) : [],
+          });
+        }
+
+        // Check if wasm exists
+        const wasmPath = path.join(
+          tempDir,
+          "target",
+          "wasm32-unknown-unknown",
+          "release",
+          "soroban_contract.wasm",
+        );
+        try {
+          const fileStats = await fs.stat(wasmPath);
+          // It's built successfully
+          await cleanUp();
+          return res.json({
+            success: true,
+            status: "success",
+            message: "Contract compiled successfully",
+            logs: (stdout + (stderr ? "\n" + stderr : ""))
+              .split("\n")
+              .filter((l) => l.trim()),
+            artifact: {
+              name: "soroban_contract.wasm",
+              sizeBytes: fileStats.size,
+              createdAt: fileStats.birthtime,
+            },
+          });
+        } catch (e) {
+          await cleanUp();
+          return res.status(500).json({
+            error: "WASM file not generated",
+            status: "error",
+            details: stderr || e.message,
+            logs: stderr ? stderr.split("\n").filter((l) => l.trim()) : [],
+          });
+        }
+      },
+    );
   } catch (err) {
-    try { await fs.rm(tempDir, { recursive: true, force: true }); } catch (cleanupErr) {}
-    res.status(500).json({ error: "Internal server error", details: err.message });
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    } catch (cleanupErr) {}
+    res
+      .status(500)
+      .json({ error: "Internal server error", details: err.message });
   }
 });
 
