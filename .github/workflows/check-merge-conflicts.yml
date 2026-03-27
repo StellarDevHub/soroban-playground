@@ -1,0 +1,49 @@
+name: Check PR Merge Conflicts
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-conflicts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for merge conflicts
+        uses: eps1lon/actions-label-merge-conflict@releases/2.x
+        with:
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          commentOnConflict: true
+          
+      - name: Comment if conflicts exist
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.issue.number;
+            
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prNumber,
+              body: `## ⚠️ Merge Conflicts Detected
+              
+This PR has merge conflicts that need to be resolved.
+              
+### How to fix:
+\`\`\`bash
+# Update your branch with latest main
+git checkout main
+git pull origin main
+git checkout ${context.payload.pull_request.head.ref}
+git merge main
+
+# Resolve conflicts, then:
+git add <resolved-files>
+git commit
+git push origin ${context.payload.pull_request.head.ref}
+\`\`\`
+
+Please resolve these conflicts before requesting review. Thanks! 🙏`
+            });
