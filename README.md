@@ -10,6 +10,53 @@ No setup required. Write Rust smart contracts directly in your browser.
 - **Contract Interaction**: Read and write functions easily via an auto-generated UI.
 - **Storage Viewer**: Explore contract storage keys and values.
 
+## Tech Stack Diagram
+
+```mermaid
+flowchart LR
+   U[Developer / Contributor]
+
+   subgraph FE[Frontend - Next.js + React + TypeScript]
+      UI[UI Panels + Monaco Editor]
+      APIClient[Fetch Client]
+   end
+
+   subgraph BE[Backend - Node.js + Express]
+      Routes[/REST Routes\ncompile | deploy | invoke/]
+      CLI[Child Process Runner]
+   end
+
+   subgraph SC[Soroban Contracts - Rust]
+      Contracts[contracts/*\ncompiled to WASM]
+   end
+
+   subgraph ST[Stellar / Soroban Network]
+      Testnet[Testnet RPC + Ledger]
+   end
+
+   U --> UI
+   UI --> APIClient
+   APIClient --> Routes
+   Routes --> CLI
+   CLI --> Contracts
+   CLI --> Testnet
+   Testnet --> CLI
+   CLI --> Routes
+   Routes --> APIClient
+   APIClient --> UI
+```
+
+### How To Read This Diagram
+1. Start from the left: a contributor writes or updates contract code in the browser UI.
+2. Follow the center: the frontend calls backend API routes for compile, deploy, and invoke actions.
+3. End on the right: backend tools compile Rust contracts to WASM and interact with Soroban on Stellar Testnet, then return results to the UI.
+
+### Stack At A Glance
+- **Frontend** (`frontend/`): Next.js app router UI, Monaco editor integration, and interactive panels for compile/deploy/invoke flows.
+- **Backend** (`backend/`): Express API routes (`/compile`, `/deploy`, `/invoke`) that orchestrate Soroban toolchain commands.
+- **Smart Contracts** (`contracts/`): Example Soroban contracts written in Rust, compiled to WASM, and deployed/invoked via backend routes.
+- **Toolchain**: Rust + Cargo + Soroban CLI for compilation and network interactions.
+
 ## Project Structure
 This repository uses a monorepo setup:
 - `frontend/`: The Next.js React application containing the UI.
