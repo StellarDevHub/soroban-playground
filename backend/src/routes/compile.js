@@ -60,27 +60,45 @@ lto = true
           try {
             await fs.rm(tempDir, { recursive: true, force: true });
           } catch (e) {
+<<<<<<< HEAD
             console.error('Failed to clean up:', e);
+=======
+            console.error("Failed to clean up:", e);
+>>>>>>> main
           }
         };
 
         if (err) {
           await cleanUp();
           return res.status(500).json({
+<<<<<<< HEAD
             error: 'Compilation failed',
             status: 'error',
             details: stderr || err.message,
             logs: stderr ? stderr.split('\n').filter((l) => l.trim()) : [],
+=======
+            error: "Compilation failed",
+            status: "error",
+            details: stderr || err.message,
+            logs: stderr ? stderr.split("\n").filter((l) => l.trim()) : [],
+>>>>>>> main
           });
         }
 
         // Check if wasm exists
         const wasmPath = path.join(
           tempDir,
+<<<<<<< HEAD
           'target',
           'wasm32-unknown-unknown',
           'release',
           'soroban_contract.wasm'
+=======
+          "target",
+          "wasm32-unknown-unknown",
+          "release",
+          "soroban_contract.wasm",
+>>>>>>> main
         );
         try {
           const fileStats = await fs.stat(wasmPath);
@@ -88,6 +106,7 @@ lto = true
           await cleanUp();
           return res.json({
             success: true,
+<<<<<<< HEAD
             status: 'success',
             message: 'Contract compiled successfully',
             logs: (stdout + (stderr ? '\n' + stderr : ''))
@@ -95,6 +114,15 @@ lto = true
               .filter((l) => l.trim()),
             artifact: {
               name: 'soroban_contract.wasm',
+=======
+            status: "success",
+            message: "Contract compiled successfully",
+            logs: (stdout + (stderr ? "\n" + stderr : ""))
+              .split("\n")
+              .filter((l) => l.trim()),
+            artifact: {
+              name: "soroban_contract.wasm",
+>>>>>>> main
               sizeBytes: fileStats.size,
               createdAt: fileStats.birthtime,
             },
@@ -102,6 +130,7 @@ lto = true
         } catch (e) {
           await cleanUp();
           return res.status(500).json({
+<<<<<<< HEAD
             error: 'WASM file not generated',
             status: 'error',
             details: stderr || e.message,
@@ -109,6 +138,15 @@ lto = true
           });
         }
       }
+=======
+            error: "WASM file not generated",
+            status: "error",
+            details: stderr || e.message,
+            logs: stderr ? stderr.split("\n").filter((l) => l.trim()) : [],
+          });
+        }
+      },
+>>>>>>> main
     );
   } catch (err) {
     try {
@@ -116,7 +154,11 @@ lto = true
     } catch (cleanupErr) {}
     res
       .status(500)
+<<<<<<< HEAD
       .json({ error: 'Internal server error', details: err.message });
+=======
+      .json({ error: "Internal server error", details: err.message });
+>>>>>>> main
   }
 });
 
