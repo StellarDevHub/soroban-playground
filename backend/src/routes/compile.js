@@ -1,5 +1,5 @@
 import express from "express";
-import { exec } from "child_process";
+import { spawn } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import { sanitizeDependenciesInput, buildCargoToml } from "./compile_utils.js";
