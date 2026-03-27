@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import { sanitizeDependenciesInput, buildCargoToml } from "./compile_utils.js";
 import { asyncHandler, createHttpError } from "../middleware/errorHandler.js";
+import config from "../config/index.js";
 
 const router = express.Router();
 
@@ -19,8 +20,9 @@ router.post("/", asyncHandler(async (req, res, next) => {
     return next(createHttpError(400, depValidation.error, depValidation.details));
   }
 
-  // Define a temporary working directory for this compilation
-  const tempDir = path.resolve(process.cwd(), ".tmp_compile_" + Date.now());
+  // Unique temp directory per compile
+  const uniqueSuffix = Date.now() + "_" + Math.random().toString(36).substring(2, 8);
+  const tempDir = path.resolve(process.cwd(), ".tmp_compile_" + uniqueSuffix);
 
   try {
     await fs.mkdir(tempDir, { recursive: true });
