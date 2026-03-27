@@ -50,7 +50,7 @@ router.post("/", asyncHandler(async (req, res, next) => {
 
   // For the MVP, if no actual network configs/keys are present,
   // we simulate the deployment response. A full open-source implementation
-  // would construct a temporary keypair for the user using \`stellar-sdk\`
+  // would construct a temporary keypair for the user using `stellar-sdk`
   // or use a predefined funded testnet identity.
 
   setTimeout(() => {
