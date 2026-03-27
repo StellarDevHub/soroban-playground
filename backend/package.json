@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern=tests/"
   },
   "keywords": [],
   "author": "",
@@ -15,7 +15,12 @@
   "dependencies": {
     "express-rate-limit": "^6.7.0"
   },
+  "jest": {
+    "testEnvironment": "node"
+  },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.0.0"
   }
 }
