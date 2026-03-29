@@ -1,3 +1,6 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 import express from "express";
 import { spawn } from "child_process";
 import fs from "fs/promises";
@@ -83,7 +86,7 @@ router.post("/", asyncHandler(async (req, res, next) => {
       }
     });
   } catch (err) {
-    try { await fs.rm(tempDir, { recursive: true, force: true }); } catch (cleanupErr) {}
+    try { await fs.rm(tempDir, { recursive: true, force: true }); } catch (cleanupErr) { }
     return next(createHttpError(500, "Internal server error", err.message));
   }
 }));
