@@ -1,3 +1,6 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 const BASE_SDK_VERSION = "20.0.0";
 const MAX_DEPS = 20;
 
@@ -116,4 +119,3 @@ codegen-units = 1
 lto = true
 `;
 }
-

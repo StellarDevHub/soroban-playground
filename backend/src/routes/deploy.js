@@ -1,3 +1,6 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 import express from "express";
 import { asyncHandler, createHttpError } from "../middleware/errorHandler.js";
 
