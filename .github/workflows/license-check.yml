@@ -18,5 +18,5 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Run License Header Check
-        run: node scripts/check-license.js
+      - name: Run License Check
+        run: node check-license.js

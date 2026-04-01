@@ -18,7 +18,7 @@ export default function CallPanel({ onInvoke, isInvoking, contractId }: CallPane
     if (argsRaw.trim()) {
       try {
         parsedArgs = JSON.parse(argsRaw);
-      } catch (e) {
+      } catch {
         // Fallback or handle invalid JSON if needed
       }
     }

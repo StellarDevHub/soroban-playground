@@ -12,8 +12,8 @@
   "scripts": {
     "prepare": "husky install",
     "dev": "npm run dev --workspaces",
-    "build": "npm run build --workspaces",
-    "test": "npm run test --workspaces",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "lint:frontend": "npm --workspace frontend run lint",
     "lint:backend": "npm --workspace backend run lint",
     "lint": "npm run lint:frontend && npm run lint:backend"

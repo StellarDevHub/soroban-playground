@@ -1,19 +1,19 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-import express from "express";
-import cors from "cors";
-import morgan from "morgan";
-import rateLimit from "express-rate-limit";
-import os from "os";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-import compileRoute from "./routes/compile.js";
-import deployRoute from "./routes/deploy.js";
-import invokeRoute from "./routes/invoke.js";
-import { startCleanupWorker } from "./cleanupWorker.js";
-import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
+import express from 'express';
+import cors from 'cors';
+import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
+import os from 'os';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import compileRoute from './routes/compile.js';
+import deployRoute from './routes/deploy.js';
+import invokeRoute from './routes/invoke.js';
+import { startCleanupWorker } from './cleanupWorker.js';
+import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,17 +24,22 @@ const PORT = process.env.PORT || 5000;
 // Load package.json for version info
 let packageJson = {};
 try {
-  packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "../../package.json"), "utf8"));
+  packageJson = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
+  );
 } catch {
   try {
-    packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "../package.json"), "utf8"));
+    packageJson = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8')
+    );
   } catch {
-    packageJson = { version: "unknown", name: "soroban-playground-backend" };
+    packageJson = { version: 'unknown', name: 'soroban-playground-backend' };
   }
 }
 
 // Morgan logging format
-const logFormat = ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms';
+const logFormat =
+  ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms';
 
 // Basic middleware
 app.use(morgan(logFormat));
@@ -50,8 +55,8 @@ const globalLimiter = rateLimit({
   handler: (req, res) => {
     res.status(429).json({
       status: 429,
-      error: "Too Many Requests",
-      message: "Too many requests from this IP, please try again later.",
+      error: 'Too Many Requests',
+      message: 'Too many requests from this IP, please try again later.',
     });
   },
 });
@@ -65,8 +70,9 @@ const compileLimiter = rateLimit({
   handler: (req, res) => {
     res.status(429).json({
       status: 429,
-      error: "Too Many Requests",
-      message: "Compile endpoint rate limit exceeded. Please wait and try again later.",
+      error: 'Too Many Requests',
+      message:
+        'Compile endpoint rate limit exceeded. Please wait and try again later.',
     });
   },
 });
@@ -74,9 +80,9 @@ const compileLimiter = rateLimit({
 app.use(globalLimiter);
 
 // Routes
-app.use("/api/compile", compileLimiter, compileRoute);
-app.use("/api/deploy", deployRoute);
-app.use("/api/invoke", invokeRoute);
+app.use('/api/compile', compileLimiter, compileRoute);
+app.use('/api/deploy', deployRoute);
+app.use('/api/invoke', invokeRoute);
 
 // ─── Health Check Helpers ────────────────────────────────────────────────────
 
@@ -84,7 +90,12 @@ function getCpuUsage() {
   return os.cpus().map((cpu, index) => {
     const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
     const idle = cpu.times.idle;
-    return { core: index, model: cpu.model, speedMHz: cpu.speed, usedPercent: total > 0 ? +((1 - idle / total) * 100).toFixed(1) : 0 };
+    return {
+      core: index,
+      model: cpu.model,
+      speedMHz: cpu.speed,
+      usedPercent: total > 0 ? +((1 - idle / total) * 100).toFixed(1) : 0,
+    };
   });
 }
 
@@ -109,7 +120,7 @@ function getUptimeInfo() {
     const sec = Math.floor(s % 60);
     return [d && `${d}d`, h && `${h}h`, m && `${m}m`, `${sec}s`]
       .filter(Boolean)
-      .join(" ");
+      .join(' ');
   };
   return {
     processSec: Math.floor(process.uptime()),
@@ -120,18 +131,23 @@ function getUptimeInfo() {
 }
 
 function getRuntimeInfo() {
-  return { node: process.version, platform: process.platform, arch: process.arch, pid: process.pid };
+  return {
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    pid: process.pid,
+  };
 }
 
 // ─── Health Check Endpoint ───────────────────────────────────────────────────
-app.get("/api/health", (_req, res) => {
+app.get('/api/health', (_req, res) => {
   try {
     const memory = getMemoryInfo();
-    const status = memory.usedPercent > 95 ? "degraded" : "ok";
+    const status = memory.usedPercent > 95 ? 'degraded' : 'ok';
     const payload = {
       status,
-      version: packageJson.version ?? "unknown",
-      service: packageJson.name ?? "soroban-playground-backend",
+      version: packageJson.version ?? 'unknown',
+      service: packageJson.name ?? 'soroban-playground-backend',
       timestamp: new Date().toISOString(),
       uptime: getUptimeInfo(),
       cpu: getCpuUsage(),
@@ -143,8 +159,8 @@ app.get("/api/health", (_req, res) => {
     return res.status(500).json({
       success: false,
       data: {
-        status: "error",
-        version: packageJson.version ?? "unknown",
+        status: 'error',
+        version: packageJson.version ?? 'unknown',
         timestamp: new Date().toISOString(),
         error: err.message,
       },

@@ -1,19 +1,19 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-const BASE_SDK_VERSION = "20.0.0";
+const BASE_SDK_VERSION = '20.0.0';
 const MAX_DEPS = 20;
 
 export function isValidCrateName(name) {
-  if (typeof name !== "string") return false;
+  if (typeof name !== 'string') return false;
   if (name.length < 1 || name.length > 64) return false;
   if (
-    name.includes("\n") ||
-    name.includes("\r") ||
-    name.includes("\"") ||
+    name.includes('\n') ||
+    name.includes('\r') ||
+    name.includes('"') ||
     name.includes("'") ||
-    name.includes("[") ||
-    name.includes("]")
+    name.includes('[') ||
+    name.includes(']')
   ) {
     return false;
   }
@@ -21,15 +21,15 @@ export function isValidCrateName(name) {
 }
 
 export function isValidVersionConstraint(version) {
-  if (typeof version !== "string") return false;
+  if (typeof version !== 'string') return false;
   if (version.length < 1 || version.length > 50) return false;
   if (
-    version.includes("\n") ||
-    version.includes("\r") ||
-    version.includes("\"") ||
+    version.includes('\n') ||
+    version.includes('\r') ||
+    version.includes('"') ||
     version.includes("'") ||
-    version.includes("[") ||
-    version.includes("]")
+    version.includes('[') ||
+    version.includes(']')
   ) {
     return false;
   }
@@ -40,10 +40,11 @@ export function sanitizeDependenciesInput(dependencies) {
   if (dependencies === undefined || dependencies === null) {
     return { ok: true, deps: {} };
   }
-  if (typeof dependencies !== "object" || Array.isArray(dependencies)) {
+  if (typeof dependencies !== 'object' || Array.isArray(dependencies)) {
     return {
       ok: false,
-      error: "dependencies must be an object mapping crate names to version strings"
+      error:
+        'dependencies must be an object mapping crate names to version strings',
     };
   }
 
@@ -51,7 +52,7 @@ export function sanitizeDependenciesInput(dependencies) {
   if (entries.length > MAX_DEPS) {
     return {
       ok: false,
-      error: `Too many dependencies; maximum allowed is ${MAX_DEPS}`
+      error: `Too many dependencies; maximum allowed is ${MAX_DEPS}`,
     };
   }
 
@@ -60,18 +61,19 @@ export function sanitizeDependenciesInput(dependencies) {
 
   for (const [rawName, rawVersion] of entries) {
     const name = String(rawName).trim();
-    const version = typeof rawVersion === "string" ? rawVersion.trim() : rawVersion;
+    const version =
+      typeof rawVersion === 'string' ? rawVersion.trim() : rawVersion;
 
     if (!isValidCrateName(name)) {
       errors.push(`Invalid crate name: ${rawName}`);
       continue;
     }
-    if (typeof version !== "string" || !isValidVersionConstraint(version)) {
+    if (typeof version !== 'string' || !isValidVersionConstraint(version)) {
       errors.push(`Invalid version for ${name}: ${rawVersion}`);
       continue;
     }
 
-    if (name === "soroban-sdk") {
+    if (name === 'soroban-sdk') {
       continue;
     }
 
@@ -81,8 +83,8 @@ export function sanitizeDependenciesInput(dependencies) {
   if (errors.length > 0) {
     return {
       ok: false,
-      error: "Validation failed",
-      details: errors
+      error: 'Validation failed',
+      details: errors,
     };
   }
 
@@ -90,11 +92,11 @@ export function sanitizeDependenciesInput(dependencies) {
 }
 
 export function buildCargoToml(extraDeps = {}) {
-  const allDeps = { "soroban-sdk": BASE_SDK_VERSION, ...extraDeps };
+  const allDeps = { 'soroban-sdk': BASE_SDK_VERSION, ...extraDeps };
   const depLines = Object.keys(allDeps)
     .sort()
     .map((name) => `${name} = "${allDeps[name]}"`)
-    .join("\n");
+    .join('\n');
 
   return `
 [package]

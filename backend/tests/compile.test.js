@@ -15,10 +15,12 @@ import request from 'supertest';
 import fs from 'fs/promises';
 import { exec } from 'child_process';
 import compileRouter from '../src/routes/compile.js';
+import { errorHandler } from '../src/middleware/errorHandler.js';
 
 const app = express();
 app.use(express.json());
 app.use('/api/compile', compileRouter);
+app.use(errorHandler);
 
 describe('POST /api/compile', () => {
   beforeEach(() => {
@@ -32,7 +34,10 @@ describe('POST /api/compile', () => {
     const res = await request(app).post('/api/compile').send({});
 
     expect(res.status).toBe(400);
-    expect(res.body).toMatchObject({ error: 'No code provided' });
+    expect(res.body).toMatchObject({
+      message: 'No code provided',
+      statusCode: 400,
+    });
     expect(exec).not.toHaveBeenCalled();
   });
 
@@ -86,30 +91,40 @@ describe('POST /api/compile', () => {
   });
 
   it('returns 500 with stderr details when cargo build fails', async () => {
-    const stderrOutput = 'error[E0001]: expected expression\n  --> src/lib.rs:1:1';
+    const stderrOutput =
+      'error[E0001]: expected expression\n  --> src/lib.rs:1:1';
     exec.mockImplementation((cmd, opts, cb) =>
       cb(new Error('cargo exited with code 1'), '', stderrOutput)
     );
 
-    const res = await request(app).post('/api/compile').send({ code: 'bad code' });
+    const res = await request(app)
+      .post('/api/compile')
+      .send({ code: 'bad code' });
 
     expect(res.status).toBe(500);
     expect(res.body).toMatchObject({
-      error: 'Compilation failed',
-      status: 'error',
-      details: stderrOutput,
+      message: 'Compilation failed',
+      statusCode: 500,
+      details: {
+        details: stderrOutput,
+      },
     });
-    expect(Array.isArray(res.body.logs)).toBe(true);
+    expect(Array.isArray(res.body.details.logs)).toBe(true);
   });
 
   it('returns 200 with artifact metadata when WASM is generated', async () => {
-    const fakeStats = { size: 2048, birthtime: new Date('2024-01-01T00:00:00.000Z') };
+    const fakeStats = {
+      size: 2048,
+      birthtime: new Date('2024-01-01T00:00:00.000Z'),
+    };
     fs.stat.mockResolvedValue(fakeStats);
     exec.mockImplementation((cmd, opts, cb) =>
       cb(null, 'Compiling soroban_contract v0.0.0', '')
     );
 
-    const res = await request(app).post('/api/compile').send({ code: 'valid code' });
+    const res = await request(app)
+      .post('/api/compile')
+      .send({ code: 'valid code' });
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
@@ -125,17 +140,21 @@ describe('POST /api/compile', () => {
   });
 
   it('returns 500 when WASM file does not exist after a successful build', async () => {
-    fs.stat.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    fs.stat.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    );
     exec.mockImplementation((cmd, opts, cb) =>
       cb(null, '', 'warning: unused variable `x`')
     );
 
-    const res = await request(app).post('/api/compile').send({ code: 'valid code' });
+    const res = await request(app)
+      .post('/api/compile')
+      .send({ code: 'valid code' });
 
     expect(res.status).toBe(500);
     expect(res.body).toMatchObject({
-      error: 'WASM file not generated',
-      status: 'error',
+      message: 'WASM file not generated',
+      statusCode: 500,
     });
   });
 

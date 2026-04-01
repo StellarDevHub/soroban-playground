@@ -8,7 +8,7 @@
 export class HttpError extends Error {
   constructor(statusCode, message, details) {
     super(message);
-    this.name = "HttpError";
+    this.name = 'HttpError';
     this.statusCode = statusCode;
     this.details = details;
   }
@@ -25,18 +25,21 @@ export function asyncHandler(handler) {
 }
 
 export function notFoundHandler(req, res, next) {
-  next(createHttpError(404, "Route not found"));
+  next(createHttpError(404, 'Route not found'));
 }
 
-export function errorHandler(err, req, res, next) {
+export function errorHandler(err, req, res, _next) {
+  void _next;
+
   const rawStatus = Number(err?.statusCode);
-  const statusCode = Number.isInteger(rawStatus) && rawStatus >= 400 ? rawStatus : 500;
-  const isProduction = process.env.NODE_ENV === "production";
+  const statusCode =
+    Number.isInteger(rawStatus) && rawStatus >= 400 ? rawStatus : 500;
+  const isProduction = process.env.NODE_ENV === 'production';
   const isInternalError = statusCode >= 500;
 
   const payload = {
-    message: err?.message || "Internal server error",
-    statusCode
+    message: err?.message || 'Internal server error',
+    statusCode,
   };
 
   if (err?.details !== undefined && !isProduction) {
@@ -44,9 +47,8 @@ export function errorHandler(err, req, res, next) {
   }
 
   if (isInternalError && isProduction) {
-    payload.message = "Internal server error";
+    payload.message = 'Internal server error';
   }
 
   res.status(statusCode).json(payload);
 }
-
