@@ -21,6 +21,7 @@ import PredictionMarketPanel, { MarketData } from "@/components/PredictionMarket
 import WalletConnect from "@/components/WalletConnect";
 import TransactionStatus from "@/components/TransactionStatus";
 import VestingDashboard, { VestingScheduleData } from "@/components/VestingDashboard";
+import IdentityPortal, { IdentityData } from "@/components/IdentityPortal";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 
@@ -195,6 +196,10 @@ export default function Home() {
   // Vesting state
   const [vestingSchedules, setVestingSchedules] = useState<VestingScheduleData[]>([]);
   const [isVestingLoading, setIsVestingLoading] = useState(false);
+
+  // DID identity state
+  const [identities, setIdentities] = useState<IdentityData[]>([]);
+  const [isIdentityLoading, setIsIdentityLoading] = useState(false);
 
   // Wallet + transaction tracking
   const wallet = useFreighterWallet();
@@ -858,6 +863,188 @@ export default function Home() {
     }
   };
 
+  // ── DID Identity handlers ──────────────────────────────────────────────────
+
+  const handleRegisterIdentity = async (did: string, metadataHash: number) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`Register DID: ${did.slice(0, 24)}…`);
+    setIsIdentityLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "register_identity",
+        args: { did, metadata_hash: String(metadataHash) },
+      });
+      setIdentities((prev) => [
+        ...prev,
+        {
+          owner: wallet.address!,
+          did,
+          metadataHash,
+          reputation: 0,
+          active: true,
+          credentials: [],
+        },
+      ]);
+      updateTx(txId, { status: "success" });
+      appendLog(`[did] Identity registered: ${did}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Register identity failed: ${formatApiError(error)}`);
+    } finally {
+      setIsIdentityLoading(false);
+    }
+  };
+
+  const handleUpdateMetadata = async (owner: string, metadataHash: number) => {
+    if (!contractId) return;
+    const txId = addTx(`Update metadata for ${owner.slice(0, 8)}…`);
+    setIsIdentityLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "update_metadata",
+        args: { owner, metadata_hash: String(metadataHash) },
+      });
+      setIdentities((prev) =>
+        prev.map((id) => (id.owner === owner ? { ...id, metadataHash } : id))
+      );
+      updateTx(txId, { status: "success" });
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Update metadata failed: ${formatApiError(error)}`);
+    } finally {
+      setIsIdentityLoading(false);
+    }
+  };
+
+  const handleDeactivateIdentity = async (owner: string) => {
+    if (!contractId) return;
+    const txId = addTx(`Deactivate identity ${owner.slice(0, 8)}…`);
+    setIsIdentityLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "deactivate_identity",
+        args: { owner },
+      });
+      setIdentities((prev) =>
+        prev.map((id) => (id.owner === owner ? { ...id, active: false } : id))
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[did] Identity deactivated: ${owner}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Deactivate failed: ${formatApiError(error)}`);
+    } finally {
+      setIsIdentityLoading(false);
+    }
+  };
+
+  const handleIssueCredential = async (params: {
+    issuer: string; subject: string; schemaHash: number;
+    dataHash: number; expiresAt: number;
+  }) => {
+    if (!contractId) return;
+    const txId = addTx(`Issue credential from ${params.issuer.slice(0, 8)}… to ${params.subject.slice(0, 8)}…`);
+    setIsIdentityLoading(true);
+    try {
+      const payload = await requestJson<{ output: string }>("/api/invoke", {
+        contractId,
+        functionName: "issue_credential",
+        args: {
+          issuer: params.issuer,
+          subject: params.subject,
+          schema_hash: String(params.schemaHash),
+          data_hash: String(params.dataHash),
+          expires_at: String(params.expiresAt),
+        },
+      });
+      const credId = parseInt(payload.output ?? "0");
+      setIdentities((prev) =>
+        prev.map((id) =>
+          id.owner === params.subject
+            ? {
+                ...id,
+                credentials: [
+                  ...id.credentials,
+                  {
+                    id: credId,
+                    subject: params.subject,
+                    issuer: params.issuer,
+                    schemaHash: params.schemaHash,
+                    dataHash: params.dataHash,
+                    status: "Active" as const,
+                    issuedAt: Math.floor(Date.now() / 1000),
+                    expiresAt: params.expiresAt,
+                  },
+                ],
+              }
+            : id
+        )
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[did] Credential #${credId} issued`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Issue credential failed: ${formatApiError(error)}`);
+    } finally {
+      setIsIdentityLoading(false);
+    }
+  };
+
+  const handleRevokeCredential = async (credentialId: number) => {
+    if (!contractId) return;
+    const txId = addTx(`Revoke credential #${credentialId}`);
+    setIsIdentityLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "revoke_credential",
+        args: { credential_id: String(credentialId) },
+      });
+      setIdentities((prev) =>
+        prev.map((id) => ({
+          ...id,
+          credentials: id.credentials.map((c) =>
+            c.id === credentialId ? { ...c, status: "Revoked" as const } : c
+          ),
+        }))
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[did] Credential #${credentialId} revoked`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Revoke credential failed: ${formatApiError(error)}`);
+    } finally {
+      setIsIdentityLoading(false);
+    }
+  };
+
+  const handleAdjustReputation = async (subject: string, delta: number) => {
+    if (!contractId) return;
+    const txId = addTx(`Adjust reputation for ${subject.slice(0, 8)}… (${delta > 0 ? "+" : ""}${delta})`);
+    setIsIdentityLoading(true);
+    try {
+      const payload = await requestJson<{ output: string }>("/api/invoke", {
+        contractId,
+        functionName: "adjust_reputation",
+        args: { subject, delta: String(delta) },
+      });
+      const newScore = parseInt(payload.output ?? "0");
+      setIdentities((prev) =>
+        prev.map((id) => (id.owner === subject ? { ...id, reputation: newScore } : id))
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[did] Reputation updated: ${subject} → ${newScore}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Adjust reputation failed: ${formatApiError(error)}`);
+    } finally {
+      setIsIdentityLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-[1600px] flex-col overflow-hidden rounded-[28px] border border-white/8 bg-slate-950/60 shadow-[0_30px_120px_rgba(2,8,23,0.7)] backdrop-blur">
@@ -1163,6 +1350,18 @@ export default function Home() {
               onRelease={handleVestingRelease}
               onRevoke={handleVestingRevoke}
               onApproveMilestone={handleApproveMilestone}
+            />
+            <IdentityPortal
+              contractId={contractId}
+              walletAddress={wallet.address ?? undefined}
+              identities={identities}
+              isLoading={isIdentityLoading}
+              onRegister={handleRegisterIdentity}
+              onUpdateMetadata={handleUpdateMetadata}
+              onDeactivate={handleDeactivateIdentity}
+              onIssueCredential={handleIssueCredential}
+              onRevokeCredential={handleRevokeCredential}
+              onAdjustReputation={handleAdjustReputation}
             />
             <TransactionStatus transactions={transactions} onClear={clearTx} />
             <Console logs={logs} />
