@@ -15,3 +15,32 @@
     "test": "npm run test --workspaces"
   }
 }
+{
+  "name": "soroban-playground",
+  "version": "1.0.0",
+  "description": "Browser-based IDE for compiling and deploying Soroban Smart Contracts to Stellar Testnet",
+  "author": "Ayomide (Maintainer) & Open Source Contributors",
+  "license": "MIT",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "prepare": "node -e \"if (!process.env.CI) require('child_process').execSync('npx husky install', { stdio: 'inherit' })\"",
+    "dev": "npm run dev --workspaces",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint:frontend": "npm --workspace frontend run lint",
+    "lint:backend": "npm --workspace backend run lint",
+    "lint": "npm run lint:frontend && npm run lint:backend"
+  },
+  "devDependencies": {
+    "husky": "^9.0.0",
+    "lint-staged": "^14.0.0"
+  },
+  "lint-staged": {
+    "frontend/**/*.{js,jsx,ts,tsx}": "npx --workspace frontend eslint --fix",
+    "backend/**/*.js": "npx --workspace backend eslint --fix"
+  }
+}

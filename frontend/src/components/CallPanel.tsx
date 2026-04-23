@@ -18,6 +18,26 @@ export default function CallPanel({ onInvoke, isInvoking, contractId }: CallPane
     if (argsRaw.trim()) {
       try {
         parsedArgs = JSON.parse(argsRaw);
+import React, { useState } from "react";
+import { Send } from "lucide-react";
+
+interface CallPanelProps {
+  onInvoke: (func: string, args: Record<string, string>) => void;
+  isInvoking: boolean;
+  contractId?: string;
+}
+
+export default function CallPanel({ onInvoke, isInvoking, contractId }: CallPanelProps) {
+  const [funcName, setFuncName] = useState("");
+  const [argsRaw, setArgsRaw] = useState("");
+
+  const handleInvoke = () => {
+    if (!funcName) return;
+    
+    let parsedArgs: Record<string, string> = {};
+    if (argsRaw.trim()) {
+      try {
+        parsedArgs = JSON.parse(argsRaw);
       } catch {
         // Fallback or handle invalid JSON if needed
       }
