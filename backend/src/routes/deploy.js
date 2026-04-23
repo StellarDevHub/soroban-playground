@@ -3,6 +3,7 @@
 
 import express from 'express';
 import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
+import { deployBatchContracts } from '../services/deployService.js';
 
 const router = express.Router();
 
@@ -77,6 +78,44 @@ router.post(
         message: `Contract "${contractName}" deployed successfully to ${network}`,
       });
     }, 1500);
+  })
+);
+
+function validateBatchRequest(body) {
+  const { contracts } = body || {};
+  if (!Array.isArray(contracts) || contracts.length === 0) {
+    return ['contracts must be a non-empty array'];
+  }
+  return null;
+}
+
+router.post(
+  '/batch',
+  asyncHandler(async (req, res, next) => {
+    const errors = validateBatchRequest(req.body);
+    if (errors) {
+      return next(createHttpError(400, 'Validation failed', errors));
+    }
+
+    const controller = new AbortController();
+    req.on('aborted', () => controller.abort());
+
+    try {
+      const result = await deployBatchContracts(
+        {
+          requestId: `batch-${Date.now()}`,
+          batchId: req.body.batchId,
+          contracts: req.body.contracts,
+        },
+        { signal: controller.signal }
+      );
+
+      return res.json(result);
+    } catch (error) {
+      return next(
+        createHttpError(502, 'Batch deployment failed', [error.message])
+      );
+    }
   })
 );
 

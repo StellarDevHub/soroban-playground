@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
   BookOpen,
@@ -46,6 +46,9 @@ type CompileResponse = {
   success: boolean;
   status: string;
   message: string;
+  cached?: boolean;
+  durationMs?: number;
+  hash?: string;
   logs?: string[];
   artifact?: {
     name: string;
@@ -54,10 +57,39 @@ type CompileResponse = {
   };
 };
 
+type CompileStats = {
+  activeWorkers: number;
+  maxWorkers: number;
+  queueLength: number;
+  estimatedWaitTimeMs: number;
+  cacheHitRate: number;
+  totalCompiles: number;
+  cacheHits: number;
+  slowCompiles: number;
+  memoryPeakBytes: number;
+  cacheBytes: number;
+  artifacts: number;
+};
+
 type ApiErrorPayload = {
   message?: string;
   statusCode?: number;
   details?: unknown;
+};
+
+type InvokeProgressEvent = {
+  type: string;
+  requestId?: string;
+  contractId?: string;
+  functionName?: string;
+  status?: string;
+  detail?: string;
+  timestamp?: string;
+};
+
+type DeployProgressEvent = InvokeProgressEvent & {
+  batchId?: string;
+  contractName?: string;
 };
 
 function formatApiError(error: unknown) {
@@ -73,7 +105,7 @@ function toStorageRecord(value: unknown) {
   }
 
   return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [key, String(entry)])
+    Object.entries(value).map(([key, entry]) => [key, String(entry)]),
   );
 }
 
@@ -84,18 +116,70 @@ export default function Home() {
     `Frontend connected to ${DEFAULT_API_BASE_URL}`,
   ]);
   const [healthState, setHealthState] = useState<HealthState>("checking");
-  const [healthMessage, setHealthMessage] = useState("Checking backend health...");
+  const [healthMessage, setHealthMessage] = useState(
+    "Checking backend health...",
+  );
 
   const [isCompiling, setIsCompiling] = useState(false);
   const [hasCompiled, setHasCompiled] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [isInvoking, setIsInvoking] = useState(false);
+  const [invokeProgress, setInvokeProgress] = useState<InvokeProgressEvent[]>(
+    [],
+  );
+  const [deployProgress, setDeployProgress] = useState<DeployProgressEvent[]>(
+    [],
+  );
+  const [batchContractsRaw, setBatchContractsRaw] = useState(
+    JSON.stringify(
+      [
+        { id: "core", contractName: "core", wasmPath: "core.wasm" },
+        {
+          id: "api",
+          contractName: "api",
+          wasmPath: "api.wasm",
+          dependencies: ["core"],
+        },
+      ],
+      null,
+      2,
+    ),
+  );
+  const [batchCompileRaw, setBatchCompileRaw] = useState(
+    JSON.stringify(
+      [
+        { code: DEFAULT_CODE, dependencies: {} },
+        { code: DEFAULT_CODE.replace("v1", "v2"), dependencies: {} },
+      ],
+      null,
+      2,
+    ),
+  );
+  const [batchResults, setBatchResults] = useState<
+    Array<Record<string, unknown>>
+  >([]);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef(0);
 
   const [compileSummary, setCompileSummary] = useState<string>();
   const [compileError, setCompileError] = useState<string | null>(null);
+  const [compileStats, setCompileStats] = useState<CompileStats>({
+    activeWorkers: 0,
+    maxWorkers: 4,
+    queueLength: 0,
+    estimatedWaitTimeMs: 0,
+    cacheHitRate: 0,
+    totalCompiles: 0,
+    cacheHits: 0,
+    slowCompiles: 0,
+    memoryPeakBytes: 0,
+    cacheBytes: 0,
+    artifacts: 0,
+  });
   const [contractId, setContractId] = useState<string>();
   const [storage, setStorage] = useState<Record<string, string>>({});
-  const [lastArtifactName, setLastArtifactName] = useState<string>("contract.wasm");
+  const [lastArtifactName, setLastArtifactName] =
+    useState<string>("contract.wasm");
   const [lastDeployMessage, setLastDeployMessage] = useState<string>();
 
   const appendLog = (msg: string) => {
@@ -120,14 +204,14 @@ export default function Home() {
         if (!cancelled) {
           setHealthState("online");
           setHealthMessage(
-            `Backend online · ${payload?.data?.runtime?.node ?? "runtime unknown"}`
+            `Backend online · ${payload?.data?.runtime?.node ?? "runtime unknown"}`,
           );
         }
       } catch (error) {
         if (!cancelled) {
           setHealthState("offline");
           setHealthMessage(
-            `Backend unavailable at ${DEFAULT_API_BASE_URL}. Start the backend server to compile and deploy.`
+            `Backend unavailable at ${DEFAULT_API_BASE_URL}. Start the backend server to compile and deploy.`,
           );
           appendLog(`[warn] ${formatApiError(error)}`);
         }
@@ -135,9 +219,82 @@ export default function Home() {
     }
 
     checkHealth();
+    (async () => {
+      try {
+        const response = await fetch(
+          `${DEFAULT_API_BASE_URL}/api/compile/stats`,
+        );
+        if (response.ok) {
+          const payload = (await response.json()) as { stats?: CompileStats };
+          if (!cancelled && payload.stats) {
+            setCompileStats((prev) => ({ ...prev, ...payload.stats }));
+          }
+        }
+      } catch {
+        // stats are best-effort on first load
+      }
+    })();
 
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const connect = () => {
+      if (cancelled) return;
+
+      const wsUrl = DEFAULT_API_BASE_URL.replace(/^http/, "ws");
+      const socket = new WebSocket(`${wsUrl}/ws`);
+      wsRef.current = socket;
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data) as InvokeProgressEvent;
+          if (payload.type === "invoke-progress") {
+            setInvokeProgress((prev) => [...prev.slice(-19), payload]);
+            appendLog(
+              `[ws:${payload.status ?? "update"}] ${payload.detail ?? "progress"}`,
+            );
+          } else if (payload.type === "deploy-progress") {
+            setDeployProgress((prev) => [...prev.slice(-29), payload]);
+            appendLog(
+              `[deploy:${payload.status ?? "update"}] ${payload.detail ?? "progress"}`,
+            );
+          } else if (payload.type === "compile-progress") {
+            setCompileStats((prev) => ({
+              ...prev,
+              queueLength: payload.queueLength ?? prev.queueLength,
+              activeWorkers: payload.activeWorkers ?? prev.activeWorkers,
+            }));
+            appendLog(
+              `[compile:${payload.status ?? "update"}] queue=${payload.queueLength ?? 0} workers=${payload.activeWorkers ?? 0}`,
+            );
+          }
+        } catch {
+          appendLog("[warn] Received malformed websocket payload.");
+        }
+      };
+
+      socket.onclose = () => {
+        if (cancelled) return;
+        const delay = Math.min(1000 * 2 ** reconnectRef.current, 15000);
+        reconnectRef.current += 1;
+        window.setTimeout(connect, delay);
+      };
+
+      socket.onerror = () => {
+        socket.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      wsRef.current?.close();
     };
   }, []);
 
@@ -150,14 +307,14 @@ export default function Home() {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json().catch(() => ({}))) as T & ApiErrorPayload;
+    const payload = (await response.json().catch(() => ({}))) as T &
+      ApiErrorPayload;
     if (!response.ok) {
-      const details =
-        Array.isArray(payload.details)
-          ? payload.details.join(", ")
-          : typeof payload.details === "string"
-            ? payload.details
-            : "";
+      const details = Array.isArray(payload.details)
+        ? payload.details.join(", ")
+        : typeof payload.details === "string"
+          ? payload.details
+          : "";
       throw new Error([payload.message, details].filter(Boolean).join(": "));
     }
 
@@ -175,7 +332,9 @@ export default function Home() {
     appendLog("[compile] Sending source to backend...");
 
     try {
-      const payload = await requestJson<CompileResponse>("/api/compile", { code });
+      const payload = await requestJson<CompileResponse>("/api/compile", {
+        code,
+      });
       const compileLogs = payload.logs ?? [];
 
       setHasCompiled(true);
@@ -185,8 +344,15 @@ export default function Home() {
           payload.artifact?.sizeBytes
             ? `${(payload.artifact.sizeBytes / 1024).toFixed(1)} KB`
             : "size unavailable"
-        }`
+        } · ${payload.cached ? "cache hit" : "fresh build"}`,
       );
+      setCompileStats((prev) => ({
+        ...prev,
+        cacheHitRate: payload.cached
+          ? Math.min(100, prev.cacheHitRate + 10)
+          : Math.max(0, prev.cacheHitRate - 5),
+        activeWorkers: Math.max(prev.activeWorkers, 1),
+      }));
 
       appendLog(`[compile] ${payload.message}`);
       compileLogs.forEach((log) => appendLog(`[cargo] ${log}`));
@@ -238,7 +404,71 @@ export default function Home() {
     }
   };
 
-  const handleInvoke = async (funcName: string, args: Record<string, string>) => {
+  const handleBatchDeploy = async () => {
+    let contracts: Array<Record<string, unknown>>;
+    try {
+      contracts = JSON.parse(batchContractsRaw);
+    } catch {
+      appendLog("[error] Batch contracts must be valid JSON.");
+      return;
+    }
+
+    appendLog(
+      `[deploy] Starting batch deploy for ${contracts.length} contracts`,
+    );
+    try {
+      const payload = await requestJson<{
+        success: boolean;
+        status: string;
+        batchId: string;
+      }>("/api/deploy/batch", {
+        contracts,
+      });
+      appendLog(
+        `[deploy] Batch ${payload.batchId} finished with ${payload.status}`,
+      );
+    } catch (error) {
+      appendLog(`[error] Batch deploy failed: ${formatApiError(error)}`);
+    }
+  };
+
+  const handleBatchCompile = async () => {
+    let contracts: Array<Record<string, unknown>>;
+    try {
+      contracts = JSON.parse(batchCompileRaw);
+    } catch {
+      appendLog("[error] Batch compile payload must be valid JSON.");
+      return;
+    }
+
+    appendLog(
+      `[compile] Starting batch compile for ${contracts.length} contracts`,
+    );
+    setBatchResults([]);
+    try {
+      const payload = await requestJson<{
+        success: boolean;
+        results: Array<{
+          status: string;
+          value?: Record<string, unknown>;
+          reason?: unknown;
+        }>;
+      }>("/api/compile/batch", {
+        contracts,
+      });
+      setBatchResults(payload.results as Array<Record<string, unknown>>);
+      appendLog(
+        `[compile] Batch compile completed with ${payload.results.length} results`,
+      );
+    } catch (error) {
+      appendLog(`[error] Batch compile failed: ${formatApiError(error)}`);
+    }
+  };
+
+  const handleInvoke = async (
+    funcName: string,
+    args: Record<string, string>,
+  ) => {
     if (!contractId) {
       appendLog("[warn] Deploy a contract before invoking a function.");
       return;
@@ -246,7 +476,7 @@ export default function Home() {
 
     setIsInvoking(true);
     appendLog(
-      `[invoke] ${funcName}(${Object.keys(args).length ? JSON.stringify(args) : "{}"})`
+      `[invoke] ${funcName}(${Object.keys(args).length ? JSON.stringify(args) : "{}"})`,
     );
 
     try {
@@ -266,11 +496,11 @@ export default function Home() {
       });
 
       appendLog(`[invoke] ${payload.message}`);
-      appendLog(`[invoke] Output: ${payload.output}`);
+      appendLog(`[invoke] Output: ${JSON.stringify(payload.output)}`);
       setStorage((prev) => ({
         ...prev,
         lastFunction: payload.functionName,
-        lastOutput: payload.output,
+        lastOutput: JSON.stringify(payload.output),
         invokedAt: payload.invokedAt,
         ...toStorageRecord(payload.args),
       }));
@@ -299,9 +529,9 @@ export default function Home() {
                   Build, test, and ship Soroban contracts from one screen.
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-                  This frontend now talks to the backend routes directly, so compile,
-                  deploy, and invoke actions reflect live API responses instead of
-                  mocked timers.
+                  This frontend now talks to the backend routes directly, so
+                  compile, deploy, and invoke actions reflect live API responses
+                  instead of mocked timers.
                 </p>
               </div>
             </div>
@@ -348,7 +578,9 @@ export default function Home() {
                   <span>Invoke</span>
                 </div>
                 {lastDeployMessage ? (
-                  <p className="mt-2 text-xs text-emerald-300">{lastDeployMessage}</p>
+                  <p className="mt-2 text-xs text-emerald-300">
+                    {lastDeployMessage}
+                  </p>
                 ) : (
                   <p className="mt-2 text-xs text-slate-400">
                     Your current build artifact will be used for deployment.
@@ -395,11 +627,172 @@ export default function Home() {
               compileError={compileError}
               contractId={contractId}
             />
+            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Compile Metrics
+                </p>
+                <p className="text-xs text-slate-500">
+                  {compileStats.activeWorkers}/{compileStats.maxWorkers} workers
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Hit Rate</p>
+                  <p className="mt-1 text-lg font-semibold text-emerald-300">
+                    {compileStats.cacheHitRate}%
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Queue</p>
+                  <p className="mt-1 text-lg font-semibold text-cyan-300">
+                    {compileStats.queueLength}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Workers</p>
+                  <p className="mt-1 text-lg font-semibold text-orange-300">
+                    {compileStats.activeWorkers}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-300">
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">ETA</p>
+                  <p className="mt-1 text-base font-semibold text-slate-100">
+                    {(compileStats.estimatedWaitTimeMs / 1000).toFixed(1)}s
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Slow Builds</p>
+                  <p className="mt-1 text-base font-semibold text-rose-300">
+                    {compileStats.slowCompiles}
+                  </p>
+                </div>
+              </div>
+            </div>
             <CallPanel
               onInvoke={handleInvoke}
               isInvoking={isInvoking}
               contractId={contractId}
             />
+            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Batch Compile
+                </p>
+                <button
+                  onClick={handleBatchCompile}
+                  className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20"
+                >
+                  Compile Batch
+                </button>
+              </div>
+              <textarea
+                value={batchCompileRaw}
+                onChange={(e) => setBatchCompileRaw(e.target.value)}
+                className="h-44 w-full rounded-xl border border-white/10 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-200 outline-none"
+              />
+              <div className="mt-3 space-y-2">
+                {batchResults.map((result, index) => (
+                  <div
+                    key={`${index}-${String(result.status)}`}
+                    className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 text-xs text-slate-300"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-emerald-300">
+                        Contract {index + 1}
+                      </span>
+                      <span className="text-slate-500">
+                        {String(result.status)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-slate-400">
+                      {result.value
+                        ? JSON.stringify(result.value)
+                        : String(result.reason ?? "pending")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Batch Deploy
+                </p>
+                <button
+                  onClick={handleBatchDeploy}
+                  className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/20"
+                >
+                  Deploy All
+                </button>
+              </div>
+              <textarea
+                value={batchContractsRaw}
+                onChange={(e) => setBatchContractsRaw(e.target.value)}
+                className="h-44 w-full rounded-xl border border-white/10 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-200 outline-none"
+              />
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Pipeline Tracker
+                </p>
+                <p className="text-xs text-slate-500">
+                  {
+                    deployProgress.filter(
+                      (event) => event.status === "deployed",
+                    ).length
+                  }
+                  /{deployProgress.length}
+                </p>
+              </div>
+              <div className="space-y-2">
+                {deployProgress.slice(-6).map((event, index) => (
+                  <div
+                    key={`${event.timestamp ?? "deploy"}-${index}`}
+                    className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 text-xs text-slate-300"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-cyan-300">
+                        {event.contractName ?? event.batchId ?? "batch"}
+                      </span>
+                      <span className="text-slate-500">{event.status}</span>
+                    </div>
+                    <p className="mt-1 text-slate-400">{event.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Live Invocation
+                </p>
+                <p className="text-xs text-slate-500">
+                  {invokeProgress.length} events
+                </p>
+              </div>
+              <div className="space-y-2">
+                {invokeProgress.slice(-5).map((event, index) => (
+                  <div
+                    key={`${event.timestamp ?? "event"}-${index}`}
+                    className="rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2 font-mono text-[11px] text-slate-300"
+                  >
+                    <span className="text-cyan-300">
+                      {event.status ?? event.type}
+                    </span>
+                    <span className="ml-2 text-slate-500">
+                      {event.timestamp ?? ""}
+                    </span>
+                    <div className="mt-1 whitespace-pre-wrap">
+                      {event.detail ?? "connected"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             <StorageViewer storage={storage} />
             <Console logs={logs} />
           </aside>

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import express from 'express';
+import http from 'http';
 import cors from 'cors';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
@@ -14,11 +15,14 @@ import deployRoute from './routes/deploy.js';
 import invokeRoute from './routes/invoke.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
+import { setupWebsocketServer } from './websocket.js';
+import { initializeCompileService } from './services/compileService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Load package.json for version info
@@ -172,10 +176,11 @@ app.get('/api/health', (_req, res) => {
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+setupWebsocketServer(server);
+await initializeCompileService();
+startCleanupWorker();
+server.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
 });
-
-startCleanupWorker();
 
 export default app;

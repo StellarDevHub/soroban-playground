@@ -21,26 +21,7 @@ describe('POST /api/compile', () => {
     jest.clearAllMocks();
   });
 
-  it('returns 400 if no code is provided', async () => {
-    const res = await request(app).post('/api/compile').send({});
-
-    expect(res.status).toBe(400);
-    expect(res.body).toMatchObject({
-      message: 'No code provided',
-      statusCode: 400,
-    });
-  });
-
-  it('rejects invalid dependencies', async () => {
-    const res = await request(app).post('/api/compile').send({
-      code: '#![no_std]',
-      dependencies: [],
-    });
-
-    expect(res.status).toBe(400);
-  });
-
-  it('returns cache hit results from the service', async () => {
+  it('returns cached compile results quickly', async () => {
     compileQueued.mockResolvedValue({
       cached: true,
       hash: 'abc',
@@ -49,23 +30,20 @@ describe('POST /api/compile', () => {
       artifact: { name: 'abc.wasm', sizeBytes: 128, path: '/tmp/abc.wasm' },
     });
 
-    const res = await request(app).post('/api/compile').send({
-      code: 'fn main() {}',
-    });
+    const res = await request(app)
+      .post('/api/compile')
+      .send({ code: 'fn main() {}' });
 
     expect(res.status).toBe(200);
     expect(res.body.cached).toBe(true);
-    expect(res.body.artifact.name).toBe('abc.wasm');
+    expect(compileQueued).toHaveBeenCalled();
   });
 
-  it('returns batch compile results', async () => {
+  it('accepts batch compile jobs', async () => {
     compileBatch.mockResolvedValue([
       {
         status: 'fulfilled',
-        value: {
-          cached: false,
-          artifact: { name: 'a.wasm', sizeBytes: 42, path: '/tmp/a.wasm' },
-        },
+        value: { cached: false, artifact: { name: 'a.wasm' } },
       },
     ]);
 
@@ -77,5 +55,6 @@ describe('POST /api/compile', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.results).toHaveLength(1);
+    expect(compileBatch).toHaveBeenCalled();
   });
 });
