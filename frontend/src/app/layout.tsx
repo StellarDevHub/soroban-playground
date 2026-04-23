@@ -3,27 +3,6 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Soroban Playground",
-  description: "Stellar Developer Playground for building Soroban Smart Contracts",
-};
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
-  return (
-    <html lang="en" className="dark">
-      <body className="bg-gray-950 text-gray-100 antialiased min-h-screen">
-        {children}
-      </body>
-    </html>
-  );
-}
-import type { Metadata } from "next";
-import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "Soroban Playground",
   description: "Build, compile, deploy, and test Soroban smart contracts from one browser workspace.",
 };
 

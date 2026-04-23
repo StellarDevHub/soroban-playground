@@ -19,10 +19,18 @@ function normalizeWslCwd(cwd) {
 const cwd = normalizeWslCwd(process.cwd());
 const require = createRequire(import.meta.url);
 const nextCli = require.resolve("next/dist/bin/next");
+const env = { ...process.env };
 
-const result = spawnSync(process.execPath, [nextCli, "build"], {
+for (const key of Object.keys(env)) {
+  if (/^npm_/i.test(key)) {
+    delete env[key];
+  }
+}
+
+const result = spawnSync(process.execPath, [nextCli, "build", "--webpack"], {
   cwd,
   stdio: "inherit",
+  env,
 });
 
 process.exit(result.status ?? 1);

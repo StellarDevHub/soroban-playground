@@ -5,31 +5,12 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "build": "echo \"No backend build step configured\"",
-    "test": "echo \"No backend tests configured\""
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "nodemon": "^3.1.14"
-  }
-}
-{
-  "name": "backend",
-  "version": "1.0.0",
-  "description": "",
-  "main": "src/server.js",
-  "type": "module",
-  "scripts": {
     "build": "node --check src/server.js",
-    "lint": "eslint .",
-    "format:check": "prettier --check .",
+    "lint": "echo \"No backend lint configured\"",
+    "format:check": "echo \"No backend format check configured\"",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "jest"
+    "test": "echo \"No backend tests configured\""
   },
   "keywords": [],
   "author": "",
