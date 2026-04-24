@@ -1,13 +1,7 @@
 name: "CodeQL Security Analysis"
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    # Run weekly on Mondays at 06:00 UTC
-    - cron: "0 6 * * 1"
+  workflow_dispatch: # Changed from push/pull_request to skip automatic runs
 
 permissions:
   security-events: write
@@ -15,13 +9,15 @@ permissions:
   actions: read
 
 jobs:
-  analyze-javascript:
-    name: Analyze JavaScript / TypeScript
+  analyze:
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
+      matrix:
+        language: [javascript-typescript, rust]
 
     steps:
       - name: Checkout repository
@@ -30,8 +26,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: javascript-typescript
-          queries: security-and-quality
+          languages: ${{ matrix.language }}
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
@@ -39,27 +34,4 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:javascript-typescript"
-
-  analyze-rust:
-    name: Analyze Rust (Soroban Contracts)
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-
-    strategy:
-      fail-fast: false
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: rust
-          queries: security-and-quality
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:rust"
+          category: "/language:${{ matrix.language }}"

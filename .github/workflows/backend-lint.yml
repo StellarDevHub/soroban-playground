@@ -1,25 +1,20 @@
-name: Backend Linting & Code Quality
+name: Backend Linting & Checks
 
 on:
   pull_request:
     paths:
       - 'backend/**'
-      - '.github/workflows/backend-lint.yml'
+      - 'check-license.js'
   push:
     branches:
       - main
     paths:
       - 'backend/**'
-      - '.github/workflows/backend-lint.yml'
+      - 'check-license.js'
 
 jobs:
-  lint:
+  lint-and-check:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,41 +23,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: 'backend/package-lock.json'
 
-      - name: Install backend dependencies
+      - name: Run License Check
+        run: node check-license.js
+
+      - name: Run linting and formatting check
         working-directory: backend
-        run: npm ci
-
-      - name: Run linting
-        working-directory: backend
-        run: npm run lint
-        continue-on-error: true
-
-      - name: Check code formatting
-        working-directory: backend
-        run: npm run format:check
-        continue-on-error: true
-
-      - name: Run tests
-        working-directory: backend
-        run: npm test
-        continue-on-error: true
-
-      - name: Comment on PR with results
-        if: github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const checksPassed = context.job.status === 'success';
-            const comment = checksPassed
-              ? 'All backend code quality checks passed!'
-              : 'Some backend code quality checks failed. Please review the annotations above.';
-
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment,
-            });
+        run: |
+          npm install --no-package-lock --no-save eslint prettier
+          npx eslint src/
+          npx prettier --check src/

@@ -24,6 +24,10 @@ import WalletConnect from "@/components/WalletConnect";
 import TransactionStatus from "@/components/TransactionStatus";
 import VestingDashboard, { VestingScheduleData } from "@/components/VestingDashboard";
 import IdentityPortal, { IdentityData } from "@/components/IdentityPortal";
+import LendingDashboard from "@/components/LendingDashboard";
+import FlashLoanPanel from "@/components/FlashLoanPanel";
+import CloudStoragePanel from "@/components/CloudStoragePanel";
+import MusicRoyaltyPanel from "@/components/MusicRoyaltyPanel";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
@@ -1587,6 +1591,10 @@ export default function Home() {
               onRevokeCredential={handleRevokeCredential}
               onAdjustReputation={handleAdjustReputation}
             />
+            <LendingDashboard />
+            <FlashLoanPanel />
+            <CloudStoragePanel />
+            <MusicRoyaltyPanel />
             <TransactionStatus transactions={transactions} onClear={clearTx} />
             <Console logs={logs} />
           </aside>
