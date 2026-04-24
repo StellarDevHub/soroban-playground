@@ -24,6 +24,7 @@ import WalletConnect from "@/components/WalletConnect";
 import TransactionStatus from "@/components/TransactionStatus";
 import VestingDashboard, { VestingScheduleData } from "@/components/VestingDashboard";
 import IdentityPortal, { IdentityData } from "@/components/IdentityPortal";
+import CarbonCreditDashboard, { IssuerData, CarbonAssetData } from "@/components/CarbonCreditDashboard";
 import SocialFeedInterface, { SocialProfile, SocialPost } from "@/components/SocialFeedInterface";
 import LendingDashboard from "@/components/LendingDashboard";
 import FlashLoanPanel from "@/components/FlashLoanPanel";
@@ -330,6 +331,10 @@ export default function Home() {
   const [identities, setIdentities] = useState<IdentityData[]>([]);
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
 
+  // Carbon Credit state
+  const [carbonIssuer, setCarbonIssuer] = useState<IssuerData>();
+  const [carbonAssets, setCarbonAssets] = useState<CarbonAssetData>({ balance: 0, totalRetired: 0, totalOwned: 0 });
+  const [isCarbonLoading, setIsCarbonLoading] = useState(false);
   // Social Media state
   const [socialProfile, setSocialProfile] = useState<SocialProfile>();
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([]);
@@ -1265,6 +1270,124 @@ export default function Home() {
     }
   };
 
+  // ── Carbon Credit handlers ──────────────────────────────────────────────────
+
+  const handleRegisterIssuer = async (name: string) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`Register Carbon Issuer: ${name}`);
+    setIsCarbonLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "register_issuer",
+        args: { issuer: wallet.address, name },
+      });
+      setCarbonIssuer({
+        address: wallet.address,
+        name,
+        verified: false,
+        totalMinted: 0,
+      });
+      updateTx(txId, { status: "success" });
+      appendLog(`[carbon] Issuer registered: ${name}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Register issuer failed: ${formatApiError(error)}`);
+    } finally {
+      setIsCarbonLoading(false);
+    }
+  };
+
+  const handleVerifyIssuer = async (issuerAddress: string) => {
+    if (!contractId) return;
+    const txId = addTx(`Verify Carbon Issuer: ${issuerAddress.slice(0, 8)}…`);
+    setIsCarbonLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "verify_issuer",
+        args: { issuer: issuerAddress },
+      });
+      if (carbonIssuer?.address === issuerAddress) {
+        setCarbonIssuer(prev => prev ? { ...prev, verified: true } : prev);
+      }
+      updateTx(txId, { status: "success" });
+      appendLog(`[carbon] Issuer verified: ${issuerAddress}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+    } finally {
+      setIsCarbonLoading(false);
+    }
+  };
+
+  const handleMintCredits = async (to: string, amount: number) => {
+    if (!contractId || !carbonIssuer) return;
+    const txId = addTx(`Mint ${amount} Carbon Credits to ${to.slice(0, 8)}…`);
+    setIsCarbonLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "mint",
+        args: { issuer: carbonIssuer.address, to, amount: String(amount) },
+      });
+      setCarbonIssuer(prev => prev ? { ...prev, totalMinted: prev.totalMinted + amount } : prev);
+      if (to === wallet.address) {
+        setCarbonAssets(prev => ({ 
+          ...prev, 
+          balance: prev.balance + amount,
+          totalOwned: prev.totalOwned + amount 
+        }));
+      }
+      updateTx(txId, { status: "success" });
+      appendLog(`[carbon] ${amount} credits minted to ${to}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+    } finally {
+      setIsCarbonLoading(false);
+    }
+  };
+
+  const handleRetireCredits = async (amount: number) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`Retire ${amount} Carbon Credits`);
+    setIsCarbonLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "retire",
+        args: { user: wallet.address, amount: String(amount) },
+      });
+      setCarbonAssets(prev => ({
+        ...prev,
+        balance: prev.balance - amount,
+        totalRetired: prev.totalRetired + amount,
+      }));
+      updateTx(txId, { status: "success" });
+      appendLog(`[carbon] ${amount} credits retired by user`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+    } finally {
+      setIsCarbonLoading(false);
+    }
+  };
+
+  const handleTransferCredits = async (to: string, amount: number) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`Transfer ${amount} Carbon Credits to ${to.slice(0, 8)}…`);
+    setIsCarbonLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "transfer",
+        args: { from: wallet.address, to, amount: String(amount) },
+      });
+      setCarbonAssets(prev => ({ ...prev, balance: prev.balance - amount }));
+      updateTx(txId, { status: "success" });
+      appendLog(`[carbon] ${amount} credits transferred to ${to}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+    } finally {
+      setIsCarbonLoading(false);
   // ── Social Media handlers ──────────────────────────────────────────────────
 
   const handleRegisterSocialProfile = async (nickname: string, bio: string) => {
@@ -1693,6 +1816,15 @@ export default function Home() {
               onRevokeCredential={handleRevokeCredential}
               onAdjustReputation={handleAdjustReputation}
             />
+            <CarbonCreditDashboard
+              isLoading={isCarbonLoading}
+              issuer={carbonIssuer}
+              assets={carbonAssets}
+              onRegisterIssuer={handleRegisterIssuer}
+              onVerifyIssuer={handleVerifyIssuer}
+              onMint={handleMintCredits}
+              onTransfer={handleTransferCredits}
+              onRetire={handleRetireCredits}
             <SocialFeedInterface
               isLoading={isSocialLoading}
               profile={socialProfile}
