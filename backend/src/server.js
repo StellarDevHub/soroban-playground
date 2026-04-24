@@ -10,9 +10,7 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import compileRoute from './routes/compile.js';
-import deployRoute from './routes/deploy.js';
-import invokeRoute from './routes/invoke.js';
+import apiRouter from './routes/api.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { setupWebsocketServer } from './websocket.js';
@@ -74,9 +72,7 @@ app.use((req, res, next) => {
 app.use(rateLimitMiddleware('global'));
 
 // Routes
-app.use('/api/compile', rateLimitMiddleware('compile'), compileRoute);
-app.use('/api/deploy', rateLimitMiddleware('deploy'), deployRoute);
-app.use('/api/invoke', rateLimitMiddleware('invoke'), invokeRoute);
+app.use('/api', apiRouter);
 app.use('/api/admin', adminRoute);
 app.use('/metrics', metricsRoute);
 
