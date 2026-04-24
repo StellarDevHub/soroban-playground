@@ -34,6 +34,10 @@ import MultisigWalletDashboard, {
   type SignerRole,
 } from "@/components/MultisigWalletDashboard";
 import AmmPoolPanel, { type PoolData } from "@/components/AmmPoolPanel";
+import GovernancePortal, {
+  type GovernanceProposal,
+  type VoteChoice as GovVoteChoice,
+} from "@/components/GovernancePortal";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
@@ -350,6 +354,11 @@ export default function Home() {
   const [ammPool, setAmmPool] = useState<PoolData | null>(null);
   const [ammLpBalance, setAmmLpBalance] = useState(0);
   const [isAmmLoading, setIsAmmLoading] = useState(false);
+
+  // Governance state
+  const [govProposals, setGovProposals] = useState<GovernanceProposal[]>([]);
+  const [govVotingPower, setGovVotingPower] = useState(0);
+  const [isGovLoading, setIsGovLoading] = useState(false);
 
   const appendLog = (msg: string) => {
     setLogs((prev) => [...prev, msg]);
@@ -1559,6 +1568,145 @@ export default function Home() {
     }
   };
 
+  // ── Governance handlers ────────────────────────────────────────────────────
+
+  const handleGovPropose = async (title: string, description: string) => {
+    if (!contractId) return;
+    const txId = addTx(`Propose: "${title.slice(0, 30)}"`);
+    setIsGovLoading(true);
+    try {
+      const payload = await requestJson<{ output: string }>("/api/invoke", {
+        contractId,
+        functionName: "propose",
+        args: { proposer: walletAddress ?? "", title, description, deposit: "0" },
+      });
+      const id = parseInt(payload.output ?? String(govProposals.length));
+      const now = Math.floor(Date.now() / 1000);
+      setGovProposals((prev) => [
+        ...prev,
+        {
+          id,
+          proposer: walletAddress ?? "unknown",
+          title,
+          description,
+          status: "Active",
+          votesFor: 0,
+          votesAgainst: 0,
+          votesAbstain: 0,
+          totalSupplySnapshot: govVotingPower,
+          quorumBps: 400,
+          voteEnd: now + 604_800,
+          executeAfter: now + 604_800 + 172_800,
+        },
+      ]);
+      updateTx(txId, { status: "success" });
+      appendLog(`[gov] Proposal #${id} created`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Propose failed: ${formatApiError(error)}`);
+    } finally {
+      setIsGovLoading(false);
+    }
+  };
+
+  const handleGovVote = async (proposalId: number, choice: GovVoteChoice) => {
+    if (!contractId) return;
+    const txId = addTx(`Vote ${choice} on proposal #${proposalId}`);
+    setIsGovLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "vote",
+        args: { voter: walletAddress ?? "", proposal_id: String(proposalId), choice },
+      });
+      setGovProposals((prev) =>
+        prev.map((p) => {
+          if (p.id !== proposalId) return p;
+          return {
+            ...p,
+            votesFor: choice === "For" ? p.votesFor + govVotingPower : p.votesFor,
+            votesAgainst: choice === "Against" ? p.votesAgainst + govVotingPower : p.votesAgainst,
+            votesAbstain: choice === "Abstain" ? p.votesAbstain + govVotingPower : p.votesAbstain,
+          };
+        })
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[gov] Voted ${choice} on #${proposalId}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Vote failed: ${formatApiError(error)}`);
+    } finally {
+      setIsGovLoading(false);
+    }
+  };
+
+  const handleGovFinalise = async (proposalId: number) => {
+    if (!contractId) return;
+    const txId = addTx(`Finalise proposal #${proposalId}`);
+    setIsGovLoading(true);
+    try {
+      const payload = await requestJson<{ output: string }>("/api/invoke", {
+        contractId,
+        functionName: "finalise",
+        args: { proposal_id: String(proposalId) },
+      });
+      const status = payload.output === "2" ? "Passed" : "Defeated";
+      setGovProposals((prev) =>
+        prev.map((p) => (p.id === proposalId ? { ...p, status: status as GovernanceProposal["status"] } : p))
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[gov] Proposal #${proposalId} ${status}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Finalise failed: ${formatApiError(error)}`);
+    } finally {
+      setIsGovLoading(false);
+    }
+  };
+
+  const handleGovExecute = async (proposalId: number) => {
+    if (!contractId) return;
+    const txId = addTx(`Execute proposal #${proposalId}`);
+    setIsGovLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "execute",
+        args: { caller: walletAddress ?? "", proposal_id: String(proposalId) },
+      });
+      setGovProposals((prev) =>
+        prev.map((p) => (p.id === proposalId ? { ...p, status: "Executed" } : p))
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[gov] Proposal #${proposalId} executed`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Execute failed: ${formatApiError(error)}`);
+    } finally {
+      setIsGovLoading(false);
+    }
+  };
+
+  const handleGovDelegate = async (to: string | null) => {
+    if (!contractId) return;
+    const txId = addTx(to ? `Delegate to ${to.slice(0, 8)}…` : "Revoke delegation");
+    setIsGovLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "delegate",
+        args: { from: walletAddress ?? "", ...(to ? { to } : {}) },
+      });
+      updateTx(txId, { status: "success" });
+      appendLog(`[gov] ${to ? `Delegated to ${to}` : "Delegation revoked"}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Delegate failed: ${formatApiError(error)}`);
+    } finally {
+      setIsGovLoading(false);
+    }
+  };
+
   const walletAddress = wallet.address ?? undefined;
 
   return (
@@ -1926,6 +2074,18 @@ export default function Home() {
               onSwap={handleAmmSwap}
               onAddLiquidity={handleAmmAddLiquidity}
               onRemoveLiquidity={handleAmmRemoveLiquidity}
+            />
+            <GovernancePortal
+              contractId={contractId}
+              walletAddress={walletAddress}
+              proposals={govProposals}
+              votingPower={govVotingPower}
+              isLoading={isGovLoading}
+              onPropose={handleGovPropose}
+              onVote={handleGovVote}
+              onFinalise={handleGovFinalise}
+              onExecute={handleGovExecute}
+              onDelegate={handleGovDelegate}
             />
             <TransactionStatus transactions={transactions} onClear={clearTx} />
             <Console logs={logs} />
