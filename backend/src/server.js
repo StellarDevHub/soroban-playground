@@ -5,18 +5,19 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
+// import rateLimit from 'express-rate-limit'; // Replaced by custom Redis limiter
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import compileRoute from './routes/compile.js';
-import deployRoute from './routes/deploy.js';
-import invokeRoute from './routes/invoke.js';
+import apiRouter from './routes/api.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { setupWebsocketServer } from './websocket.js';
 import { initializeCompileService } from './services/compileService.js';
+import adminRoute from './routes/admin.js';
+import metricsRoute, { requestLatency } from './routes/metrics.js';
+import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,43 +51,30 @@ app.use(morgan(logFormat));
 app.use(cors());
 app.use(express.json());
 
-// Rate limiting - global limiter
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req, res) => {
-    res.status(429).json({
-      status: 429,
-      error: 'Too Many Requests',
-      message: 'Too many requests from this IP, please try again later.',
-    });
-  },
+// Latency tracking middleware
+app.use((req, res, next) => {
+  const start = process.hrtime();
+  res.on('finish', () => {
+    const diff = process.hrtime(start);
+    const time = diff[0] + diff[1] / 1e9;
+    requestLatency.observe({ 
+      method: req.method, 
+      route: req.route ? req.route.path : req.path, 
+      status: res.statusCode 
+    }, time);
+  });
+  next();
 });
 
-// Strict limiter for the heavy /api/compile endpoint
-const compileLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req, res) => {
-    res.status(429).json({
-      status: 429,
-      error: 'Too Many Requests',
-      message:
-        'Compile endpoint rate limit exceeded. Please wait and try again later.',
-    });
-  },
-});
+// Rate limiting - global limiter (Replaced)
+// const globalLimiter = rateLimit({ ... });
 
-app.use(globalLimiter);
+app.use(rateLimitMiddleware('global'));
 
 // Routes
-app.use('/api/compile', compileLimiter, compileRoute);
-app.use('/api/deploy', deployRoute);
-app.use('/api/invoke', invokeRoute);
+app.use('/api', apiRouter);
+app.use('/api/admin', adminRoute);
+app.use('/metrics', metricsRoute);
 
 // ─── Health Check Helpers ────────────────────────────────────────────────────
 

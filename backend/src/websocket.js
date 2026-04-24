@@ -2,6 +2,7 @@ import { WebSocketServer } from 'ws';
 import { invokeProgressBus } from './services/invokeService.js';
 import { deployProgressBus } from './services/deployService.js';
 import { compileProgressBus } from './services/compileService.js';
+import redisService from './services/redisService.js';
 
 const clients = new Set();
 
@@ -51,6 +52,36 @@ export function setupWebsocketServer(httpServer) {
   invokeProgressBus.on('progress', forward('invoke-progress'));
   deployProgressBus.on('progress', forward('deploy-progress'));
   compileProgressBus.on('progress', forward('compile-progress'));
+
+  // Broadcast analytics every 2 seconds
+  setInterval(async () => {
+    if (clients.size === 0 || redisService.isFallbackMode || !redisService.client) return;
+    
+    try {
+      const topIps = await redisService.client.zrevrange('analytics:top_ips', 0, 9, 'WITHSCORES');
+      const endpoints = ['compile', 'invoke', 'deploy', 'global'];
+      const stats = {};
+      
+      for (const endpoint of endpoints) {
+        stats[endpoint] = await redisService.client.hgetall(`analytics:endpoint:${endpoint}`);
+      }
+
+      const message = JSON.stringify({
+        type: 'rate-limit-analytics',
+        timestamp: new Date().toISOString(),
+        topIps,
+        stats
+      });
+
+      for (const socket of clients) {
+        if (socket.readyState === socket.OPEN) {
+          socket.send(message);
+        }
+      }
+    } catch (err) {
+      console.error('WS Analytics Broadcast Error:', err.message);
+    }
+  }, 2000);
 
   return wss;
 }
