@@ -30,6 +30,7 @@ import LendingDashboard from "@/components/LendingDashboard";
 import FlashLoanPanel from "@/components/FlashLoanPanel";
 import CloudStoragePanel from "@/components/CloudStoragePanel";
 import MusicRoyaltyPanel from "@/components/MusicRoyaltyPanel";
+import SupplyChainPanel, { type ProductData as SupplyChainProduct, type ProductStatus as SupplyChainStatus, type QualityResult as SupplyChainQuality } from "@/components/SupplyChainPanel";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
@@ -109,6 +110,8 @@ type InvokeProgressEvent = {
   status?: string;
   detail?: string;
   timestamp?: string;
+  queueLength?: number;
+  activeWorkers?: number;
 };
 
 type DeployProgressEvent = InvokeProgressEvent & {
@@ -339,6 +342,10 @@ export default function Home() {
   const [socialProfile, setSocialProfile] = useState<SocialProfile>();
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([]);
   const [isSocialLoading, setIsSocialLoading] = useState(false);
+
+  // Supply chain state
+  const [supplyChainProducts, setSupplyChainProducts] = useState<SupplyChainProduct[]>([]);
+  const [isSupplyChainLoading, setIsSupplyChainLoading] = useState(false);
 
   // Wallet + transaction tracking
   const wallet = useFreighterWallet();
@@ -1388,6 +1395,9 @@ export default function Home() {
       updateTx(txId, { status: "error", error: formatApiError(error) });
     } finally {
       setIsCarbonLoading(false);
+    }
+  };
+
   // ── Social Media handlers ──────────────────────────────────────────────────
 
   const handleRegisterSocialProfile = async (nickname: string, bio: string) => {
@@ -1480,6 +1490,149 @@ export default function Home() {
       updateTx(txId, { status: "error", error: formatApiError(error) });
     } finally {
       setIsSocialLoading(false);
+    }
+  };
+
+  // ── Supply chain handlers ──────────────────────────────────────────────────
+
+  const handleRegisterProduct = async (name: string, metadataHash: number) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`Register product: "${name}"`);
+    setIsSupplyChainLoading(true);
+    try {
+      const payload = await requestJson<{ output: string }>("/api/invoke", {
+        contractId,
+        functionName: "register_product",
+        args: { owner: wallet.address, name, metadata_hash: String(metadataHash) },
+      });
+      const id = parseInt(payload.output ?? String(supplyChainProducts.length + 1));
+      setSupplyChainProducts((prev) => [
+        ...prev,
+        {
+          id,
+          owner: wallet.address!,
+          name,
+          metadataHash,
+          status: "Registered" as SupplyChainStatus,
+          createdAt: Math.floor(Date.now() / 1000),
+          checkpointCount: 0,
+        },
+      ]);
+      updateTx(txId, { status: "success" });
+      appendLog(`[supply-chain] Product #${id} registered`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Register product failed: ${formatApiError(error)}`);
+    } finally {
+      setIsSupplyChainLoading(false);
+    }
+  };
+
+  const handleAddCheckpoint = async (productId: number, locationHash: number, notesHash: number) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`Checkpoint for product #${productId}`);
+    setIsSupplyChainLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "add_checkpoint",
+        args: {
+          handler: wallet.address,
+          product_id: String(productId),
+          location_hash: String(locationHash),
+          notes_hash: String(notesHash),
+        },
+      });
+      setSupplyChainProducts((prev) =>
+        prev.map((p) =>
+          p.id === productId
+            ? { ...p, status: "InTransit" as SupplyChainStatus, checkpointCount: p.checkpointCount + 1 }
+            : p
+        )
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[supply-chain] Checkpoint added for product #${productId}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Add checkpoint failed: ${formatApiError(error)}`);
+    } finally {
+      setIsSupplyChainLoading(false);
+    }
+  };
+
+  const handleSubmitQualityReport = async (productId: number, result: SupplyChainQuality, reportHash: number) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`QA report for product #${productId}: ${result}`);
+    setIsSupplyChainLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "submit_quality_report",
+        args: {
+          inspector: wallet.address,
+          product_id: String(productId),
+          result,
+          report_hash: String(reportHash),
+        },
+      });
+      const newStatus: SupplyChainStatus =
+        result === "Pass" ? "Approved" : result === "Fail" ? "Rejected" : "QualityCheck";
+      setSupplyChainProducts((prev) =>
+        prev.map((p) => (p.id === productId ? { ...p, status: newStatus } : p))
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[supply-chain] QA report submitted for product #${productId}: ${result}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] QA report failed: ${formatApiError(error)}`);
+    } finally {
+      setIsSupplyChainLoading(false);
+    }
+  };
+
+  const handleRecallProduct = async (productId: number) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`Recall product #${productId}`);
+    setIsSupplyChainLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "recall_product",
+        args: { caller: wallet.address, product_id: String(productId) },
+      });
+      setSupplyChainProducts((prev) =>
+        prev.map((p) => (p.id === productId ? { ...p, status: "Recalled" as SupplyChainStatus } : p))
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[supply-chain] Product #${productId} recalled`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Recall failed: ${formatApiError(error)}`);
+    } finally {
+      setIsSupplyChainLoading(false);
+    }
+  };
+
+  const handleUpdateSupplyChainStatus = async (productId: number, status: SupplyChainStatus) => {
+    if (!contractId || !wallet.address) return;
+    const txId = addTx(`Update product #${productId} → ${status}`);
+    setIsSupplyChainLoading(true);
+    try {
+      await requestJson("/api/invoke", {
+        contractId,
+        functionName: "update_status",
+        args: { caller: wallet.address, product_id: String(productId), new_status: status },
+      });
+      setSupplyChainProducts((prev) =>
+        prev.map((p) => (p.id === productId ? { ...p, status } : p))
+      );
+      updateTx(txId, { status: "success" });
+      appendLog(`[supply-chain] Product #${productId} status → ${status}`);
+    } catch (error) {
+      updateTx(txId, { status: "error", error: formatApiError(error) });
+      appendLog(`[error] Update status failed: ${formatApiError(error)}`);
+    } finally {
+      setIsSupplyChainLoading(false);
     }
   };
 
@@ -1780,6 +1933,10 @@ export default function Home() {
             <StorageViewer
               storage={storage}
               contextLabel={storageContextLabel}
+              totalFrames={storageTimeline.snapshots.length}
+              currentFrame={Math.max(storageTimeline.currentIndex, 0)}
+              capturedAt={activeSnapshot?.capturedAt}
+              onScrubTimeline={handleTimelineScrub}
             />
             <WalletConnect wallet={wallet} />
             <PredictionMarketPanel
@@ -1825,6 +1982,7 @@ export default function Home() {
               onMint={handleMintCredits}
               onTransfer={handleTransferCredits}
               onRetire={handleRetireCredits}
+            />
             <SocialFeedInterface
               isLoading={isSocialLoading}
               profile={socialProfile}
@@ -1838,6 +1996,17 @@ export default function Home() {
             <FlashLoanPanel />
             <CloudStoragePanel />
             <MusicRoyaltyPanel />
+            <SupplyChainPanel
+              contractId={contractId}
+              walletAddress={wallet.address ?? undefined}
+              products={supplyChainProducts}
+              isLoading={isSupplyChainLoading}
+              onRegisterProduct={handleRegisterProduct}
+              onAddCheckpoint={handleAddCheckpoint}
+              onSubmitQualityReport={handleSubmitQualityReport}
+              onRecallProduct={handleRecallProduct}
+              onUpdateStatus={handleUpdateSupplyChainStatus}
+            />
             <TransactionStatus transactions={transactions} onClear={clearTx} />
             <Console logs={logs} />
           </aside>
