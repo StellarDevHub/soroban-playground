@@ -5,29 +5,17 @@
   "license": "MIT",
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/next-build.mjs",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint",
-    "test": "echo \"No frontend tests configured\""
+    "lint": "eslint"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
-<<<<<<< HEAD
-    "chart.js": "^4.5.1",
-    "lucide-react": "^1.11.0",
-=======
-    "chart.js": "^4.5.1",
-    "lucide-react": "^1.11.0",
->>>>>>> feat/amm-pool-143
-    "monaco-languageclient": "^10.7.0",
-    "next": "^16.1.6",
+    "@stellar/freighter-api": "file:./vendor/freighter-api",
+    "lucide-react": "^0.577.0",
+    "next": "16.1.6",
     "react": "19.2.3",
-    "react-chartjs-2": "5.3.1",
-    "react-dom": "19.2.3",
-    "reactflow": "^11.11.4",
-    "vscode-languageserver-protocol": "^3.17.5",
-    "vscode-languageserver-types": "^3.17.5",
-    "vscode-ws-jsonrpc": "^3.5.0"
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -35,7 +23,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^10",
+    "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
     "typescript": "^5"

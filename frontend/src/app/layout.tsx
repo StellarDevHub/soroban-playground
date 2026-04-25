@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Soroban Playground",
-  description: "Build, compile, deploy, and test Soroban smart contracts from one browser workspace.",
+  title: "Synthetic Assets Desk | Soroban Playground",
+  description:
+    "Monitor oracle prices, collateral health, leveraged trades, and Freighter wallet status for the synthetic-assets Soroban contract.",
 };
 
 export default function RootLayout({
