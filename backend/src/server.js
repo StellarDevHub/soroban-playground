@@ -18,6 +18,8 @@ import { initializeCompileService } from './services/compileService.js';
 import adminRoute from './routes/admin.js';
 import metricsRoute, { requestLatency } from './routes/metrics.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
+import oracleQueueRoute from './routes/oracleQueue.js';
+import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,6 +75,7 @@ app.use(rateLimitMiddleware('global'));
 
 // Routes
 app.use('/api', apiRouter);
+app.use('/api/oracle', oracleQueueRoute);
 app.use('/api/admin', adminRoute);
 app.use('/metrics', metricsRoute);
 
@@ -167,6 +170,7 @@ app.use(errorHandler);
 setupWebsocketServer(server);
 await initializeCompileService();
 startCleanupWorker();
+oracleWorkerPool.start(); // Start the oracle worker pool
 server.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
 });
