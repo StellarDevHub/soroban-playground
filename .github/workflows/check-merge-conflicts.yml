@@ -1,0 +1,22 @@
+name: Check PR Merge Conflicts
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  check-conflicts:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for merge conflicts
+        uses: eps1lon/actions-label-merge-conflict@releases/2.x
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          dirtyLabel: "merge-conflict"
+          commentOnDirty: true

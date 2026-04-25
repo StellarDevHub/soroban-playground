@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Soroban Playground",
-  description: "Stellar Developer Playground for building Soroban Smart Contracts",
+  title: "Synthetic Assets Desk | Soroban Playground",
+  description:
+    "Monitor oracle prices, collateral health, leveraged trades, and Freighter wallet status for the synthetic-assets Soroban contract.",
 };
 
 export default function RootLayout({
@@ -13,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className="bg-gray-950 text-gray-100 antialiased min-h-screen">
+      <body className="min-h-screen bg-gray-950 text-gray-100 antialiased">
         {children}
       </body>
     </html>
