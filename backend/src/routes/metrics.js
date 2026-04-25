@@ -30,6 +30,40 @@ export const requestLatency = new client.Histogram({
 });
 register.registerMetric(requestLatency);
 
+export const eventValidationTotal = new client.Counter({
+  name: 'event_validation_total',
+  help: 'Total number of event validations by event type, schema version, and outcome',
+  labelNames: ['event_type', 'schema_version', 'outcome']
+});
+register.registerMetric(eventValidationTotal);
+
+export const eventSchemaVersionEventsTotal = new client.Counter({
+  name: 'event_schema_version_events_total',
+  help: 'Accepted events by event type and schema version',
+  labelNames: ['event_type', 'schema_version']
+});
+register.registerMetric(eventSchemaVersionEventsTotal);
+
+export const eventQuarantineSize = new client.Gauge({
+  name: 'event_quarantine_open_items',
+  help: 'Number of open quarantined events awaiting review'
+});
+register.registerMetric(eventQuarantineSize);
+
+export const eventSchemaBreakingChangesTotal = new client.Counter({
+  name: 'event_schema_breaking_changes_total',
+  help: 'Detected or rejected breaking schema changes by event type',
+  labelNames: ['event_type']
+});
+register.registerMetric(eventSchemaBreakingChangesTotal);
+
+export const eventSchemaDetectionAlertsTotal = new client.Counter({
+  name: 'event_schema_detection_alerts_total',
+  help: 'Automated schema detection alerts by event type and severity',
+  labelNames: ['event_type', 'severity']
+});
+register.registerMetric(eventSchemaDetectionAlertsTotal);
+
 router.get('/', async (req, res) => {
   try {
     res.set('Content-Type', register.contentType);
