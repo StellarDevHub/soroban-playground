@@ -12,12 +12,17 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+<<<<<<< HEAD
     "chart.js": "^4.5.1",
     "lucide-react": "^1.11.0",
+=======
+    "chart.js": "^4.5.1",
+    "lucide-react": "^1.11.0",
+>>>>>>> feat/amm-pool-143
     "monaco-languageclient": "^10.7.0",
     "next": "^16.1.6",
     "react": "19.2.3",
-    "react-chartjs-2": "^5.3.1",
+    "react-chartjs-2": "5.3.1",
     "react-dom": "19.2.3",
     "reactflow": "^11.11.4",
     "vscode-languageserver-protocol": "^3.17.5",
