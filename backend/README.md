@@ -30,6 +30,21 @@
   - `400` when dependency payload cannot be safely transformed into `Cargo.toml`.
   - `500` on compilation failures (stderr/diagnostics included).
 
+## Cache Administration
+
+The backend now includes a multi-level compile cache with:
+- L1 in-memory cache for hot compile artifacts
+- L2 Redis cache for shared cache persistence and faster cold-start hits
+- L3 filesystem fallback for persisted WASM artifacts
+- Cache versioning, dependency-based invalidation, stampede prevention, and predictive warmers
+
+Admin cache endpoints:
+- `GET /api/admin/cache` — current cache state, version, hit/miss counters, Redis health
+- `POST /api/admin/cache/warm` — proactively warm cache for a list of hashes or top predictors
+- `POST /api/admin/cache/invalidate` — invalidate by hash, dependency, or bump namespace version
+- `GET /api/admin/cache/keys` — list matching Redis cache keys
+- `POST /api/admin/cache/version/bump` — atomically bump the cache namespace version
+
 ## Global Error Handling
 
 - All backend routes use a shared error middleware and return a consistent error shape:

@@ -1,6 +1,13 @@
 import express from 'express';
 import redisService from '../services/redisService.js';
 import { alertManager } from '../utils/alerting.js';
+import {
+  invalidateCache,
+  warmCache,
+  listCacheKeys,
+  getCacheAdminSnapshot,
+  bumpCacheVersion,
+} from '../services/cacheService.js';
 
 const router = express.Router();
 
@@ -58,6 +65,66 @@ router.get('/alerts', (req, res) => {
       alerts,
       total: alerts.length,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/cache', async (req, res) => {
+  try {
+    const snapshot = await getCacheAdminSnapshot();
+    res.json({
+      success: true,
+      snapshot,
+      fallback: redisService.isFallbackMode,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/cache/warm', async (req, res) => {
+  const { hashes, top } = req.body || {};
+  try {
+    const warmed = await warmCache({ hashes, top });
+    res.json({ success: true, warmed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/cache/invalidate', async (req, res) => {
+  const { hash, dependency, namespace } = req.body || {};
+
+  try {
+    const result = await invalidateCache({ hash, dependency, namespace });
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/cache/keys', async (req, res) => {
+  try {
+    const keys = await listCacheKeys({
+      pattern: req.query.pattern || 'cache:compile:*',
+      limit: Number(req.query.limit) || 100,
+    });
+    res.json({ success: true, keys });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/cache/version/bump', async (req, res) => {
+  const { version } = req.body || {};
+  if (!version) {
+    return res.status(400).json({ error: 'Version is required to bump cache namespace' });
+  }
+
+  try {
+    const newVersion = await bumpCacheVersion(version);
+    res.json({ success: true, version: newVersion });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

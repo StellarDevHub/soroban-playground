@@ -22,6 +22,46 @@ export const rateLimitHits = new client.Counter({
 });
 register.registerMetric(rateLimitHits);
 
+export const cacheHitsTotal = new client.Counter({
+  name: 'soroban_cache_hits_total',
+  help: 'Total number of cache hits',
+  labelNames: ['level', 'reason']
+});
+register.registerMetric(cacheHitsTotal);
+
+export const cacheMissesTotal = new client.Counter({
+  name: 'soroban_cache_misses_total',
+  help: 'Total number of cache misses',
+  labelNames: ['reason']
+});
+register.registerMetric(cacheMissesTotal);
+
+export const cacheEvictionsTotal = new client.Counter({
+  name: 'soroban_cache_evictions_total',
+  help: 'Total number of cache evictions and invalidations'
+});
+register.registerMetric(cacheEvictionsTotal);
+
+export const cacheEntryCount = new client.Gauge({
+  name: 'soroban_cache_entry_count',
+  help: 'Number of entries currently loaded in L1 cache'
+});
+register.registerMetric(cacheEntryCount);
+
+export const cacheVersionGauge = new client.Gauge({
+  name: 'soroban_cache_version',
+  help: 'Current cache namespace version',
+  labelNames: ['namespace']
+});
+register.registerMetric(cacheVersionGauge);
+
+export const cacheLatencyHistogram = new client.Histogram({
+  name: 'soroban_cache_latency_seconds',
+  help: 'Latency for cache operations',
+  labelNames: ['action']
+});
+register.registerMetric(cacheLatencyHistogram);
+
 export const requestLatency = new client.Histogram({
   name: 'http_request_duration_seconds',
   help: 'Duration of HTTP requests in seconds',

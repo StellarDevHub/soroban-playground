@@ -129,6 +129,14 @@ TRACING_ZIPKIN_ENDPOINT=http://localhost:9411/api/v2/spans
 
 Performance metrics are exposed via Prometheus at `/metrics` endpoint.
 
+Cache analytics and metrics now include:
+- `soroban_cache_hits_total`
+- `soroban_cache_misses_total`
+- `soroban_cache_evictions_total`
+- `soroban_cache_entry_count`
+- `soroban_cache_version`
+- `soroban_cache_latency_seconds`
+
 Additional metrics endpoint for performance profiling runs on port 9464.
 
 ## Alerting

@@ -7,6 +7,12 @@ import { LRUCache } from 'lru-cache';
 import { buildCargoToml } from '../routes/compile_utils.js';
 import { createSpan, setSpanAttributes, addSpanEvent, getTraceId } from '../utils/tracing.js';
 import { alertManager } from '../utils/alerting.js';
+import {
+  initializeCacheService,
+  loadCacheEntry as loadCacheEntryFromCache,
+  storeCacheEntry,
+  executeUnderLock,
+} from './cacheService.js';
 
 const CACHE_ROOT =
   process.env.WASM_CACHE_DIR || path.join(process.cwd(), 'cache', 'wasm');
@@ -21,6 +27,10 @@ const MAX_WORKERS = Math.min(
 );
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_CACHE_BYTES = 1024 * 1024 * 1024;
+const MEMORY_CACHE_TTL_MS = Number.parseInt(
+  process.env.MEMORY_CACHE_TTL_MS || `${30 * 1000}`,
+  10
+);
 const CACHE_TTL_MS = Number.parseInt(
   process.env.WASM_CACHE_TTL_MS || `${MAX_AGE_MS}`,
   10
@@ -37,7 +47,7 @@ const history = [];
 const cacheIndex = new LRUCache({
   maxSize: MAX_CACHE_BYTES,
   sizeCalculation: (value) => value.sizeBytes ?? 0,
-  ttl: CACHE_TTL_MS,
+  ttl: MEMORY_CACHE_TTL_MS,
   updateAgeOnGet: true,
   updateAgeOnHas: true,
 });
@@ -108,6 +118,7 @@ async function removeArtifact(hash) {
   await fs.rm(artifact.path, { force: true }).catch(() => {});
   artifacts.delete(hash);
   cacheIndex.delete(hash);
+  await invalidateCache({ hash });
 }
 
 async function evictExpiredArtifacts() {
@@ -122,29 +133,10 @@ async function evictExpiredArtifacts() {
   }
 }
 
-async function loadCacheEntry(hash) {
-  const cached = cacheIndex.get(hash);
-  if (cached) return cached;
-
-  const wasmPath = path.join(CACHE_ROOT, `${hash}.wasm`);
-  try {
-    const stats = await fs.stat(wasmPath);
-    const entry = {
-      hash,
-      path: wasmPath,
-      sizeBytes: stats.size,
-      createdAt: stats.mtime.toISOString(),
-    };
-    cacheIndex.set(hash, entry);
-    return entry;
-  } catch {
-    return null;
-  }
-}
-
 async function recordArtifact(entry) {
   artifacts.set(entry.hash, entry);
   cacheIndex.set(entry.hash, entry);
+  await storeCacheEntry(entry);
   await persistState();
 }
 
@@ -259,7 +251,7 @@ async function compileOnce({ code, dependencies = {}, requestId }) {
 
     await evictExpiredArtifacts();
 
-    const hit = await loadCacheEntry(hash);
+const hit = await loadCacheEntryFromCache(hash);
     if (hit) {
       addSpanEvent(span, 'cache.hit', {
         'cache.size_bytes': hit.sizeBytes,
@@ -326,15 +318,17 @@ async function compileOnce({ code, dependencies = {}, requestId }) {
     });
 
     const startTime = Date.now();
-    const result = await pool.run({
-      code,
-      dependencies,
-      requestId,
-      hash,
-      cacheRoot: CACHE_ROOT,
-      artifactRoot: ARTIFACT_ROOT,
-      cargoToml: buildCargoToml(dependencies),
-      timeoutMs: Number.parseInt(process.env.COMPILE_TIMEOUT_MS || '30000', 10),
+const result = await executeUnderLock(hash, requestId, async () => {
+        return await pool.run({
+          code,
+          dependencies,
+          requestId,
+          hash,
+          cacheRoot: CACHE_ROOT,
+          artifactRoot: ARTIFACT_ROOT,
+          cargoToml: buildCargoToml(dependencies),
+          timeoutMs: Number.parseInt(process.env.COMPILE_TIMEOUT_MS || '30000', 10),
+        });
     });
 
     const durationMs = Date.now() - startTime;
@@ -497,6 +491,7 @@ export async function getCompileSnapshot() {
 export async function initializeCompileService() {
   await ensureDirs();
   await hydrateState();
+  await initializeCacheService([...artifacts.keys()]);
   await cleanupArtifacts();
 }
 
