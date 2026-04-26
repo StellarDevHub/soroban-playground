@@ -45,6 +45,28 @@ Admin cache endpoints:
 - `GET /api/admin/cache/keys` — list matching Redis cache keys
 - `POST /api/admin/cache/version/bump` — atomically bump the cache namespace version
 
+## Database Migrations
+
+This backend supports file-based SQL migrations with rollback support and metadata tracking.
+
+Migration conventions:
+- Migration files live in `backend/migrations` by default
+- Each migration version requires both:
+  - `V###__name.up.sql`
+  - `V###__name.down.sql`
+- `BEGIN`, `COMMIT`, and `ROLLBACK` are not allowed in migration SQL; the runner manages transaction boundaries
+- Up and down SQL are checksummed to detect modified applied migrations
+
+Admin migration endpoints:
+- `GET /api/admin/migrations` — migration dashboard showing available and applied migrations
+- `POST /api/admin/migrations/validate` — validates pairs, checksums, and forbidden transaction statements
+- `POST /api/admin/migrations/apply` — apply a given version or all pending migrations
+- `POST /api/admin/migrations/rollback` — rollback a given migration version
+
+Migration options:
+- `dryRun` — validate SQL without persisting schema changes
+- `allowDestructive` — permit operations flagged as potentially destructive
+
 ## Global Error Handling
 
 - All backend routes use a shared error middleware and return a consistent error shape:

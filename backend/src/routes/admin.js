@@ -8,6 +8,13 @@ import {
   getCacheAdminSnapshot,
   bumpCacheVersion,
 } from '../services/cacheService.js';
+import {
+  getMigrationDashboard,
+  validateMigrations,
+  applyPendingMigrations,
+  rollbackMigration,
+  applyMigration,
+} from '../services/migrationService.js';
 
 const router = express.Router();
 
@@ -125,6 +132,54 @@ router.post('/cache/version/bump', async (req, res) => {
   try {
     const newVersion = await bumpCacheVersion(version);
     res.json({ success: true, version: newVersion });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/migrations', async (req, res) => {
+  try {
+    const dashboard = await getMigrationDashboard();
+    res.json({ success: true, migrations: dashboard });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/migrations/validate', async (req, res) => {
+  try {
+    const issues = await validateMigrations();
+    res.json({ success: true, issues, valid: issues.length === 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/migrations/apply', async (req, res) => {
+  const { version, dryRun, allowDestructive } = req.body || {};
+
+  try {
+    let result;
+    if (version) {
+      result = await applyMigration(version, { dryRun: Boolean(dryRun), allowDestructive: Boolean(allowDestructive) });
+    } else {
+      result = await applyPendingMigrations({ dryRun: Boolean(dryRun), allowDestructive: Boolean(allowDestructive) });
+    }
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/migrations/rollback', async (req, res) => {
+  const { version, dryRun, allowDestructive } = req.body || {};
+  if (!version) {
+    return res.status(400).json({ error: 'Migration version is required to roll back.' });
+  }
+
+  try {
+    const result = await rollbackMigration(version, { dryRun: Boolean(dryRun), allowDestructive: Boolean(allowDestructive) });
+    res.json({ success: true, result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
