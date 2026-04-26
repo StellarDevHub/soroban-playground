@@ -82,3 +82,8 @@ yarn-error.log*
 
 # Ignore test rate limit script (local/test-only)
 backend/test_rate_limit.js
+
+# Indexer & Databases
+indexer/target/
+*.db
+*.sqlite

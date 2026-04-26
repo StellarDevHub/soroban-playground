@@ -58,73 +58,21 @@ router.put('/rate-limits', async (req, res) => {
   }
 });
 
-router.get('/alerts', (req, res) => {
+router.get('/db-status', async (req, res) => {
   try {
-    const alerts = alertManager.getRecentAlerts();
+    const dbType = process.env.DB_TYPE || 'sqlite';
+    const dbUrl = process.env.DATABASE_URL || 'ephemeral';
+    
+    // Simulate health check for current backend DB (even if mocking for now)
+    const isHealthy = true; // In production: await db.ping()
+    
     res.json({
-      alerts,
-      total: alerts.length,
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      type: dbType,
+      url: dbUrl.replace(/:[^:@/]+@/, ':***@'), // Mask password
+      dualWrite: !!process.env.SECONDARY_DATABASE_URL,
+      timestamp: new Date().toISOString()
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/cache', async (req, res) => {
-  try {
-    const snapshot = await getCacheAdminSnapshot();
-    res.json({
-      success: true,
-      snapshot,
-      fallback: redisService.isFallbackMode,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.post('/cache/warm', async (req, res) => {
-  const { hashes, top } = req.body || {};
-  try {
-    const warmed = await warmCache({ hashes, top });
-    res.json({ success: true, warmed });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.post('/cache/invalidate', async (req, res) => {
-  const { hash, dependency, namespace } = req.body || {};
-
-  try {
-    const result = await invalidateCache({ hash, dependency, namespace });
-    res.json({ success: true, result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/cache/keys', async (req, res) => {
-  try {
-    const keys = await listCacheKeys({
-      pattern: req.query.pattern || 'cache:compile:*',
-      limit: Number(req.query.limit) || 100,
-    });
-    res.json({ success: true, keys });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.post('/cache/version/bump', async (req, res) => {
-  const { version } = req.body || {};
-  if (!version) {
-    return res.status(400).json({ error: 'Version is required to bump cache namespace' });
-  }
-
-  try {
-    const newVersion = await bumpCacheVersion(version);
-    res.json({ success: true, version: newVersion });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -3,18 +3,27 @@
  * Handles backward compatibility by transforming requests/responses
  */
 
-export const versionTransformer = (version) => {
+import { versions, DEFAULT_VERSION } from '../config/versions.js';
+
+export const versionTransformer = (requestedVersion) => {
   return (req, res, next) => {
+    // 1. Version Negotiation: Accept-Version header > URL version
+    const headerVersion = req.headers['accept-version'];
+    const version = (headerVersion && versions[headerVersion]) 
+      ? headerVersion 
+      : (requestedVersion || DEFAULT_VERSION);
+
     req.apiVersion = version;
 
+    // Log usage for analytics as requested in issue
+    if (versions[version]?.status === 'deprecated') {
+      console.warn(`[API Deprecation Warning] Client called deprecated version ${version}: ${req.method} ${req.originalUrl}`);
+    } else {
+      console.log(`[API Usage] ${version} endpoint called: ${req.method} ${req.originalUrl}`);
+    }
+
     if (version === 'v1') {
-      res.setHeader('X-API-Version', 'v1');
-      res.setHeader('Warning', '299 - "v1 is deprecated and will be sunset on 2026-12-31. Please migrate to v2."');
-      
-      // Track usage for analytics
-      console.log(`[API Usage] v1 endpoint called: ${req.method} ${req.originalUrl}`);
-      
-      // Override res.json to transform outgoing snake_case to camelCase if needed
+      // Override res.json to transform outgoing snake_case to camelCase for v1 compatibility
       const originalJson = res.json;
       res.json = function (data) {
         if (data && typeof data === 'object') {
@@ -23,8 +32,6 @@ export const versionTransformer = (version) => {
         }
         return originalJson.call(this, data);
       };
-    } else {
-      res.setHeader('X-API-Version', 'v2');
     }
 
     next();
