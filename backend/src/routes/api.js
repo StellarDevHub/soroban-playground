@@ -8,7 +8,21 @@ import v2Invoke from './v2/invoke.js';
 import { versionTransformer, requestTransformerV2 } from '../middleware/versionTransformer.js';
 import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
+import { versions } from '../config/versions.js';
+import { deprecationHeaders } from '../middleware/deprecationHeaders.js';
+
 const router = express.Router();
+
+// Apply deprecation/version headers to all versioned routes
+router.use(deprecationHeaders);
+
+// Version discovery endpoint
+router.get('/versions', (req, res) => {
+  res.json({
+    success: true,
+    data: Object.values(versions)
+  });
+});
 
 // v1 Routes
 const v1Router = express.Router();
