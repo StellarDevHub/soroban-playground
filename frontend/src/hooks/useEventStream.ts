@@ -123,6 +123,7 @@ export function useEventStream(options: EventStreamOptions): EventStreamResult {
 
     // Apply client-side filter.
     const filtered = incoming.filter((e) => {
+      if (e.type === "quorum_update") return true; // Always show quorum updates
       if (contractIdRef.current && e.contract_id !== contractIdRef.current) return false;
       if (eventTypeRef.current && e.event_type !== eventTypeRef.current) return false;
       return true;

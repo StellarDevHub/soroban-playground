@@ -14,7 +14,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
-use crate::db::{Database, Event};
+use crate::db::{Database, Event, Quorum};
+
+#[derive(Debug, Serialize)]
+pub struct QuorumUpdate {
+    pub quorum_id: String,
+    pub state: String,
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -37,14 +43,17 @@ pub struct AppState {
     pub db: Arc<dyn Database>,
     pub broadcaster: broadcast::Sender<Event>,
     pub connection_count: AtomicUsize,
+    pub quorum_manager: Arc<crate::quorum::QuorumManager>,
 }
 
 impl AppState {
     pub fn new(db: Arc<dyn Database>, broadcaster: broadcast::Sender<Event>) -> Arc<Self> {
+        let quorum_manager = Arc::new(crate::quorum::QuorumManager::new(db.clone()));
         Arc::new(Self {
             db,
             broadcaster,
             connection_count: AtomicUsize::new(0),
+            quorum_manager,
         })
     }
 }
@@ -57,6 +66,8 @@ impl AppState {
 pub enum ServerMessage<'a> {
     /// A newly indexed on-chain event.
     Event { payload: &'a Event },
+    /// Quorum status update.
+    QuorumUpdate { payload: &'a Quorum },
     /// Heartbeat — clients must respond with `{ "type": "pong" }`.
     Ping { ts: u64 },
     /// Sent when the server drops messages due to a lagging receiver.
@@ -98,6 +109,52 @@ pub async fn ws_handler(
 pub async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let connections = state.connection_count.load(Ordering::Relaxed);
     axum::Json(serde_json::json!({ "status": "ok", "connections": connections }))
+}
+
+// ── Quorum Handlers ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct VoteRequest {
+    pub oracle_id: String,
+    pub choice: String,
+    pub data: Option<String>,
+}
+
+pub async fn post_vote(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(quorum_id): axum::extract::Path<String>,
+    axum::Json(payload): axum::Json<VoteRequest>,
+) -> impl IntoResponse {
+    match state.quorum_manager.process_vote(&quorum_id, &payload.oracle_id, &payload.choice, payload.data).await {
+        Ok(quorum) => {
+            // In a real app, we'd also broadcast this quorum update via WS
+            // For now, return the updated quorum state
+            (axum::http::StatusCode::OK, axum::Json(serde_json::json!({ "success": true, "data": quorum }))).into_response()
+        }
+        Err(e) => {
+            (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({ "success": false, "error": e.to_string() }))).into_response()
+        }
+    }
+}
+
+pub async fn get_quorum(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.db.get_quorum(&id).await {
+        Ok(Some(q)) => axum::Json(serde_json::json!({ "success": true, "data": q })).into_response(),
+        Ok(None) => (axum::http::StatusCode::NOT_FOUND, axum::Json(serde_json::json!({ "success": false, "error": "not found" }))).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({ "success": false, "error": e.to_string() }))).into_response(),
+    }
+}
+
+pub async fn get_oracles(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match state.db.get_all_oracles().await {
+        Ok(oracles) => axum::Json(serde_json::json!({ "success": true, "data": oracles })).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({ "success": false, "error": e.to_string() }))).into_response(),
+    }
 }
 
 // ── Socket driver ─────────────────────────────────────────────────────────────

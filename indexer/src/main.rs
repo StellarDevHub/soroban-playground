@@ -1,5 +1,6 @@
 mod db;
 mod ws;
+mod quorum;
 
 use anyhow::Result;
 use axum::{routing::get, Router};
@@ -8,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tracing::info;
-use ws::{health_handler, ws_handler, AppState, BROADCAST_CAPACITY};
+use ws::{health_handler, ws_handler, post_vote, get_quorum, get_oracles, AppState, BROADCAST_CAPACITY};
 
 // ── DualWriter ────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,9 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/ws/events", get(ws_handler))
         .route("/health", get(health_handler))
+        .route("/api/quorums/:id", get(get_quorum))
+        .route("/api/quorums/:id/vote", axum::routing::post(post_vote))
+        .route("/api/oracles", get(get_oracles))
         .layer(CorsLayer::permissive()) // tighten to specific origins in production
         .with_state(app_state);
 

@@ -13,20 +13,35 @@
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface WsEvent {
-  id: string;
-  contract_id: string;
-  ledger: number;
-  ledger_closed_at: string;
-  event_type: string;
-  data: string;
-}
+export type WsEvent = 
+  | { 
+      type: "event"; 
+      id: string; 
+      contract_id: string; 
+      ledger: number; 
+      ledger_closed_at: string; 
+      event_type: string; 
+      data: string; 
+    }
+  | { 
+      type: "quorum_update"; 
+      id: string; 
+      quorum_type: string; 
+      state: string; 
+      strategy: string; 
+      threshold: number; 
+      target_id?: string; 
+      created_at: string; 
+      expires_at: string; 
+    };
 
 type ServerMessage =
-  | { type: "event"; payload: WsEvent }
+  | { type: "event"; payload: WsEvent & { type: "event" } }
+  | { type: "quorum_update"; payload: WsEvent & { type: "quorum_update" } }
   | { type: "ping"; ts: number }
   | { type: "lagged"; count: number }
   | { type: "error"; message: string };
+
 
 type IncomingWorkerMessage =
   | {
@@ -206,6 +221,10 @@ function openSocket(url: string): void {
 
       switch (msg.type) {
         case "event":
+          emitEvents([msg.payload]);
+          break;
+
+        case "quorum_update":
           emitEvents([msg.payload]);
           break;
 
