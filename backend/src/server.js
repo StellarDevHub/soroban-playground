@@ -20,7 +20,7 @@ import adminRoute from './routes/admin.js';
 import metricsRoute, { requestLatency } from './routes/metrics.js';
 import oracleRoute from './routes/oracle.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
-import auditLogger from './middleware/auditLogger.js';
+import { createGraphQLServer } from './graphql/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -97,6 +97,10 @@ app.use('/api', apiRouter);
 app.use('/api/admin', adminRoute);
 app.use('/api/oracle', oracleRoute);
 app.use('/metrics', metricsRoute);
+
+// GraphQL — mounted at /graphql (GraphiQL playground available at GET /graphql)
+const yoga = createGraphQLServer();
+app.use('/graphql', yoga);
 
 // ─── Health Check Helpers ────────────────────────────────────────────────────
 
