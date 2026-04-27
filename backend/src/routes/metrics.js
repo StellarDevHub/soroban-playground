@@ -71,39 +71,32 @@ export const requestLatency = new client.Histogram({
 });
 register.registerMetric(requestLatency);
 
-export const eventValidationTotal = new client.Counter({
-  name: 'event_validation_total',
-  help: 'Total number of event validations by event type, schema version, and outcome',
-  labelNames: ['event_type', 'schema_version', 'outcome']
+// Oracle Queue Metrics
+export const oracleTasksEnqueued = new client.Counter({
+  name: 'oracle_tasks_enqueued_total',
+  help: 'Total number of proof tasks enqueued',
 });
-register.registerMetric(eventValidationTotal);
+register.registerMetric(oracleTasksEnqueued);
 
-export const eventSchemaVersionEventsTotal = new client.Counter({
-  name: 'event_schema_version_events_total',
-  help: 'Accepted events by event type and schema version',
-  labelNames: ['event_type', 'schema_version']
+export const oracleTasksProcessed = new client.Counter({
+  name: 'oracle_tasks_processed_total',
+  help: 'Total number of proof tasks processed by workers',
+  labelNames: ['status'] // 'success', 'failure'
 });
-register.registerMetric(eventSchemaVersionEventsTotal);
+register.registerMetric(oracleTasksProcessed);
 
-export const eventQuarantineSize = new client.Gauge({
-  name: 'event_quarantine_open_items',
-  help: 'Number of open quarantined events awaiting review'
+export const oracleQueueDepth = new client.Gauge({
+  name: 'oracle_queue_depth',
+  help: 'Current number of tasks in the pending queue'
 });
-register.registerMetric(eventQuarantineSize);
+register.registerMetric(oracleQueueDepth);
 
-export const eventSchemaBreakingChangesTotal = new client.Counter({
-  name: 'event_schema_breaking_changes_total',
-  help: 'Detected or rejected breaking schema changes by event type',
-  labelNames: ['event_type']
+export const oracleProcessingDuration = new client.Histogram({
+  name: 'oracle_task_processing_duration_seconds',
+  help: 'Duration of proof task processing in seconds',
+  buckets: [0.1, 0.5, 1, 2, 5, 10]
 });
-register.registerMetric(eventSchemaBreakingChangesTotal);
-
-export const eventSchemaDetectionAlertsTotal = new client.Counter({
-  name: 'event_schema_detection_alerts_total',
-  help: 'Automated schema detection alerts by event type and severity',
-  labelNames: ['event_type', 'severity']
-});
-register.registerMetric(eventSchemaDetectionAlertsTotal);
+register.registerMetric(oracleProcessingDuration);
 
 router.get('/', async (req, res) => {
   try {

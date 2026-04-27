@@ -20,7 +20,9 @@ import adminRoute from './routes/admin.js';
 import metricsRoute, { requestLatency } from './routes/metrics.js';
 import oracleRoute from './routes/oracle.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
-import { createGraphQLServer } from './graphql/index.js';
+import oracleQueueRoute from './routes/oracleQueue.js';
+import { oracleWorkerPool } from './services/oracleWorkerPool.js';
+import migrationRoute from './routes/migration.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,8 +96,9 @@ app.use(rateLimitMiddleware('global'));
 
 // Routes
 app.use('/api', apiRouter);
+app.use('/api/oracle', oracleQueueRoute);
 app.use('/api/admin', adminRoute);
-app.use('/api/oracle', oracleRoute);
+app.use('/api/migrations', migrationRoute);
 app.use('/metrics', metricsRoute);
 
 // GraphQL — mounted at /graphql (GraphiQL playground available at GET /graphql)
@@ -197,32 +200,9 @@ setupWebsocketServer(server);
 await initializeCompileService();
 await oracleProofQueueService.startWorkers();
 startCleanupWorker();
-if (process.env.NODE_ENV !== 'test') {
-  server.listen(PORT, () => {
-    console.log(`Backend server running on http://localhost:${PORT}`);
-  });
-}
-
-async function shutdown(signal) {
-  console.log(`Received ${signal}, shutting down gracefully`);
-  await oracleProofQueueService.stopWorkers({ requeueActive: true });
-  server.close(() => {
-    process.exit(0);
-  });
-}
-
-process.on('SIGTERM', () => {
-  shutdown('SIGTERM').catch((error) => {
-    console.error('Graceful shutdown failed:', error.message);
-    process.exit(1);
-  });
-});
-
-process.on('SIGINT', () => {
-  shutdown('SIGINT').catch((error) => {
-    console.error('Graceful shutdown failed:', error.message);
-    process.exit(1);
-  });
+oracleWorkerPool.start(); // Start the oracle worker pool
+server.listen(PORT, () => {
+  console.log(`Backend server running on http://localhost:${PORT}`);
 });
 
 export default app;

@@ -10,7 +10,14 @@
     "format:check": "echo \"No backend format check configured\"",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "jest"
+    "test": "echo \"No backend tests configured\"",
+    "migrate": "node src/utils/migrationCli.js",
+    "migrate:init": "node src/utils/migrationCli.js init",
+    "migrate:up": "node src/utils/migrationCli.js up",
+    "migrate:down": "node src/utils/migrationCli.js down",
+    "migrate:status": "node src/utils/migrationCli.js status",
+    "migrate:create": "node src/utils/migrationCli.js create",
+    "test:migrations": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/migration.test.js"
   },
   "keywords": [],
   "author": "",
@@ -36,8 +43,8 @@
     "lru-cache": "^11.3.5",
     "morgan": "^1.10.1",
     "prom-client": "^15.1.3",
-    "ws": "^8.18.3",
-    "sql.js": "^1.8.0"
+    "sqlite3": "^5.1.7",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
