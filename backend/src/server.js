@@ -18,6 +18,7 @@ import { initializeCompileService } from './services/compileService.js';
 import adminRoute from './routes/admin.js';
 import metricsRoute, { requestLatency } from './routes/metrics.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
+import { setupGraphQL } from './graphql/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -160,6 +161,9 @@ app.get('/api/health', (_req, res) => {
   }
 });
 
+// GraphQL endpoint
+await setupGraphQL(app);
+
 // Error handlers (must be after routes)
 app.use(notFoundHandler);
 app.use(errorHandler);
@@ -167,8 +171,10 @@ app.use(errorHandler);
 setupWebsocketServer(server);
 await initializeCompileService();
 startCleanupWorker();
-server.listen(PORT, () => {
-  console.log(`Backend server running on http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, () => {
+    console.log(`Backend server running on http://localhost:${PORT}`);
+  });
+}
 
 export default app;

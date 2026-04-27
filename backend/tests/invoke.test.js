@@ -1,12 +1,15 @@
-import express from 'express';
-import request from 'supertest';
-import invokeRoute from '../src/routes/invoke.js';
-import { errorHandler } from '../src/middleware/errorHandler.js';
-import { invokeSorobanContract } from '../src/services/invokeService.js';
+import { jest } from '@jest/globals';
 
-jest.mock('../src/services/invokeService.js', () => ({
+jest.unstable_mockModule('../src/services/invokeService.js', () => ({
   invokeSorobanContract: jest.fn(),
 }));
+
+const { invokeSorobanContract } = await import('../src/services/invokeService.js');
+
+import express from 'express';
+import request from 'supertest';
+const { default: invokeRoute } = await import('../src/routes/v1/invoke.js');
+const { errorHandler } = await import('../src/middleware/errorHandler.js');
 
 const app = express();
 app.use(express.json());

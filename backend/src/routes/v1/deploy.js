@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 import express from 'express';
-import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
-import { deployBatchContracts } from '../services/deployService.js';
+import { asyncHandler, createHttpError } from '../../middleware/errorHandler.js';
+import { deployBatchContracts } from '../../services/deployService.js';
 
 const router = express.Router();
 

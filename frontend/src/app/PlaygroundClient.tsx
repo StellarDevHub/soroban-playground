@@ -247,6 +247,8 @@ export default function Home() {
   const [healthMessage, setHealthMessage] = useState(
     "Checking backend health...",
   );
+  const [isIngestionPaused, setIsIngestionPaused] = useState(false);
+  const [droppedMessages, setDroppedMessages] = useState(0);
 
   const [isCompiling, setIsCompiling] = useState(false);
   const [hasCompiled, setHasCompiled] = useState(false);
@@ -2466,7 +2468,13 @@ export default function Home() {
               onUpdateStatus={handleUpdateSupplyChainStatus}
             />
             <TransactionStatus transactions={transactions} onClear={clearTx} />
-            <Console logs={logs} />
+            <Console 
+              logs={logs} 
+              baseLineNumber={0} 
+              droppedMessages={droppedMessages} 
+              isIngestionPaused={isIngestionPaused} 
+              onIngestionPauseChange={setIsIngestionPaused} 
+            />
           </aside>
         </main>
       </div>

@@ -1,11 +1,11 @@
 import express from 'express';
-import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
-import { sanitizeDependenciesInput } from './compile_utils.js';
+import { asyncHandler, createHttpError } from '../../middleware/errorHandler.js';
+import { sanitizeDependenciesInput } from '../compile_utils.js';
 import {
   compileQueued,
   compileBatch,
   getCompileSnapshot,
-} from '../services/compileService.js';
+} from '../../services/compileService.js';
 
 const router = express.Router();
 

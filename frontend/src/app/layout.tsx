@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { GraphQLProvider } from "../components/providers/GraphQLProvider";
 
 export const metadata: Metadata = {
   title: "Synthetic Assets Desk | Soroban Playground",
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen bg-gray-950 text-gray-100 antialiased">
-        {children}
+        <GraphQLProvider>
+          {children}
+        </GraphQLProvider>
       </body>
     </html>
   );

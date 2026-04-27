@@ -1,18 +1,20 @@
-import express from 'express';
-import request from 'supertest';
-const mockDeployBatchContracts = jest.fn();
+import { jest } from '@jest/globals';
 
-jest.mock('../src/services/deployService.js', () => ({
-  deployBatchContracts: (...args) => mockDeployBatchContracts(...args),
+jest.unstable_mockModule('../src/services/deployService.js', () => ({
+  deployBatchContracts: jest.fn(),
 }));
 
-import deployRoute from '../src/routes/deploy.js';
-import { errorHandler } from '../src/middleware/errorHandler.js';
-import {
+const { deployBatchContracts } = await import('../src/services/deployService.js');
+
+import express from 'express';
+import request from 'supertest';
+const { default: deployRoute } = await import('../src/routes/v1/deploy.js');
+const { errorHandler } = await import('../src/middleware/errorHandler.js');
+const {
   normalizeBatchContract,
   topoSortContracts,
   validateBatchContractsInput,
-} from '../src/services/deployUtils.js';
+} = await import('../src/services/deployUtils.js');
 
 const app = express();
 app.use(express.json());
@@ -21,7 +23,7 @@ app.use(errorHandler);
 
 describe('deploy batch service', () => {
   beforeEach(() => {
-    mockDeployBatchContracts.mockReset();
+    jest.clearAllMocks();
   });
 
   it('topologically sorts dependencies', () => {
@@ -59,7 +61,7 @@ describe('deploy batch service', () => {
   });
 
   it('returns batch deployment payload from the route', async () => {
-    mockDeployBatchContracts.mockResolvedValue({
+    deployBatchContracts.mockResolvedValue({
       success: true,
       status: 'success',
       batchId: 'batch-1',
@@ -76,7 +78,7 @@ describe('deploy batch service', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.batchId).toBe('batch-1');
-    expect(mockDeployBatchContracts).toHaveBeenCalled();
+    expect(deployBatchContracts).toHaveBeenCalled();
   });
 
   it('returns 400 when contracts are missing', async () => {

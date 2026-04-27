@@ -1,15 +1,18 @@
-jest.mock('../src/services/compileService.js', () => ({
+import { jest } from '@jest/globals';
+
+jest.unstable_mockModule('../src/services/compileService.js', () => ({
   compileQueued: jest.fn(),
   compileBatch: jest.fn(),
   getCompileSnapshot: jest.fn(),
   compileProgressBus: { on: jest.fn() },
 }));
 
+const { compileQueued, compileBatch } = await import('../src/services/compileService.js');
+
 import express from 'express';
 import request from 'supertest';
-import compileRouter from '../src/routes/compile.js';
-import { errorHandler } from '../src/middleware/errorHandler.js';
-import { compileQueued, compileBatch } from '../src/services/compileService.js';
+const { default: compileRouter } = await import('../src/routes/v1/compile.js');
+const { errorHandler } = await import('../src/middleware/errorHandler.js');
 
 const app = express();
 app.use(express.json());
