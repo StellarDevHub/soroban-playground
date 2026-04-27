@@ -1,5 +1,20 @@
 import express from 'express';
 import redisService from '../services/redisService.js';
+import { alertManager } from '../utils/alerting.js';
+import {
+  invalidateCache,
+  warmCache,
+  listCacheKeys,
+  getCacheAdminSnapshot,
+  bumpCacheVersion,
+} from '../services/cacheService.js';
+import {
+  getMigrationDashboard,
+  validateMigrations,
+  applyPendingMigrations,
+  rollbackMigration,
+  applyMigration,
+} from '../services/migrationService.js';
 
 const router = express.Router();
 

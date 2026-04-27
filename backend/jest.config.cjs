@@ -7,7 +7,14 @@ module.exports = {
   transform: {
     '^.+\\.js$': [
       'babel-jest',
-      { configFile: path.resolve(__dirname, 'babel.config.cjs') },
+      {
+        configFile: path.resolve(__dirname, 'babel.config.cjs'),
+      },
     ],
+  },
+  globals: {
+    'babel-jest': {
+      useESM: true,
+    },
   },
 };

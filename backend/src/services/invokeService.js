@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
+import { createSpan, setSpanAttributes, addSpanEvent, injectTraceContext } from '../utils/tracing.js';
 
 const MAX_CONCURRENT = Number.parseInt(process.env.INVOKE_POOL_SIZE || '3', 10);
 const INVOKE_TIMEOUT_MS = Number.parseInt(
@@ -93,141 +94,173 @@ export class InvokeProgressBus extends EventEmitter {}
 export const invokeProgressBus = new InvokeProgressBus();
 
 export async function invokeSorobanContract(request, { signal } = {}) {
-  const cliArgs = createCliArgs(request);
+  const span = createSpan('soroban.invoke', {
+    'invoke.contract_id': request.contractId,
+    'invoke.function_name': request.functionName,
+    'invoke.network': request.network || process.env.DEFAULT_NETWORK || 'testnet',
+    'invoke.request_id': request.requestId,
+    'invoke.args_count': Object.keys(request.args || {}).length,
+  });
 
-  return runQueued(
-    () =>
-      new Promise((resolve, reject) => {
-        const startedAt = new Date().toISOString();
-        const child = spawn(process.env.SOROBAN_CLI || 'soroban', cliArgs, {
-          shell: false,
-          windowsHide: true,
-        });
+  try {
+    const cliArgs = createCliArgs(request);
 
-        let stdout = '';
-        let stderr = '';
-        let finished = false;
-        let timeout = null;
+    addSpanEvent(span, 'invoke.queued', {
+      'queue.length': queue.length,
+      'queue.active_count': activeCount,
+    });
 
-        const emit = (status, detail) => {
-          const payload = {
-            requestId: request.requestId,
-            contractId: request.contractId,
-            functionName: request.functionName,
-            status,
-            detail,
-            timestamp: new Date().toISOString(),
+    const result = await runQueued(
+      () =>
+        new Promise((resolve, reject) => {
+          const startedAt = new Date().toISOString();
+          const child = spawn(process.env.SOROBAN_CLI || 'soroban', cliArgs, {
+            shell: false,
+            windowsHide: true,
+            env: injectTraceContext(process.env),
+          });
+
+          let stdout = '';
+          let stderr = '';
+          let finished = false;
+          let timeout = null;
+
+          const emit = (status, detail) => {
+            const payload = {
+              requestId: request.requestId,
+              contractId: request.contractId,
+              functionName: request.functionName,
+              status,
+              detail,
+              timestamp: new Date().toISOString(),
+            };
+            invokeProgressBus.emit('progress', payload);
           };
-          invokeProgressBus.emit('progress', payload);
-        };
 
-        const cleanup = () => {
-          if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
-          }
+          const cleanup = () => {
+            if (timeout) {
+              clearTimeout(timeout);
+              timeout = null;
+            }
+            if (signal) {
+              signal.removeEventListener('abort', onAbort);
+            }
+          };
+
+          const complete = (err, result) => {
+            if (finished) return;
+            finished = true;
+            cleanup();
+
+            const durationMs = Date.now() - Date.parse(startedAt);
+            setSpanAttributes(span, {
+              'invoke.duration_ms': durationMs,
+              'invoke.exit_code': err ? (err.code || 1) : 0,
+            });
+
+            if (err) {
+              span.setStatus({ code: 2, message: err.message });
+            }
+
+            if (err) {
+              reject(err);
+            } else {
+              resolve(result);
+            }
+          };
+
+          const onAbort = () => {
+            addSpanEvent(span, 'invoke.cancelled');
+            child.kill('SIGKILL');
+            complete(new Error('Invocation cancelled'));
+          };
+
           if (signal) {
-            signal.removeEventListener('abort', onAbort);
+            if (signal.aborted) {
+              return onAbort();
+            }
+            signal.addEventListener('abort', onAbort, { once: true });
           }
-        };
 
-        const complete = (err, result) => {
-          if (finished) return;
-          finished = true;
-          cleanup();
+          timeout = setTimeout(() => {
+            addSpanEvent(span, 'invoke.timeout');
+            child.kill('SIGKILL');
+            complete(
+              new Error(`Invocation timed out after ${INVOKE_TIMEOUT_MS}ms`)
+            );
+          }, INVOKE_TIMEOUT_MS);
 
-          if (err) {
-            reject(err);
-          } else {
-            resolve(result);
-          }
-        };
+          emit('invoking', 'spawned soroban CLI');
 
-        const onAbort = () => {
-          child.kill('SIGKILL');
-          complete(new Error('Invocation cancelled'));
-        };
-
-        if (signal) {
-          if (signal.aborted) {
-            return onAbort();
-          }
-          signal.addEventListener('abort', onAbort, { once: true });
-        }
-
-        timeout = setTimeout(() => {
-          child.kill('SIGKILL');
-          complete(
-            new Error(`Invocation timed out after ${INVOKE_TIMEOUT_MS}ms`)
-          );
-        }, INVOKE_TIMEOUT_MS);
-
-        emit('invoking', 'spawned soroban CLI');
-
-        child.stdout.on('data', (chunk) => {
-          const text = chunk.toString();
-          stdout += text;
-          emit('executing', text.trim() || 'cli output');
-        });
-
-        child.stderr.on('data', (chunk) => {
-          const text = chunk.toString();
-          stderr += text;
-          emit('executing', text.trim() || 'cli stderr');
-        });
-
-        child.on('error', (error) => {
-          logInvocation({
-            startedAt,
-            endedAt: new Date().toISOString(),
-            request,
-            status: 'failed',
-            error: error.message,
-          });
-          emit('failed', error.message);
-          complete(error);
-        });
-
-        child.on('close', (code) => {
-          const endedAt = new Date().toISOString();
-          const output = parseCliOutput(stdout);
-          const baseResult = {
-            success: code === 0,
-            status: code === 0 ? 'success' : 'failed',
-            contractId: request.contractId,
-            functionName: request.functionName,
-            stdout: output.raw,
-            parsed: output.parsed,
-            stderr: stderr.trim() || undefined,
-            startedAt,
-            endedAt,
-          };
-
-          logInvocation({
-            startedAt,
-            endedAt,
-            request,
-            status: baseResult.status,
-            code,
-            stdout: output.raw,
-            stderr: stderr.trim(),
+          child.stdout.on('data', (chunk) => {
+            const text = chunk.toString();
+            stdout += text;
+            emit('executing', text.trim() || 'cli output');
           });
 
-          if (code === 0) {
-            emit('success', output.parsed ?? output.raw);
-            complete(null, baseResult);
-            return;
-          }
+          child.stderr.on('data', (chunk) => {
+            const text = chunk.toString();
+            stderr += text;
+            emit('executing', text.trim() || 'cli stderr');
+          });
 
-          const error = new Error(
-            stderr.trim() || `Soroban CLI exited with code ${code}`
-          );
-          error.code = code;
-          error.stdout = output.raw;
-          error.stderr = stderr.trim();
-          emit('failed', error.message);
-          complete(error);
-        });
-      })
-  );
+          child.on('error', (error) => {
+            logInvocation({
+              startedAt,
+              endedAt: new Date().toISOString(),
+              request,
+              status: 'failed',
+              error: error.message,
+            });
+            emit('failed', error.message);
+            complete(error);
+          });
+
+          child.on('close', (code) => {
+            const endedAt = new Date().toISOString();
+            const output = parseCliOutput(stdout);
+            const baseResult = {
+              success: code === 0,
+              status: code === 0 ? 'success' : 'failed',
+              contractId: request.contractId,
+              functionName: request.functionName,
+              stdout: output.raw,
+              parsed: output.parsed,
+              stderr: stderr.trim() || undefined,
+              startedAt,
+              endedAt,
+            };
+
+            logInvocation({
+              startedAt,
+              endedAt,
+              request,
+              status: baseResult.status,
+              code,
+              stdout: output.raw,
+              stderr: stderr.trim(),
+            });
+
+            if (code === 0) {
+              emit('success', output.parsed ?? output.raw);
+              complete(null, baseResult);
+              return;
+            }
+
+            const error = new Error(
+              stderr.trim() || `Soroban CLI exited with code ${code}`
+            );
+            error.code = code;
+            error.stdout = output.raw;
+            error.stderr = stderr.trim();
+            emit('failed', error.message);
+            complete(error);
+          });
+        })
+    );
+
+    return result;
+  } finally {
+    span.end();
+  }
 }

@@ -1,5 +1,6 @@
 import LRU from 'lru-cache';
 import redisService from '../services/redisService.js';
+import { createSpan, setSpanAttributes, addSpanEvent } from '../utils/tracing.js';
 
 const memoryCache = new LRU({
   max: 1000,
@@ -16,48 +17,73 @@ const defaultLimits = {
 
 export const rateLimitMiddleware = (endpoint = 'global') => {
   return async (req, res, next) => {
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const key = `ratelimit:${endpoint}:${ip}`;
-    
-    // Try to get dynamic config from Redis
-    let limit = defaultLimits[endpoint]?.max || 100;
-    let window = defaultLimits[endpoint]?.window || 3600;
+    const span = createSpan('rate_limit.check', {
+      'rate_limit.endpoint': endpoint,
+      'rate_limit.ip': req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+    });
 
-    if (!redisService.isFallbackMode && redisService.client) {
-      try {
-        const config = await redisService.client.hgetall('config:rate_limits');
-        if (config[endpoint]) {
-          limit = parseInt(config[endpoint], 10);
-        }
-      } catch (err) {
-        // Ignore and use defaults
-      }
-    }
-
-    const { allowed, current, fallback } = await redisService.checkRateLimit(key, limit, window);
-
-    if (fallback) {
-      // Memory fallback
-      const memoryKey = `mem:${key}`;
-      const count = (memoryCache.get(memoryKey) || 0) + 1;
-      memoryCache.set(memoryKey, count);
+    try {
+      const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+      const key = `ratelimit:${endpoint}:${ip}`;
       
-      if (count > limit) {
+      // Try to get dynamic config from Redis
+      let limit = defaultLimits[endpoint]?.max || 100;
+      let window = defaultLimits[endpoint]?.window || 3600;
+
+      if (!redisService.isFallbackMode && redisService.client) {
+        try {
+          const config = await redisService.client.hgetall('config:rate_limits');
+          if (config[endpoint]) {
+            limit = parseInt(config[endpoint], 10);
+          }
+        } catch (err) {
+          // Ignore and use defaults
+        }
+      }
+
+      const { allowed, current, fallback } = await redisService.checkRateLimit(key, limit, window);
+
+      setSpanAttributes(span, {
+        'rate_limit.limit': limit,
+        'rate_limit.window_seconds': window,
+        'rate_limit.current': current,
+        'rate_limit.allowed': allowed,
+        'rate_limit.fallback_mode': fallback,
+      });
+
+      if (fallback) {
+        // Memory fallback
+        const memoryKey = `mem:${key}`;
+        const count = (memoryCache.get(memoryKey) || 0) + 1;
+        memoryCache.set(memoryKey, count);
+        
+        if (count > limit) {
+          addSpanEvent(span, 'rate_limit.blocked', { 'rate_limit.reason': 'memory_fallback' });
+          await redisService.logAnalytics(endpoint, ip, 'blocked');
+          span.end();
+          return res.status(429).json({
+            error: 'Too Many Requests',
+            message: 'Rate limit exceeded (fallback mode)',
+          });
+        }
+      } else if (!allowed) {
+        addSpanEvent(span, 'rate_limit.blocked', { 'rate_limit.reason': 'redis_check' });
         await redisService.logAnalytics(endpoint, ip, 'blocked');
+        span.end();
         return res.status(429).json({
           error: 'Too Many Requests',
-          message: 'Rate limit exceeded (fallback mode)',
+          message: `Rate limit exceeded for ${endpoint}. Current limit: ${limit} per hour.`,
         });
       }
-    } else if (!allowed) {
-      await redisService.logAnalytics(endpoint, ip, 'blocked');
-      return res.status(429).json({
-        error: 'Too Many Requests',
-        message: `Rate limit exceeded for ${endpoint}. Current limit: ${limit} per hour.`,
-      });
-    }
 
-    await redisService.logAnalytics(endpoint, ip, 'allowed');
-    next();
+      addSpanEvent(span, 'rate_limit.allowed');
+      await redisService.logAnalytics(endpoint, ip, 'allowed');
+      span.end();
+      next();
+    } catch (error) {
+      setSpanAttributes(span, { 'error': true, 'error.message': error.message });
+      span.end();
+      throw error;
+    }
   };
 };

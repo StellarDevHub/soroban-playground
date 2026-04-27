@@ -14,7 +14,9 @@ import apiRouter from './routes/api.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { setupWebsocketServer } from './websocket.js';
-import { initializeCompileService } from './services/compileService.js';
+import { initializeTracing } from './tracing.js';
+import { initializeMetrics } from './metrics/performance.js';
+import { getCurrentSpan, setSpanAttributes } from './utils/tracing.js';
 import adminRoute from './routes/admin.js';
 import metricsRoute, { requestLatency } from './routes/metrics.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
@@ -44,8 +46,12 @@ try {
 }
 
 // Morgan logging format
-const logFormat =
-  ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms';
+const logFormat = config.tracing.enabled 
+  ? ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" trace_id=:traceId - :response-time ms'
+  : ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms';
+
+// Custom morgan token for trace ID
+morgan.token('traceId', (req) => req.traceId || '-');
 
 // Basic middleware
 app.use(morgan(logFormat));
@@ -53,17 +59,73 @@ app.use(cors());
 app.use(express.json());
 app.use(auditLogger);
 
+// Trace context middleware
+app.use(async (req, res, next) => {
+  if (config.tracing.enabled) {
+    const { trace, getTraceId } = await import('./utils/tracing.js');
+    const tracer = trace.getTracer(config.tracing.serviceName, config.tracing.serviceVersion);
+    
+    // Extract trace context from headers
+    const traceId = req.headers['x-trace-id'] || req.headers['x-request-id'];
+    const spanId = req.headers['x-span-id'];
+    const traceFlags = req.headers['x-trace-flags'];
+    
+    let span;
+    if (traceId) {
+      // Continue existing trace
+      const spanContext = {
+        traceId,
+        spanId: spanId || '0000000000000000',
+        traceFlags: traceFlags ? parseInt(traceFlags, 10) : 1,
+        isRemote: true,
+      };
+      span = tracer.startSpan(`HTTP ${req.method} ${req.path}`, {}, spanContext);
+    } else {
+      // Start new trace
+      span = tracer.startSpan(`HTTP ${req.method} ${req.path}`);
+    }
+    
+    // Set trace ID in response headers
+    const context = span.spanContext();
+    res.setHeader('x-trace-id', context.traceId);
+    
+    // Store span in request for later use
+    req.traceSpan = span;
+    req.traceId = context.traceId;
+    
+    // End span when response finishes
+    res.on('finish', () => {
+      span.end();
+    });
+  }
+  next();
+});
+
 // Latency tracking middleware
 app.use((req, res, next) => {
   const start = process.hrtime();
   res.on('finish', () => {
     const diff = process.hrtime(start);
     const time = diff[0] + diff[1] / 1e9;
+    const timeMs = time * 1000;
     requestLatency.observe({ 
       method: req.method, 
       route: req.route ? req.route.path : req.path, 
       status: res.statusCode 
     }, time);
+
+    // Add to current span if tracing is enabled
+    if (config.tracing.enabled) {
+      const span = getCurrentSpan();
+      if (span) {
+        setSpanAttributes(span, {
+          'http.duration_ms': timeMs,
+          'http.status_code': res.statusCode,
+          'http.method': req.method,
+          'http.route': req.route ? req.route.path : req.path,
+        });
+      }
+    }
   });
   next();
 });
@@ -171,6 +233,8 @@ app.use(errorHandler);
 
 setupWebsocketServer(server);
 await initializeCompileService();
+await initializeTracing();
+await initializeMetrics();
 startCleanupWorker();
 if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, () => {

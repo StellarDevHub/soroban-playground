@@ -7,6 +7,8 @@ import {
   topoSortContracts,
   validateBatchContractsInput,
 } from './deployUtils.js';
+import { createSpan, setSpanAttributes, addSpanEvent, injectTraceContext } from '../utils/tracing.js';
+import { alertManager } from '../utils/alerting.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_STATE_FILE =
@@ -63,7 +65,16 @@ export function validateBatchContracts(contracts) {
 }
 
 function deployContract(contract, { signal, onProgress } = {}) {
+  const span = createSpan('soroban.deploy', {
+    'deploy.contract_name': contract.contractName,
+    'deploy.contract_id': contract.id,
+    'deploy.network': contract.network,
+    'deploy.wasm_path': contract.wasmPath,
+  });
+
   return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+
     const child = spawn(
       process.env.SOROBAN_CLI || 'soroban',
       [
@@ -76,7 +87,11 @@ function deployContract(contract, { signal, onProgress } = {}) {
         '--network',
         contract.network,
       ],
-      { shell: false, windowsHide: true }
+      {
+        shell: false,
+        windowsHide: true,
+        env: injectTraceContext(process.env),
+      }
     );
 
     let stdout = '';
@@ -84,6 +99,7 @@ function deployContract(contract, { signal, onProgress } = {}) {
     let done = false;
     const timeout = setTimeout(
       () => {
+        addSpanEvent(span, 'deploy.timeout');
         child.kill('SIGKILL');
         done = true;
         reject(new Error(`Deployment timed out for ${contract.contractName}`));
@@ -98,6 +114,20 @@ function deployContract(contract, { signal, onProgress } = {}) {
       if (done) return;
       done = true;
       clearTimeout(timeout);
+
+      const durationMs = Date.now() - startTime;
+      setSpanAttributes(span, {
+        'deploy.duration_ms': durationMs,
+        'deploy.exit_code': err ? (err.code || 1) : 0,
+        'deploy.contract_id': result?.contractId,
+      });
+
+      if (err) {
+        span.setStatus({ code: 2, message: err.message });
+      }
+
+      span.end();
+
       if (signal) {
         signal.removeEventListener('abort', onAbort);
       }
@@ -106,6 +136,7 @@ function deployContract(contract, { signal, onProgress } = {}) {
     };
 
     const onAbort = () => {
+      addSpanEvent(span, 'deploy.cancelled');
       child.kill('SIGKILL');
       finish(new Error(`Deployment cancelled for ${contract.contractName}`));
     };
@@ -167,7 +198,13 @@ async function rollbackContracts(deployed, context) {
 }
 
 export async function deployBatchContracts(request, { signal } = {}) {
-  const normalized = validateBatchContracts(request.contracts);
+  const span = createSpan('soroban.deploy.batch', {
+    'deploy.batch_id': request.batchId || `batch-${Date.now()}`,
+    'deploy.contracts_count': request.contracts?.length || 0,
+    'deploy.request_id': request.requestId,
+  });
+
+  try {
   const ordered = topoSortContracts(normalized);
   const state = readState();
   const deploymentId = request.batchId || `batch-${Date.now()}`;
@@ -267,15 +304,29 @@ export async function deployBatchContracts(request, { signal } = {}) {
       detail: 'Batch deployment completed successfully',
     });
 
+    const completedAt = new Date().toISOString();
+    setSpanAttributes(span, {
+      'deploy.completed_at': completedAt,
+      'deploy.deployed_count': deployed.length,
+    });
+
     return {
       success: true,
       status: 'success',
       batchId: deploymentId,
       contracts: deployed,
       startedAt,
-      completedAt: new Date().toISOString(),
+      completedAt,
     };
   } catch (error) {
+    setSpanAttributes(span, {
+      'error': true,
+      'error.message': error.message,
+    });
+    span.setStatus({ code: 2, message: error.message });
+
+    alertManager.checkDeploymentFailure(deploymentId, error);
+
     await rollbackContracts(deployed, {
       requestId: request.requestId,
       batchId: deploymentId,
@@ -305,6 +356,8 @@ export async function deployBatchContracts(request, { signal } = {}) {
       detail: error.message,
     });
     throw error;
+  } finally {
+    span.end();
   }
 }
 

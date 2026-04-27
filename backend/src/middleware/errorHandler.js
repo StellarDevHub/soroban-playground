@@ -1,4 +1,4 @@
-// Error strategy decisions:
+import { alertManager } from '../utils/alerting.js';
 // - Standard JSON error format: { message, statusCode, details? }.
 // - Route handlers should throw/forward errors and let this middleware format the response.
 // - Unknown errors fall back to 500 with a safe default message.
@@ -36,6 +36,16 @@ export function errorHandler(err, req, res, _next) {
     Number.isInteger(rawStatus) && rawStatus >= 400 ? rawStatus : 500;
   const isProduction = process.env.NODE_ENV === 'production';
   const isInternalError = statusCode >= 500;
+
+  // Alert on server errors
+  if (isInternalError) {
+    alertManager.alert('server_error', {
+      statusCode,
+      message: err?.message,
+      path: req.path,
+      method: req.method,
+    });
+  }
 
   const payload = {
     message: err?.message || 'Internal server error',

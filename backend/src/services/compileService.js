@@ -5,6 +5,14 @@ import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
 import { LRUCache } from 'lru-cache';
 import { buildCargoToml } from '../routes/compile_utils.js';
+import { createSpan, setSpanAttributes, addSpanEvent, getTraceId } from '../utils/tracing.js';
+import { alertManager } from '../utils/alerting.js';
+import {
+  initializeCacheService,
+  loadCacheEntry as loadCacheEntryFromCache,
+  storeCacheEntry,
+  executeUnderLock,
+} from './cacheService.js';
 
 const CACHE_ROOT =
   process.env.WASM_CACHE_DIR || path.join(process.cwd(), 'cache', 'wasm');
@@ -19,6 +27,10 @@ const MAX_WORKERS = Math.min(
 );
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_CACHE_BYTES = 1024 * 1024 * 1024;
+const MEMORY_CACHE_TTL_MS = Number.parseInt(
+  process.env.MEMORY_CACHE_TTL_MS || `${30 * 1000}`,
+  10
+);
 const CACHE_TTL_MS = Number.parseInt(
   process.env.WASM_CACHE_TTL_MS || `${MAX_AGE_MS}`,
   10
@@ -35,7 +47,7 @@ const history = [];
 const cacheIndex = new LRUCache({
   maxSize: MAX_CACHE_BYTES,
   sizeCalculation: (value) => value.sizeBytes ?? 0,
-  ttl: CACHE_TTL_MS,
+  ttl: MEMORY_CACHE_TTL_MS,
   updateAgeOnGet: true,
   updateAgeOnHas: true,
 });
@@ -106,6 +118,7 @@ async function removeArtifact(hash) {
   await fs.rm(artifact.path, { force: true }).catch(() => {});
   artifacts.delete(hash);
   cacheIndex.delete(hash);
+  await invalidateCache({ hash });
 }
 
 async function evictExpiredArtifacts() {
@@ -120,29 +133,10 @@ async function evictExpiredArtifacts() {
   }
 }
 
-async function loadCacheEntry(hash) {
-  const cached = cacheIndex.get(hash);
-  if (cached) return cached;
-
-  const wasmPath = path.join(CACHE_ROOT, `${hash}.wasm`);
-  try {
-    const stats = await fs.stat(wasmPath);
-    const entry = {
-      hash,
-      path: wasmPath,
-      sizeBytes: stats.size,
-      createdAt: stats.mtime.toISOString(),
-    };
-    cacheIndex.set(hash, entry);
-    return entry;
-  } catch {
-    return null;
-  }
-}
-
 async function recordArtifact(entry) {
   artifacts.set(entry.hash, entry);
   cacheIndex.set(entry.hash, entry);
+  await storeCacheEntry(entry);
   await persistState();
 }
 
@@ -179,138 +173,196 @@ class WorkerPool {
   }
 
   async run(job) {
+    const span = createSpan('cargo.build', {
+      'worker.id': this.workerId || 'unknown',
+      'compile.hash': job.hash,
+      'compile.request_id': job.requestId,
+    });
+
     const worker = this.idle.pop() || makeWorker();
     this.busy.set(worker.threadId, worker);
 
-    return new Promise((resolve, reject) => {
-      const cleanup = () => {
-        worker.off('message', onMessage);
-        worker.off('error', onError);
-        worker.off('exit', onExit);
-        this.busy.delete(worker.threadId);
-        if (worker.threadId && worker.exitCode === undefined) {
-          this.idle.push(worker);
-        }
-      };
+    try {
+      return await new Promise((resolve, reject) => {
+        const cleanup = () => {
+          worker.off('message', onMessage);
+          worker.off('error', onError);
+          worker.off('exit', onExit);
+          this.busy.delete(worker.threadId);
+          if (worker.threadId && worker.exitCode === undefined) {
+            this.idle.push(worker);
+          }
+        };
 
-      const onMessage = (message) => {
-        if (message?.type === 'result') {
+        const onMessage = (message) => {
+          if (message?.type === 'result') {
+            setSpanAttributes(span, {
+              'worker.exit_code': message.payload.exitCode || 0,
+              'worker.duration_ms': message.payload.durationMs,
+              'worker.memory_peak_mb': (message.payload.memoryPeakBytes || 0) / (1024 * 1024),
+            });
+            cleanup();
+            resolve(message.payload);
+          } else if (message?.type === 'progress') {
+            addSpanEvent(span, 'worker.progress', { 'progress.status': message.payload.status });
+            queueBus.emit('progress', message.payload);
+          }
+        };
+
+        const onError = (error) => {
+          setSpanAttributes(span, { 'error': true, 'error.message': error.message });
           cleanup();
-          resolve(message.payload);
-        } else if (message?.type === 'progress') {
-          queueBus.emit('progress', message.payload);
-        }
-      };
+          reject(error);
+        };
 
-      const onError = (error) => {
-        cleanup();
-        reject(error);
-      };
+        const onExit = (code) => {
+          setSpanAttributes(span, { 'worker.exit_code': code });
+          cleanup();
+          if (code !== 0) reject(new Error(`Worker exited with code ${code}`));
+        };
 
-      const onExit = (code) => {
-        cleanup();
-        if (code !== 0) reject(new Error(`Worker exited with code ${code}`));
-      };
-
-      worker.on('message', onMessage);
-      worker.on('error', onError);
-      worker.on('exit', onExit);
-      worker.postMessage(job);
-    });
+        worker.on('message', onMessage);
+        worker.on('error', onError);
+        worker.on('exit', onExit);
+        worker.postMessage(job);
+      });
+    } finally {
+      span.end();
+    }
   }
 }
 
 const pool = new WorkerPool(MAX_WORKERS);
 
 async function compileOnce({ code, dependencies = {}, requestId }) {
-  await ensureDirs();
-  const hash = hashSource(code, dependencies);
+  const span = createSpan('compile.once', {
+    'compile.request_id': requestId,
+    'compile.code_length': code.length,
+  });
 
-  await evictExpiredArtifacts();
+  try {
+    await ensureDirs();
+    const hash = hashSource(code, dependencies);
 
-  const hit = await loadCacheEntry(hash);
-  if (hit) {
-    cacheHits += 1;
-    totalCompiles += 1;
+    setSpanAttributes(span, {
+      'compile.hash': hash,
+      'compile.dependencies_count': Object.keys(dependencies).length,
+    });
+
+    await evictExpiredArtifacts();
+
+const hit = await loadCacheEntryFromCache(hash);
+    if (hit) {
+      addSpanEvent(span, 'cache.hit', {
+        'cache.size_bytes': hit.sizeBytes,
+        'cache.age_seconds': (Date.now() - Date.parse(hit.createdAt)) / 1000,
+      });
+
+      cacheHits += 1;
+      totalCompiles += 1;
+      queueBus.emit('progress', {
+        requestId,
+        status: 'cache-hit',
+        hash,
+        queueLength: queue.length,
+        activeWorkers: active,
+        etaMs: 0,
+      });
+      const artifact = {
+        hash,
+        path: hit.path,
+        sizeBytes: hit.sizeBytes,
+        createdAt: hit.createdAt,
+        sourceHash: hash,
+      };
+      await recordArtifact({
+        ...artifact,
+        requestId,
+        cached: true,
+        durationMs: 0,
+        dependencies,
+        timestamp: nowIso(),
+        completedAt: nowIso(),
+      });
+
+      setSpanAttributes(span, {
+        'compile.cached': true,
+        'compile.duration_ms': 0,
+        'compile.wasm_size_bytes': hit.sizeBytes,
+      });
+
+      return {
+        success: true,
+        cached: true,
+        hash,
+        durationMs: 0,
+        artifact: {
+          name: `${hash}.wasm`,
+          sizeBytes: hit.sizeBytes,
+          path: hit.path,
+        },
+        logs: ['Cache hit: returned existing WASM artifact'],
+        memoryPeakBytes,
+      };
+    }
+
+    addSpanEvent(span, 'cache.miss');
+
     queueBus.emit('progress', {
       requestId,
-      status: 'cache-hit',
+      status: 'queueing',
       hash,
       queueLength: queue.length,
       activeWorkers: active,
-      etaMs: 0,
+      etaMs: estimateQueueTime(),
     });
-    const artifact = {
+
+    const startTime = Date.now();
+const result = await executeUnderLock(hash, requestId, async () => {
+        return await pool.run({
+          code,
+          dependencies,
+          requestId,
+          hash,
+          cacheRoot: CACHE_ROOT,
+          artifactRoot: ARTIFACT_ROOT,
+          cargoToml: buildCargoToml(dependencies),
+          timeoutMs: Number.parseInt(process.env.COMPILE_TIMEOUT_MS || '30000', 10),
+        });
+    });
+
+    const durationMs = Date.now() - startTime;
+
+    totalCompiles += 1;
+    if (result.cached) cacheHits += 1;
+    if (durationMs > 20000) slowCompiles += 1;
+    memoryPeakBytes = Math.max(memoryPeakBytes, result.memoryPeakBytes || 0);
+
+    setSpanAttributes(span, {
+      'compile.cached': result.cached,
+      'compile.duration_ms': durationMs,
+      'compile.wasm_size_bytes': result.artifact.sizeBytes,
+      'compile.memory_peak_mb': (result.memoryPeakBytes || 0) / (1024 * 1024),
+    });
+
+    const payload = {
       hash,
-      path: hit.path,
-      sizeBytes: hit.sizeBytes,
-      createdAt: hit.createdAt,
+      requestId,
+      cached: result.cached,
+      durationMs,
+      dependencies,
+      sizeBytes: result.artifact.sizeBytes,
+      path: result.artifact.path,
+      createdAt: nowIso(),
+      completedAt: nowIso(),
       sourceHash: hash,
     };
-    await recordArtifact({
-      ...artifact,
-      requestId,
-      cached: true,
-      durationMs: 0,
-      dependencies,
-      timestamp: nowIso(),
-      completedAt: nowIso(),
-    });
-    return {
-      success: true,
-      cached: true,
-      hash,
-      durationMs: 0,
-      artifact: {
-        name: `${hash}.wasm`,
-        sizeBytes: hit.sizeBytes,
-        path: hit.path,
-      },
-      logs: ['Cache hit: returned existing WASM artifact'],
-      memoryPeakBytes,
-    };
+    await recordArtifact(payload);
+
+    return result;
+  } finally {
+    span.end();
   }
-
-  queueBus.emit('progress', {
-    requestId,
-    status: 'queueing',
-    hash,
-    queueLength: queue.length,
-    activeWorkers: active,
-    etaMs: estimateQueueTime(),
-  });
-
-  const result = await pool.run({
-    code,
-    dependencies,
-    requestId,
-    hash,
-    cacheRoot: CACHE_ROOT,
-    artifactRoot: ARTIFACT_ROOT,
-    cargoToml: buildCargoToml(dependencies),
-    timeoutMs: Number.parseInt(process.env.COMPILE_TIMEOUT_MS || '30000', 10),
-  });
-
-  totalCompiles += 1;
-  if (result.cached) cacheHits += 1;
-  if (result.durationMs > 20000) slowCompiles += 1;
-  memoryPeakBytes = Math.max(memoryPeakBytes, result.memoryPeakBytes || 0);
-
-  const payload = {
-    hash,
-    requestId,
-    cached: result.cached,
-    durationMs: result.durationMs,
-    dependencies,
-    sizeBytes: result.artifact.sizeBytes,
-    path: result.artifact.path,
-    createdAt: nowIso(),
-    completedAt: nowIso(),
-    sourceHash: hash,
-  };
-  await recordArtifact(payload);
-
-  return result;
 }
 
 function estimateQueueTime() {
@@ -323,7 +375,19 @@ function estimateQueueTime() {
 }
 
 export async function compileQueued(job) {
+  const span = createSpan('soroban.compile', {
+    'compile.request_id': job.requestId,
+    'compile.hash': hashSource(job.code, job.dependencies),
+    'compile.dependencies_count': Object.keys(job.dependencies || {}).length,
+  });
+
   return new Promise((resolve, reject) => {
+    addSpanEvent(span, 'compile.queued', {
+      'queue.length': queue.length,
+      'queue.active_workers': active,
+      'queue.eta_ms': estimateQueueTime(),
+    });
+
     queue.push({ job, resolve, reject });
     queueBus.emit('progress', {
       requestId: job.requestId,
@@ -333,6 +397,8 @@ export async function compileQueued(job) {
       etaMs: estimateQueueTime(),
     });
     pump();
+  }).finally(() => {
+    span.end();
   });
 }
 
@@ -425,6 +491,7 @@ export async function getCompileSnapshot() {
 export async function initializeCompileService() {
   await ensureDirs();
   await hydrateState();
+  await initializeCacheService([...artifacts.keys()]);
   await cleanupArtifacts();
 }
 
