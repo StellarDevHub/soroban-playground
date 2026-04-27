@@ -18,7 +18,7 @@ import { initializeCompileService } from './services/compileService.js';
 import adminRoute from './routes/admin.js';
 import metricsRoute, { requestLatency } from './routes/metrics.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
-import { setupGraphQL } from './graphql/index.js';
+import auditLogger from './middleware/auditLogger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,6 +51,7 @@ const logFormat =
 app.use(morgan(logFormat));
 app.use(cors());
 app.use(express.json());
+app.use(auditLogger);
 
 // Latency tracking middleware
 app.use((req, res, next) => {
