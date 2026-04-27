@@ -30,7 +30,7 @@ export const rateLimiter = (options = {}) => {
     } else if (identifier === 'endpoint') {
       id = `${req.ip}:${req.originalUrl}`;
     } else {
-      id = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+      id = req.ip;
     }
 
     const key = `ratelimit:${strategy.getName()}:${id}`;
@@ -52,15 +52,11 @@ export const rateLimiter = (options = {}) => {
 
       if (!result.allowed) {
         res.set('Retry-After', String(result.retryAfter || Math.ceil(windowMs / 1000)));
-        
-        await redisService.logAnalytics(req.originalUrl, id, 'blocked');
-        
         return next(createHttpError(429, 'Too Many Requests', { 
           retryAfter: result.retryAfter 
         }));
       }
 
-      await redisService.logAnalytics(req.originalUrl, id, 'allowed');
       next();
     } catch (err) {
       console.error('Rate Limiter Middleware Error:', err);
