@@ -2,6 +2,7 @@ mod db;
 mod ws;
 mod quorum;
 mod audit;
+mod graphql;
 
 use anyhow::Result;
 use axum::{routing::get, Router};
@@ -11,6 +12,37 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 use ws::{health_handler, ws_handler, post_vote, get_quorum, get_oracles, post_audit_log, get_audit_trail, verify_audit, AppState, BROADCAST_CAPACITY};
+
+use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
+use axum::response::{Html, IntoResponse};
+
+// ── GraphQL Handlers ─────────────────────────────────────────────────────────
+
+async fn graphql_handler(
+    schema: axum::extract::Extension<crate::graphql::AppSchema>,
+    headers: axum::http::HeaderMap,
+    req: GraphQLRequest,
+) -> GraphQLResponse {
+    let mut req = req.into_inner();
+    if let Some(auth) = headers.get("authorization") {
+        if let Ok(auth_str) = auth.to_str() {
+            if auth_str.starts_with("Bearer ") {
+                let role = auth_str.trim_start_matches("Bearer ");
+                req = req.data(crate::graphql::auth::UserRole(role.to_string()));
+            }
+        }
+    }
+    schema.execute(req).await.into()
+}
+
+async fn graphql_playground() -> impl IntoResponse {
+    Html(playground_source(GraphQLPlaygroundConfig::new("/api/graphql").subscription_endpoint("/api/graphql/ws")))
+}
+
+async fn graphql_sdl(schema: axum::extract::Extension<crate::graphql::AppSchema>) -> impl IntoResponse {
+    schema.sdl()
+}
 
 // ── DualWriter ────────────────────────────────────────────────────────────────
 
@@ -104,6 +136,9 @@ async fn main() -> Result<()> {
 
     let writer = Arc::new(DualWriter::new(primary.clone(), secondary, tx.clone()));
 
+    // ── GraphQL Setup ─────────────────────────────────────────────────────────
+    let schema = crate::graphql::build_schema(primary.clone(), tx.clone()).finish();
+
     // ── WebSocket / HTTP server ───────────────────────────────────────────────
 
     let ws_port = std::env::var("WS_PORT")
@@ -123,6 +158,11 @@ async fn main() -> Result<()> {
         .route("/api/audit", get(get_audit_trail))
         .route("/api/audit/log", axum::routing::post(post_audit_log))
         .route("/api/audit/verify", axum::routing::post(verify_audit))
+        .route("/api/graphql", axum::routing::post(graphql_handler))
+        .route("/graphiql", get(graphql_playground))
+        .route("/api/graphql/ws", axum::routing::get(GraphQLSubscription::new(schema.clone())))
+        .route("/api/graphql/sdl", get(graphql_sdl))
+        .layer(axum::Extension(schema))
         .layer(CorsLayer::permissive()) // tighten to specific origins in production
         .with_state(app_state);
 
