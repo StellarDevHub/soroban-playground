@@ -5,6 +5,7 @@ import { compileProgressBus } from './services/compileService.js';
 import oracleProofQueueService from './services/oracleProofQueueService.js';
 import redisService from './services/redisService.js';
 import { sharedOracleEventBus } from './services/oracle/oracleEvents.js';
+import { airdropEventBus } from './services/airdropEvents.js';
 
 const clients = new Set();
 
@@ -55,6 +56,7 @@ export function setupWebsocketServer(httpServer) {
   deployProgressBus.on('progress', forward('deploy-progress'));
   compileProgressBus.on('progress', forward('compile-progress'));
   oracleProofQueueService.on('progress', forward('oracle-proof-progress'));
+  airdropEventBus.on('claim', forward('airdrop-claim'));
 
   // Forward every oracle lifecycle event under a single ws message type
   // so the frontend can subscribe with one handler.

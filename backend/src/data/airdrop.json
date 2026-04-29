@@ -1,0 +1,17 @@
+{
+  "token": {
+    "symbol": "DROP",
+    "decimals": 7,
+    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "distribution": [
+    {
+      "address": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "amount": "1250"
+    },
+    {
+      "address": "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "amount": "2500"
+    }
+  ]
+}

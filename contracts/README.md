@@ -18,6 +18,7 @@ Examples in this area should be:
 Current example:
 
 - `hello-world/`: a minimal Soroban contract with its own README
+- `token-airdrop/`: Merkle tree based token airdrop contract
 
 ## Recommended structure
 

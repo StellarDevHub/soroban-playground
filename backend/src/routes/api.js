@@ -6,6 +6,7 @@ import v2Compile from './v2/compile.js';
 import v2Deploy from './v2/deploy.js';
 import v2Invoke from './v2/invoke.js';
 import eventsRouter from './events.js';
+import airdropRouter from './airdrop.js';
 import { versionTransformer, requestTransformerV2 } from '../middleware/versionTransformer.js';
 import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
@@ -31,6 +32,7 @@ v1Router.use(versionTransformer('v1'));
 v1Router.use('/compile', rateLimitMiddleware('compile'), v1Compile);
 v1Router.use('/deploy', rateLimitMiddleware('deploy'), v1Deploy);
 v1Router.use('/invoke', rateLimitMiddleware('invoke'), v1Invoke);
+v1Router.use('/airdrop', rateLimitMiddleware('airdrop'), airdropRouter);
 
 // v2 Routes
 const v2Router = express.Router();
@@ -39,6 +41,7 @@ v2Router.use(requestTransformerV2); // Optional: transform v1-style requests to 
 v2Router.use('/compile', rateLimitMiddleware('compile'), v2Compile);
 v2Router.use('/deploy', rateLimitMiddleware('deploy'), v2Deploy);
 v2Router.use('/invoke', rateLimitMiddleware('invoke'), v2Invoke);
+v2Router.use('/airdrop', rateLimitMiddleware('airdrop'), airdropRouter);
 
 // Register versioned routes
 router.use('/v1', v1Router);
@@ -49,6 +52,7 @@ router.use('/oracle', oracleRouter);
 router.use('/compile', versionTransformer('v1'), rateLimitMiddleware('compile'), v1Compile);
 router.use('/deploy', versionTransformer('v1'), rateLimitMiddleware('deploy'), v1Deploy);
 router.use('/invoke', versionTransformer('v1'), rateLimitMiddleware('invoke'), v1Invoke);
+router.use('/airdrop', versionTransformer('v1'), rateLimitMiddleware('airdrop'), airdropRouter);
 router.use('/events', eventsRouter);
 
 export default router;

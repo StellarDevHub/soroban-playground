@@ -45,6 +45,13 @@ Admin cache endpoints:
 - `GET /api/admin/cache/keys` — list matching Redis cache keys
 - `POST /api/admin/cache/version/bump` — atomically bump the cache namespace version
 
+## Airdrop (Merkle)
+
+Endpoints:
+- `GET /api/airdrop/config` — returns the Merkle root, token metadata, and allocation summary
+- `POST /api/airdrop/eligibility` — returns eligibility status and proof for a wallet
+- `POST /api/airdrop/claim` — validates a proof and returns a claim payload for on-chain submission
+
 ## Database Migrations
 
 This backend supports file-based SQL migrations with rollback support and metadata tracking.
