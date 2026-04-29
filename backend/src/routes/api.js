@@ -1,3 +1,4 @@
+import warrantyRoutes from './warranty.js';
 import express from 'express';
 import v1Compile from './v1/compile.js';
 import v1Deploy from './v1/deploy.js';
@@ -51,4 +52,5 @@ router.use('/deploy', versionTransformer('v1'), rateLimitMiddleware('deploy'), v
 router.use('/invoke', versionTransformer('v1'), rateLimitMiddleware('invoke'), v1Invoke);
 router.use('/events', eventsRouter);
 
+router.use('/warranty', warrantyRoutes);
 export default router;
