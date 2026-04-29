@@ -7,6 +7,7 @@ import v2Deploy from './v2/deploy.js';
 import v2Invoke from './v2/invoke.js';
 import eventsRouter from './events.js';
 import bugBountyRouter from './bugBounty.js';
+import nftAmmRouter from './nftAmm.js';
 import { versionTransformer, requestTransformerV2 } from '../middleware/versionTransformer.js';
 import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
@@ -52,5 +53,6 @@ router.use('/deploy', versionTransformer('v1'), rateLimitMiddleware('deploy'), v
 router.use('/invoke', versionTransformer('v1'), rateLimitMiddleware('invoke'), v1Invoke);
 router.use('/events', eventsRouter);
 router.use('/bug-bounty', rateLimitMiddleware('invoke'), bugBountyRouter);
+router.use('/nft-amm', rateLimitMiddleware('invoke'), nftAmmRouter);
 
 export default router;
