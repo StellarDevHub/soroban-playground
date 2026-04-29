@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
 
@@ -180,7 +180,7 @@ impl PauseToggle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::Env;
+    use soroban_sdk::{testutils::Address as _, Env};
 
     fn setup() -> (Env, Address, PauseToggleClient<'static>) {
         let env = Env::default();
@@ -189,8 +189,7 @@ mod tests {
         let client = PauseToggleClient::new(&env, &id);
         let admin = Address::generate(&env);
         client.init(&admin);
-        // leak env so client lifetime is satisfied
-        let env = Box::leak(Box::new(env));
+        let env = std::boxed::Box::leak(std::boxed::Box::new(env));
         let client = PauseToggleClient::new(env, &id);
         (env.clone(), admin, client)
     }
@@ -249,12 +248,7 @@ mod tests {
         let stranger = Address::generate(&env);
 
         let result = client.try_pause(&stranger);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::Unauthorized as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 
     #[test]
@@ -263,12 +257,7 @@ mod tests {
         client.pause(&admin);
 
         let result = client.try_pause(&admin);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::AlreadyInState as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::AlreadyInState)));
     }
 
     // ── unpause ───────────────────────────────────────────────────────────────
@@ -290,12 +279,7 @@ mod tests {
         let stranger = Address::generate(&env);
 
         let result = client.try_unpause(&stranger);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::Unauthorized as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 
     #[test]
@@ -304,12 +288,7 @@ mod tests {
 
         // Contract starts unpaused
         let result = client.try_unpause(&admin);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::AlreadyInState as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::AlreadyInState)));
     }
 
     // ── do_action ─────────────────────────────────────────────────────────────
@@ -329,12 +308,7 @@ mod tests {
         client.pause(&admin);
 
         let result = client.try_do_action(&user);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::ContractPaused as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::ContractPaused)));
     }
 
     #[test]

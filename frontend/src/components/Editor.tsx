@@ -1,7 +1,9 @@
 "use client";
 
-import React from "react";
-import MonacoEditor from "@monaco-editor/react";
+import React, { useEffect } from "react";
+import MonacoEditor, { useMonaco } from "@monaco-editor/react";
+import { MonacoLanguageClient } from "monaco-languageclient";
+import { BrowserMessageReader, BrowserMessageWriter } from "vscode-languageserver-protocol/browser";
 
 interface EditorProps {
   code: string;
@@ -9,6 +11,37 @@ interface EditorProps {
 }
 
 export default function Editor({ code, setCode }: EditorProps) {
+  const monaco = useMonaco();
+
+  useEffect(() => {
+    if (!monaco) return;
+
+    // 1. Spawn the background worker
+    const worker = new Worker(new URL("../workers/rust-analyzer.worker.ts", import.meta.url));
+    worker.postMessage({ type: "init" });
+
+    worker.onmessage = (e) => {
+      if (e.data.type === "ready") {
+        
+        // 2. Bind Monaco to the Worker via LSP
+        const reader = new BrowserMessageReader(worker);
+        const writer = new BrowserMessageWriter(worker);
+
+        const languageClient = new MonacoLanguageClient({
+          name: "Rust Analyzer Wasm Client",
+          clientOptions: { documentSelector: ["rust"] },
+          messageTransports: { reader, writer }
+        });
+
+        languageClient.start();
+      }
+    };
+
+    return () => {
+      worker.terminate();
+    };
+  }, [monaco]);
+
   return (
     <div className="flex-1 rounded-xl overflow-hidden border border-gray-800 bg-[#1e1e1e] shadow-2xl">
       <MonacoEditor

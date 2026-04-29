@@ -1,0 +1,1712 @@
+npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+npm error code 1
+npm error path /home/omotemmy/Documents/drips/soroban-playground/node_modules/better-sqlite3
+npm error command failed
+npm error command sh -c prebuild-install || node-gyp rebuild --release
+npm error make: Entering directory '/home/omotemmy/Documents/drips/soroban-playground/node_modules/better-sqlite3/build'
+npm error   TOUCH 4292fa9a667d77b27488aa109b010a85bce8e4e7a1c7aa0370cea902395c3866.intermediate
+npm error   ACTION deps_sqlite3_gyp_locate_sqlite3_target_copy_builtin_sqlite3 4292fa9a667d77b27488aa109b010a85bce8e4e7a1c7aa0370cea902395c3866.intermediate
+npm error   TOUCH Release/obj.target/deps/locate_sqlite3.stamp
+npm error   CC(target) Release/obj.target/sqlite3/gen/sqlite3/sqlite3.o
+npm error rm -f Release/obj.target/deps/sqlite3.a Release/obj.target/deps/sqlite3.a.ar-file-list; mkdir -p `dirname Release/obj.target/deps/sqlite3.a`
+npm error ar crs Release/obj.target/deps/sqlite3.a @Release/obj.target/deps/sqlite3.a.ar-file-list
+npm error   COPY Release/sqlite3.a
+npm error   CXX(target) Release/obj.target/better_sqlite3/src/better_sqlite3.o
+npm error rm 4292fa9a667d77b27488aa109b010a85bce8e4e7a1c7aa0370cea902395c3866.intermediate
+npm error make: Leaving directory '/home/omotemmy/Documents/drips/soroban-playground/node_modules/better-sqlite3/build'
+npm error (node:10600) [DEP0176] DeprecationWarning: fs.R_OK is deprecated, use fs.constants.R_OK instead
+npm error (Use `node --trace-deprecation ...` to show where the warning was created)
+npm error prebuild-install warn install No prebuilt binaries found (target=24.14.0 runtime=node arch=x64 libc= platform=linux)
+npm error gyp info it worked if it ends with ok
+npm error gyp info using node-gyp@12.2.0
+npm error gyp info using node@24.14.0 | linux | x64
+npm error (node:10618) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+npm error (Use `node --trace-deprecation ...` to show where the warning was created)
+npm error gyp info find Python using Python version 3.10.12 found at "/usr/bin/python3"
+npm error gyp info spawn /usr/bin/python3
+npm error gyp info spawn args [
+npm error gyp info spawn args '/home/omotemmy/.nvm/versions/node/v24.14.0/lib/node_modules/npm/node_modules/node-gyp/gyp/gyp_main.py',
+npm error gyp info spawn args 'binding.gyp',
+npm error gyp info spawn args '-f',
+npm error gyp info spawn args 'make',
+npm error gyp info spawn args '-I',
+npm error gyp info spawn args '/home/omotemmy/Documents/drips/soroban-playground/node_modules/better-sqlite3/build/config.gypi',
+npm error gyp info spawn args '-I',
+npm error gyp info spawn args '/home/omotemmy/.nvm/versions/node/v24.14.0/lib/node_modules/npm/node_modules/node-gyp/addon.gypi',
+npm error gyp info spawn args '-I',
+npm error gyp info spawn args '/home/omotemmy/.cache/node-gyp/24.14.0/include/node/common.gypi',
+npm error gyp info spawn args '-Dlibrary=shared_library',
+npm error gyp info spawn args '-Dvisibility=default',
+npm error gyp info spawn args '-Dnode_root_dir=/home/omotemmy/.cache/node-gyp/24.14.0',
+npm error gyp info spawn args '-Dnode_gyp_dir=/home/omotemmy/.nvm/versions/node/v24.14.0/lib/node_modules/npm/node_modules/node-gyp',
+npm error gyp info spawn args '-Dnode_lib_file=/home/omotemmy/.cache/node-gyp/24.14.0/<(target_arch)/node.lib',
+npm error gyp info spawn args '-Dmodule_root_dir=/home/omotemmy/Documents/drips/soroban-playground/node_modules/better-sqlite3',
+npm error gyp info spawn args '-Dnode_engine=v8',
+npm error gyp info spawn args '--depth=.',
+npm error gyp info spawn args '--no-parallel',
+npm error gyp info spawn args '--generator-output',
+npm error gyp info spawn args 'build',
+npm error gyp info spawn args '-Goutput_dir=.'
+npm error gyp info spawn args ]
+npm error gyp info spawn make
+npm error gyp info spawn args [ 'BUILDTYPE=Release', '-C', 'build' ]
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/common.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:23,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8config.h:13:2: error: #error "C++20 or later required."
+npm error    13 | #error "C++20 or later required."
+npm error       |  ^~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-handle-base.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1256:37: error: non-type template parameters of class type only available with ‘-std=c++20’ or ‘-std=gnu++20’
+npm error  1256 |   template <ExternalPointerTagRange tag_range>
+npm error       |                                     ^~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:280:5: error: ‘requires’ does not name a type
+npm error   280 |     requires std::is_base_of_v<T, S>
+npm error       |     ^~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:280:5: note: ‘requires’ only available with ‘-std=c++20’ or ‘-fconcepts’
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:645:5: error: ‘requires’ does not name a type
+npm error   645 |     requires std::is_base_of_v<T, S>
+npm error       |     ^~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:645:5: note: ‘requires’ only available with ‘-std=c++20’ or ‘-fconcepts’
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:651:5: error: ‘requires’ does not name a type
+npm error   651 |     requires std::is_base_of_v<T, S>
+npm error       |     ^~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:651:5: note: ‘requires’ only available with ‘-std=c++20’ or ‘-fconcepts’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-memory-span.h:45:28: error: ‘std::ranges’ has not been declared
+npm error    45 | inline constexpr bool std::ranges::enable_view<v8::MemorySpan<T>> = true;
+npm error       |                            ^~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-memory-span.h:45:47: error: expected initializer before ‘<’ token
+npm error    45 | inline constexpr bool std::ranges::enable_view<v8::MemorySpan<T>> = true;
+npm error       |                                               ^
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-memory-span.h:47:28: error: ‘std::ranges’ has not been declared
+npm error    47 | inline constexpr bool std::ranges::enable_borrowed_range<v8::MemorySpan<T>> =
+npm error       |                            ^~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-memory-span.h:47:57: error: expected initializer before ‘<’ token
+npm error    47 | inline constexpr bool std::ranges::enable_borrowed_range<v8::MemorySpan<T>> =
+npm error       |                                                         ^
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-memory-span.h:168:35: error: ‘contiguous_iterator_tag’ in namespace ‘std’ does not name a type; did you mean ‘output_iterator_tag’?
+npm error   168 |     using iterator_concept = std::contiguous_iterator_tag;
+npm error       |                                   ^~~~~~~~~~~~~~~~~~~~~~~
+npm error       |                                   output_iterator_tag
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/internal/conditional-stack-allocated.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-maybe.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/macros.h:51:1: error: ‘concept’ does not name a type
+npm error    51 | concept IsStackAllocatedType =
+npm error       | ^~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/macros.h:51:1: note: ‘concept’ only available with ‘-std=c++20’ or ‘-fconcepts’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-maybe.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/internal/conditional-stack-allocated.h:22:1: error: ‘concept’ does not name a type
+npm error    22 | concept RequiresStackAllocated =
+npm error       | ^~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/internal/conditional-stack-allocated.h:22:1: note: ‘concept’ only available with ‘-std=c++20’ or ‘-fconcepts’
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/internal/conditional-stack-allocated.h:28:11: error: expected constructor, destructor, or type conversion before ‘(’ token
+npm error    28 |   requires(RequiresStackAllocated<T>)
+npm error       |           ^
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/internal/conditional-stack-allocated.h:35:11: error: expected constructor, destructor, or type conversion before ‘(’ token
+npm error    35 |   requires(!RequiresStackAllocated<T>)
+npm error       |           ^
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:53:19: error: expected identifier
+npm error    53 |     requires(std::is_base_of_v<T, S>)
+npm error       |                   ^~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:53:37: error: expected unqualified-id before ‘)’ token
+npm error    53 |     requires(std::is_base_of_v<T, S>)
+npm error       |                                     ^
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/common.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:23,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8config.h:496:20: error: expected constructor, destructor, or type conversion before ‘inline’
+npm error   496 | # define V8_INLINE inline __attribute__((always_inline))
+npm error       |                    ^~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:54:3: note: in expansion of macro ‘V8_INLINE’
+npm error    54 |   V8_INLINE Eternal(Isolate* isolate, Local<S> handle) {
+npm error       |   ^~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:66:19: error: expected identifier
+npm error    66 |     requires(std::is_base_of_v<T, S>)
+npm error       |                   ^~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:66:37: error: expected unqualified-id before ‘)’ token
+npm error    66 |     requires(std::is_base_of_v<T, S>)
+npm error       |                                     ^
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:67:3: error: expected constructor, destructor, or type conversion before ‘void’
+npm error    67 |   void Set(Isolate* isolate, Local<S> handle) {
+npm error       |   ^~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-weak-callback-info.h: In instantiation of ‘class v8::WeakCallbackInfo<void>’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:75:47:   required from here
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-weak-callback-info.h:25:7: error: invalid use of incomplete type ‘class cppgc::internal::ConditionalStackAllocatedBase<void>’
+npm error    25 | class WeakCallbackInfo
+npm error       |       ^~~~~~~~~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-maybe.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/internal/conditional-stack-allocated.h:19:7: note: declaration of ‘class cppgc::internal::ConditionalStackAllocatedBase<void>’
+npm error    19 | class ConditionalStackAllocatedBase;
+npm error       |       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:263:19: error: expected identifier
+npm error   263 |     requires(std::is_base_of_v<T, S>)
+npm error       |                   ^~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:263:37: error: expected unqualified-id before ‘)’ token
+npm error   263 |     requires(std::is_base_of_v<T, S>)
+npm error       |                                     ^
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/common.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:23,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8config.h:496:20: error: expected constructor, destructor, or type conversion before ‘inline’
+npm error   496 | # define V8_INLINE inline __attribute__((always_inline))
+npm error       |                    ^~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:264:3: note: in expansion of macro ‘V8_INLINE’
+npm error   264 |   V8_INLINE Persistent(Isolate* isolate, Local<S> that)
+npm error       |   ^~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:274:19: error: expected identifier
+npm error   274 |     requires(std::is_base_of_v<T, S>)
+npm error       |                   ^~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:274:37: error: expected unqualified-id before ‘)’ token
+npm error   274 |     requires(std::is_base_of_v<T, S>)
+npm error       |                                     ^
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/common.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:23,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8config.h:496:20: error: expected constructor, destructor, or type conversion before ‘inline’
+npm error   496 | # define V8_INLINE inline __attribute__((always_inline))
+npm error       |                    ^~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:275:3: note: in expansion of macro ‘V8_INLINE’
+npm error   275 |   V8_INLINE Persistent(Isolate* isolate, const Persistent<S, M2>& that)
+npm error       |   ^~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:362:19: error: expected identifier
+npm error   362 |     requires(std::is_base_of_v<T, S>)
+npm error       |                   ^~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:362:37: error: expected unqualified-id before ‘)’ token
+npm error   362 |     requires(std::is_base_of_v<T, S>)
+npm error       |                                     ^
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/common.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:23,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8config.h:496:20: error: expected constructor, destructor, or type conversion before ‘inline’
+npm error   496 | # define V8_INLINE inline __attribute__((always_inline))
+npm error       |                    ^~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:363:3: note: in expansion of macro ‘V8_INLINE’
+npm error   363 |   V8_INLINE Global(Isolate* isolate, Local<S> that)
+npm error       |   ^~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:373:19: error: expected identifier
+npm error   373 |     requires(std::is_base_of_v<T, S>)
+npm error       |                   ^~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:373:37: error: expected unqualified-id before ‘)’ token
+npm error   373 |     requires(std::is_base_of_v<T, S>)
+npm error       |                                     ^
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/common.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:23,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8config.h:496:20: error: expected constructor, destructor, or type conversion before ‘inline’
+npm error   496 | # define V8_INLINE inline __attribute__((always_inline))
+npm error       |                    ^~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:374:3: note: in expansion of macro ‘V8_INLINE’
+npm error   374 |   V8_INLINE Global(Isolate* isolate, const PersistentBase<S>& that)
+npm error       |   ^~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h: In member function ‘v8::String::ExternalStringResource* v8::String::GetExternalStringResource() const’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:998:80: error: no matching function for call to ‘v8::internal::Internals::ReadExternalPointerField<v8::internal::kExternalStringResourceTag>(v8::Isolate*&, A&, const int&)’
+npm error   998 |     A value = I::ReadExternalPointerField<internal::kExternalStringResourceTag>(
+npm error       |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   999 |         isolate, obj, I::kStringResourceOffset);
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                 
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-handle-base.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note: candidate: ‘template<<typeprefixerror>tag_range> static v8::internal::Address v8::internal::Internals::ReadExternalPointerField(v8::Isolate*, v8::internal::Address, int)’
+npm error  1257 |   V8_INLINE static Address ReadExternalPointerField(v8::Isolate* isolate,
+npm error       |                            ^~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note:   template argument deduction/substitution failed:
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:998:80: note: invalid template non-type parameter
+npm error   998 |     A value = I::ReadExternalPointerField<internal::kExternalStringResourceTag>(
+npm error       |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   999 |         isolate, obj, I::kStringResourceOffset);
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                 
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h: In member function ‘v8::String::ExternalStringResourceBase* v8::String::GetExternalStringResourceBase(v8::Isolate*, v8::String::Encoding*) const’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:1020:80: error: no matching function for call to ‘v8::internal::Internals::ReadExternalPointerField<v8::internal::kExternalStringResourceTag>(v8::Isolate*&, A&, const int&)’
+npm error  1020 |     A value = I::ReadExternalPointerField<internal::kExternalStringResourceTag>(
+npm error       |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error  1021 |         isolate, obj, I::kStringResourceOffset);
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                 
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-handle-base.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note: candidate: ‘template<<typeprefixerror>tag_range> static v8::internal::Address v8::internal::Internals::ReadExternalPointerField(v8::Isolate*, v8::internal::Address, int)’
+npm error  1257 |   V8_INLINE static Address ReadExternalPointerField(v8::Isolate* isolate,
+npm error       |                            ^~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note:   template argument deduction/substitution failed:
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:1020:80: note: invalid template non-type parameter
+npm error  1020 |     A value = I::ReadExternalPointerField<internal::kExternalStringResourceTag>(
+npm error       |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error  1021 |         isolate, obj, I::kStringResourceOffset);
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                 
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h: In member function ‘v8::String::ExternalStringResourceBase* v8::String::GetExternalStringResourceBase(v8::String::Encoding*) const’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:1043:80: error: no matching function for call to ‘v8::internal::Internals::ReadExternalPointerField<v8::internal::kExternalStringResourceTag>(v8::Isolate*&, A&, const int&)’
+npm error  1043 |     A value = I::ReadExternalPointerField<internal::kExternalStringResourceTag>(
+npm error       |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error  1044 |         isolate, obj, I::kStringResourceOffset);
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                 
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-handle-base.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note: candidate: ‘template<<typeprefixerror>tag_range> static v8::internal::Address v8::internal::Internals::ReadExternalPointerField(v8::Isolate*, v8::internal::Address, int)’
+npm error  1257 |   V8_INLINE static Address ReadExternalPointerField(v8::Isolate* isolate,
+npm error       |                            ^~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note:   template argument deduction/substitution failed:
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:1043:80: note: invalid template non-type parameter
+npm error  1043 |     A value = I::ReadExternalPointerField<internal::kExternalStringResourceTag>(
+npm error       |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error  1044 |         isolate, obj, I::kStringResourceOffset);
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                 
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h: In member function ‘void* v8::Object::GetAlignedPointerFromInternalField(v8::Isolate*, int)’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:896:75: error: no matching function for call to ‘v8::internal::Internals::ReadExternalPointerField<v8::internal::kEmbedderDataSlotPayloadTag>(v8::Isolate*&, A&, int&)’
+npm error   896 |         I::ReadExternalPointerField<internal::kEmbedderDataSlotPayloadTag>(
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   897 |             isolate, obj, offset);
+npm error       |             ~~~~~~~~~~~~~~~~~~~~~                                          
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-handle-base.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note: candidate: ‘template<<typeprefixerror>tag_range> static v8::internal::Address v8::internal::Internals::ReadExternalPointerField(v8::Isolate*, v8::internal::Address, int)’
+npm error  1257 |   V8_INLINE static Address ReadExternalPointerField(v8::Isolate* isolate,
+npm error       |                            ^~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note:   template argument deduction/substitution failed:
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:896:75: note: invalid template non-type parameter
+npm error   896 |         I::ReadExternalPointerField<internal::kEmbedderDataSlotPayloadTag>(
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   897 |             isolate, obj, offset);
+npm error       |             ~~~~~~~~~~~~~~~~~~~~~                                          
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h: In member function ‘void* v8::Object::GetAlignedPointerFromInternalField(int)’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:918:75: error: no matching function for call to ‘v8::internal::Internals::ReadExternalPointerField<v8::internal::kEmbedderDataSlotPayloadTag>(v8::Isolate*&, A&, int&)’
+npm error   918 |         I::ReadExternalPointerField<internal::kEmbedderDataSlotPayloadTag>(
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   919 |             isolate, obj, offset);
+npm error       |             ~~~~~~~~~~~~~~~~~~~~~                                          
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-handle-base.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note: candidate: ‘template<<typeprefixerror>tag_range> static v8::internal::Address v8::internal::Internals::ReadExternalPointerField(v8::Isolate*, v8::internal::Address, int)’
+npm error  1257 |   V8_INLINE static Address ReadExternalPointerField(v8::Isolate* isolate,
+npm error       |                            ^~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note:   template argument deduction/substitution failed:
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:918:75: note: invalid template non-type parameter
+npm error   918 |         I::ReadExternalPointerField<internal::kEmbedderDataSlotPayloadTag>(
+npm error       |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   919 |             isolate, obj, offset);
+npm error       |             ~~~~~~~~~~~~~~~~~~~~~                                          
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:26,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-context.h: In member function ‘void* v8::Context::GetAlignedPointerFromEmbedderData(v8::Isolate*, int)’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-context.h:473:73: error: no matching function for call to ‘v8::internal::Internals::ReadExternalPointerField<v8::internal::kEmbedderDataSlotPayloadTag>(v8::Isolate*&, A&, int&)’
+npm error   473 |       I::ReadExternalPointerField<internal::kEmbedderDataSlotPayloadTag>(
+npm error       |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   474 |           isolate, embedder_data, value_offset));
+npm error       |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                          
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-handle-base.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note: candidate: ‘template<<typeprefixerror>tag_range> static v8::internal::Address v8::internal::Internals::ReadExternalPointerField(v8::Isolate*, v8::internal::Address, int)’
+npm error  1257 |   V8_INLINE static Address ReadExternalPointerField(v8::Isolate* isolate,
+npm error       |                            ^~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note:   template argument deduction/substitution failed:
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:26,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-context.h:473:73: note: invalid template non-type parameter
+npm error   473 |       I::ReadExternalPointerField<internal::kEmbedderDataSlotPayloadTag>(
+npm error       |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   474 |           isolate, embedder_data, value_offset));
+npm error       |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                          
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-context.h: In member function ‘void* v8::Context::GetAlignedPointerFromEmbedderData(int)’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-context.h:492:73: error: no matching function for call to ‘v8::internal::Internals::ReadExternalPointerField<v8::internal::kEmbedderDataSlotPayloadTag>(v8::Isolate*&, A&, int&)’
+npm error   492 |       I::ReadExternalPointerField<internal::kEmbedderDataSlotPayloadTag>(
+npm error       |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   493 |           isolate, embedder_data, value_offset));
+npm error       |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                          
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-handle-base.h:8,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:13,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note: candidate: ‘template<<typeprefixerror>tag_range> static v8::internal::Address v8::internal::Internals::ReadExternalPointerField(v8::Isolate*, v8::internal::Address, int)’
+npm error  1257 |   V8_INLINE static Address ReadExternalPointerField(v8::Isolate* isolate,
+npm error       |                            ^~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-internal.h:1257:28: note:   template argument deduction/substitution failed:
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:26,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-context.h:492:73: note: invalid template non-type parameter
+npm error   492 |       I::ReadExternalPointerField<internal::kEmbedderDataSlotPayloadTag>(
+npm error       |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+npm error   493 |           isolate, embedder_data, value_offset));
+npm error       |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                          
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:15,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:33,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h: In member function ‘void v8::Template::Set(v8::Isolate*, const char*, v8::Local<v8::Data>, v8::PropertyAttribute)’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:1110:6: error: no matching function for call to ‘v8::Template::Set(v8::Local<v8::String>, v8::Local<v8::Data>&, v8::PropertyAttribute&)’
+npm error  1110 |   Set(String::NewFromUtf8(isolate, name, NewStringType::kInternalized)
+npm error       |   ~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+npm error  1111 |           .ToLocalChecked(),
+npm error       |           ~~~~~~~~~~~~~~~~~~
+npm error  1112 |       value, attributes);
+npm error       |       ~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:57:8: note: candidate: ‘void v8::Template::Set(v8::Local<v8::Name>, v8::Local<v8::Data>, v8::PropertyAttribute)’
+npm error    57 |   void Set(Local<Name> name, Local<Data> value,
+npm error       |        ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:57:24: note:   no known conversion for argument 1 from ‘Local<v8::String>’ to ‘Local<v8::Name>’
+npm error    57 |   void Set(Local<Name> name, Local<Data> value,
+npm error       |            ~~~~~~~~~~~~^~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:1108:6: note: candidate: ‘void v8::Template::Set(v8::Isolate*, const char*, v8::Local<v8::Data>, v8::PropertyAttribute)’
+npm error  1108 | void Template::Set(Isolate* isolate, const char* name, Local<Data> value,
+npm error       |      ^~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:1108:29: note:   no known conversion for argument 1 from ‘v8::Local<v8::String>’ to ‘v8::Isolate*’
+npm error  1108 | void Template::Set(Isolate* isolate, const char* name, Local<Data> value,
+npm error       |                    ~~~~~~~~~^~~~~~~
+npm error In file included from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h: In function ‘void node::NODE_SET_METHOD(v8::Local<v8::Template>, const char*, v8::FunctionCallback)’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:1179:12: error: no matching function for call to ‘v8::Template::Set(v8::Local<v8::String>&, v8::Local<v8::FunctionTemplate>&)’
+npm error  1179 |   recv->Set(fn_name, t);
+npm error       |   ~~~~~~~~~^~~~~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:15,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:33,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:57:8: note: candidate: ‘void v8::Template::Set(v8::Local<v8::Name>, v8::Local<v8::Data>, v8::PropertyAttribute)’
+npm error    57 |   void Set(Local<Name> name, Local<Data> value,
+npm error       |        ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:57:24: note:   no known conversion for argument 1 from ‘Local<v8::String>’ to ‘Local<v8::Name>’
+npm error    57 |   void Set(Local<Name> name, Local<Data> value,
+npm error       |            ~~~~~~~~~~~~^~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:1108:6: note: candidate: ‘void v8::Template::Set(v8::Isolate*, const char*, v8::Local<v8::Data>, v8::PropertyAttribute)’
+npm error  1108 | void Template::Set(Isolate* isolate, const char* name, Local<Data> value,
+npm error       |      ^~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:1108:6: note:   candidate expects 4 arguments, 2 provided
+npm error In file included from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h: In function ‘void node::NODE_SET_METHOD(v8::Local<v8::Object>, const char*, v8::FunctionCallback)’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:1195:12: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>&, v8::Local<v8::Function>&)’
+npm error  1195 |   recv->Set(context, fn_name, fn).Check();
+npm error       |   ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error In file included from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h: In function ‘void node::NODE_SET_PROTOTYPE_METHOD(v8::Local<v8::FunctionTemplate>, const char*, v8::FunctionCallback)’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:1212:33: error: no matching function for call to ‘v8::ObjectTemplate::Set(v8::Local<v8::String>&, v8::Local<v8::FunctionTemplate>&)’
+npm error  1212 |   recv->PrototypeTemplate()->Set(fn_name, t);
+npm error       |   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:15,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:33,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:57:8: note: candidate: ‘void v8::Template::Set(v8::Local<v8::Name>, v8::Local<v8::Data>, v8::PropertyAttribute)’
+npm error    57 |   void Set(Local<Name> name, Local<Data> value,
+npm error       |        ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:57:24: note:   no known conversion for argument 1 from ‘Local<v8::String>’ to ‘Local<v8::Name>’
+npm error    57 |   void Set(Local<Name> name, Local<Data> value,
+npm error       |            ~~~~~~~~~~~~^~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:1108:6: note: candidate: ‘void v8::Template::Set(v8::Isolate*, const char*, v8::Local<v8::Data>, v8::PropertyAttribute)’
+npm error  1108 | void Template::Set(Isolate* isolate, const char* name, Local<Data> value,
+npm error       |      ^~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:1108:6: note:   candidate expects 4 arguments, 2 provided
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-weak-callback-info.h: In instantiation of ‘class v8::WeakCallbackInfo<node::ObjectWrap>’:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-persistent-handle.h:484:16:   required by substitution of ‘template<class P> void v8::PersistentBase<v8::Object>::SetWeak<P>(P*, typename v8::WeakCallbackInfo<T>::Callback, v8::WeakCallbackType) [with P = node::ObjectWrap]’
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node_object_wrap.h:85:25:   required from here
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-weak-callback-info.h:25:7: error: invalid use of incomplete type ‘class cppgc::internal::ConditionalStackAllocatedBase<node::ObjectWrap>’
+npm error    25 | class WeakCallbackInfo
+npm error       |       ^~~~~~~~~~~~~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-maybe.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/internal/conditional-stack-allocated.h:19:7: note: declaration of ‘class cppgc::internal::ConditionalStackAllocatedBase<node::ObjectWrap>’
+npm error    19 | class ConditionalStackAllocatedBase;
+npm error       |       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/macros.lzz: At global scope:
+npm error ./src/util/macros.lzz:31:69: error: ‘CopyablePersistentTraits’ is not a member of ‘v8’; did you mean ‘NonCopyablePersistentTraits’?
+npm error ./src/util/macros.lzz:31:94: error: template argument 2 is invalid
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/macros.lzz:33:97: error: ‘CopyablePersistent’ has not been declared
+npm error ./src/util/macros.lzz:33:116: error: expected ‘,’ or ‘...’ before ‘<’ token
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/macros.lzz:142:138: error: ‘v8::AccessorGetterCallback’ has not been declared
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:119:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:120:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:121:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:122:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:123:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:124:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:125:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:126:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:127:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:128:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:129:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:130:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:131:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:132:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:133:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:134:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:135:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:136:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:140:49: error: ‘CopyablePersistent’ has not been declared
+npm error ./src/util/constants.lzz:140:68: error: expected ‘,’ or ‘...’ before ‘<’ token
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/constants.lzz:150:28: error: ‘CopyablePersistent’ was not declared in this scope
+npm error ./src/util/constants.lzz:150:57: error: template argument 2 is invalid
+npm error ./src/util/constants.lzz:150:57: error: template argument 5 is invalid
+npm error ./src/util/constants.lzz:150:59: error: expected unqualified-id before ‘>’ token
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/bind-map.lzz:25:5: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/objects/database.lzz:465:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-function.lzz:57:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-aggregate.lzz:39:90: error: ‘CopyablePersistent’ has not been declared
+npm error ./src/util/custom-aggregate.lzz:39:109: error: expected ‘,’ or ‘...’ before ‘<’ token
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-aggregate.lzz:83:5: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-aggregate.lzz:118:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-aggregate.lzz:119:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-aggregate.lzz:120:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-table.lzz:104:5: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-table.lzz:123:5: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-table.lzz:124:5: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-table.lzz:125:5: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-table.lzz:403:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/better_sqlite3.lzz:56:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/better_sqlite3.lzz:57:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/better_sqlite3.lzz:58:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/better_sqlite3.lzz:59:3: error: ‘CopyablePersistent’ does not name a type
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/macros.lzz: In function ‘v8::Local<v8::Value> InternalizedFromUtf8OrNull(v8::Isolate*, const char*, int)’:
+npm error ./src/util/macros.lzz:23:42: error: could not convert ‘v8::Null(isolate)’ from ‘Local<v8::Primitive>’ to ‘Local<v8::Value>’
+npm error ./src/util/macros.lzz:24:36: error: could not convert ‘InternalizedFromUtf8(isolate, data, length)’ from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/macros.lzz: At global scope:
+npm error ./src/util/macros.lzz:33:108: error: ‘CopyablePersistent’ has not been declared
+npm error ./src/util/macros.lzz:33:127: error: expected ‘,’ or ‘...’ before ‘<’ token
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/macros.lzz: In function ‘void SetFrozen(v8::Isolate*, v8::Local<v8::Context>, v8::Local<v8::Object>, int)’:
+npm error ./src/util/macros.lzz:34:37: error: ‘key’ was not declared in this scope; did you mean ‘key_t’?
+npm error ./src/util/macros.lzz:34:55: error: ‘value’ was not declared in this scope
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/bind-map.lzz: In member function ‘v8::Local<v8::String> BindMap::Pair::GetName(v8::Isolate*)’:
+npm error ./src/util/bind-map.lzz:14:40: error: ‘name’ was not declared in this scope; did you mean ‘tzname’?
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/objects/statement-iterator.lzz: In static member function ‘static v8::Local<v8::Object> StatementIterator::NewRecord(v8::Isolate*, v8::Local<v8::Context>, v8::Local<v8::Value>, Addon*, bool)’:
+npm error ./src/objects/statement-iterator.lzz:121:44: error: ‘class CS’ has no member named ‘value’
+npm error ./src/objects/statement-iterator.lzz:122:44: error: ‘class CS’ has no member named ‘done’
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/objects/statement-iterator.lzz: In static member function ‘static v8::Local<v8::Object> StatementIterator::DoneRecord(v8::Isolate*, Addon*)’:
+npm error ./src/objects/statement-iterator.lzz:127:91: error: cannot convert ‘Local<v8::Primitive>’ to ‘Local<v8::Value>’
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/objects/statement-iterator.lzz:119:139: note:   initializing argument 3 of ‘static v8::Local<v8::Object> StatementIterator::NewRecord(v8::Isolate*, v8::Local<v8::Context>, v8::Local<v8::Value>, Addon*, bool)’
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-aggregate.lzz: At global scope:
+npm error ./src/util/custom-aggregate.lzz:39:109: error: ‘CopyablePersistent’ has not been declared
+npm error ./src/util/custom-aggregate.lzz:39:128: error: expected ‘,’ or ‘...’ before ‘<’ token
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-aggregate.lzz: In static member function ‘static void CustomAggregate::xStepBase(sqlite3_context*, int, sqlite3_value**, int)’:
+npm error ./src/util/custom-aggregate.lzz:40:269: error: ‘struct CustomAggregate::Accumulator’ has no member named ‘value’
+npm error ./src/util/custom-aggregate.lzz:44:32: error: ‘struct CustomAggregate::Accumulator’ has no member named ‘value’
+npm error ./src/util/custom-aggregate.lzz:47:70: error: ‘ptrtm’ was not declared in this scope
+npm error ./src/util/custom-aggregate.lzz:54:63: error: ‘struct CustomAggregate::Accumulator’ has no member named ‘value’
+npm error In file included from ../src/better_sqlite3.cpp:4:
+npm error ./src/util/custom-aggregate.lzz: In static member function ‘static void CustomAggregate::xValueBase(sqlite3_context*, bool)’:
+npm error ./src/util/custom-aggregate.lzz:59:269: error: ‘struct CustomAggregate::Accumulator’ has no member named ‘value’
+npm error ./src/util/custom-aggregate.lzz:68:52: error: ‘struct CustomAggregate::Accumulator’ has no member named ‘value’
+npm error ./src/util/custom-aggregate.lzz:70:71: error: ‘class CustomAggregate’ has no member named ‘result’
+npm error ./src/util/binder.lzz: In function ‘bool IsPlainObject(v8::Isolate*, v8::Local<v8::Object>)’:
+npm error ./src/util/binder.lzz:51:72: error: cannot convert ‘Local<v8::Primitive>’ to ‘Local<v8::Value>’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-value.h:463:34: note:   initializing argument 1 of ‘bool v8::Value::StrictEquals(v8::Local<v8::Value>) const’
+npm error   463 |   bool StrictEquals(Local<Value> that) const;
+npm error       |                     ~~~~~~~~~~~~~^~~~
+npm error In file included from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error ./src/better_sqlite3.lzz: At global scope:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:1376:7: warning: cast between incompatible function types from ‘void (*)(v8::Local<v8::Object>, v8::Local<v8::Value>, v8::Local<v8::Context>)’ to ‘node::addon_context_register_func’ {aka ‘void (*)(v8::Local<v8::Object>, v8::Local<v8::Value>, v8::Local<v8::Context>, void*)’} [-Wcast-function-type]
+npm error  1376 |       (node::addon_context_register_func) (regfunc),                  \
+npm error       |       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:1394:3: note: in expansion of macro ‘NODE_MODULE_CONTEXT_AWARE_X’
+npm error  1394 |   NODE_MODULE_CONTEXT_AWARE_X(modname, regfunc, NULL, 0)
+npm error       |   ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:1425:3: note: in expansion of macro ‘NODE_MODULE_CONTEXT_AWARE’
+npm error  1425 |   NODE_MODULE_CONTEXT_AWARE(NODE_GYP_MODULE_NAME,                     \
+npm error       |   ^~~~~~~~~~~~~~~~~~~~~~~~~
+npm error ./src/better_sqlite3.lzz:67:1: note: in expansion of macro ‘NODE_MODULE_INIT’
+npm error ./src/better_sqlite3.lzz: In function ‘void node_register_module_v137(v8::Local<v8::Object>, v8::Local<v8::Value>, v8::Local<v8::Context>)’:
+npm error ./src/better_sqlite3.lzz:77:14: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>, v8::Local<v8::Function>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/better_sqlite3.lzz:78:14: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>, v8::Local<v8::Function>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/better_sqlite3.lzz:79:14: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>, v8::Local<v8::Function>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/better_sqlite3.lzz:80:14: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>, v8::Local<v8::Function>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/better_sqlite3.lzz:81:146: error: cannot convert ‘Local<v8::External>’ to ‘Local<v8::Value>’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:15,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:33,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:575:20: note:   initializing argument 3 of ‘static v8::Local<v8::FunctionTemplate> v8::FunctionTemplate::New(v8::Isolate*, v8::FunctionCallback, v8::Local<v8::Value>, v8::Local<v8::Signature>, int, v8::ConstructorBehavior, v8::SideEffectType, const v8::CFunction*, uint16_t, uint16_t, uint16_t)’
+npm error   575 |       Local<Value> data = Local<Value>(),
+npm error       |       ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~
+npm error ./src/better_sqlite3.lzz:84:9: error: ‘struct Addon’ has no member named ‘Statement’
+npm error ./src/better_sqlite3.lzz:84:46: error: no matching function for call to ‘v8::Object::Get(v8::Local<v8::Context>&, v8::Local<v8::String>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:297:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>)’
+npm error   297 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:298:60: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   298 |                                               Local<Value> key);
+npm error       |                                               ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   299 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note:   candidate expects 3 arguments, 2 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:303:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, uint32_t)’
+npm error   303 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:304:56: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   304 |                                               uint32_t index);
+npm error       |                                               ~~~~~~~~~^~~~~
+npm error ./src/better_sqlite3.lzz:84:134: error: expected primary-expression before ‘>’ token
+npm error ./src/better_sqlite3.lzz:84:136: error: expected primary-expression before ‘)’ token
+npm error ./src/better_sqlite3.lzz:85:9: error: ‘struct Addon’ has no member named ‘StatementIterator’
+npm error ./src/better_sqlite3.lzz:85:54: error: no matching function for call to ‘v8::Object::Get(v8::Local<v8::Context>&, v8::Local<v8::String>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:297:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>)’
+npm error   297 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:298:60: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   298 |                                               Local<Value> key);
+npm error       |                                               ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   299 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note:   candidate expects 3 arguments, 2 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:303:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, uint32_t)’
+npm error   303 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:304:56: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   304 |                                               uint32_t index);
+npm error       |                                               ~~~~~~~~~^~~~~
+npm error ./src/better_sqlite3.lzz:85:150: error: expected primary-expression before ‘>’ token
+npm error ./src/better_sqlite3.lzz:85:152: error: expected primary-expression before ‘)’ token
+npm error ./src/better_sqlite3.lzz:86:9: error: ‘struct Addon’ has no member named ‘Backup’
+npm error ./src/better_sqlite3.lzz:86:43: error: no matching function for call to ‘v8::Object::Get(v8::Local<v8::Context>&, v8::Local<v8::String>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:297:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>)’
+npm error   297 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:298:60: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   298 |                                               Local<Value> key);
+npm error       |                                               ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   299 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note:   candidate expects 3 arguments, 2 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:303:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, uint32_t)’
+npm error   303 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:304:56: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   304 |                                               uint32_t index);
+npm error       |                                               ~~~~~~~~~^~~~~
+npm error ./src/better_sqlite3.lzz:86:128: error: expected primary-expression before ‘>’ token
+npm error ./src/better_sqlite3.lzz:86:130: error: expected primary-expression before ‘)’ token
+npm error ./src/util/macros.lzz: In function ‘v8::Local<v8::FunctionTemplate> NewConstructorTemplate(v8::Isolate*, v8::Local<v8::External>, v8::FunctionCallback, const char*)’:
+npm error ./src/util/macros.lzz:111:86: error: cannot convert ‘Local<v8::External>’ to ‘Local<v8::Value>’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:15,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:33,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:575:20: note:   initializing argument 3 of ‘static v8::Local<v8::FunctionTemplate> v8::FunctionTemplate::New(v8::Isolate*, v8::FunctionCallback, v8::Local<v8::Value>, v8::Local<v8::Signature>, int, v8::ConstructorBehavior, v8::SideEffectType, const v8::CFunction*, uint16_t, uint16_t, uint16_t)’
+npm error   575 |       Local<Value> data = Local<Value>(),
+npm error       |       ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~
+npm error ./src/util/macros.lzz: In function ‘void SetPrototypeMethod(v8::Isolate*, v8::Local<v8::External>, v8::Local<v8::FunctionTemplate>, const char*, v8::FunctionCallback)’:
+npm error ./src/util/macros.lzz:126:58: error: cannot convert ‘Local<v8::External>’ to ‘Local<v8::Value>’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:15,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:33,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:575:20: note:   initializing argument 3 of ‘static v8::Local<v8::FunctionTemplate> v8::FunctionTemplate::New(v8::Isolate*, v8::FunctionCallback, v8::Local<v8::Value>, v8::Local<v8::Signature>, int, v8::ConstructorBehavior, v8::SideEffectType, const v8::CFunction*, uint16_t, uint16_t, uint16_t)’
+npm error   575 |       Local<Value> data = Local<Value>(),
+npm error       |       ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~
+npm error ./src/util/macros.lzz: In function ‘void SetPrototypeSymbolMethod(v8::Isolate*, v8::Local<v8::External>, v8::Local<v8::FunctionTemplate>, v8::Local<v8::Symbol>, v8::FunctionCallback)’:
+npm error ./src/util/macros.lzz:139:58: error: cannot convert ‘Local<v8::External>’ to ‘Local<v8::Value>’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:15,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:33,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-template.h:575:20: note:   initializing argument 3 of ‘static v8::Local<v8::FunctionTemplate> v8::FunctionTemplate::New(v8::Isolate*, v8::FunctionCallback, v8::Local<v8::Value>, v8::Local<v8::Signature>, int, v8::ConstructorBehavior, v8::SideEffectType, const v8::CFunction*, uint16_t, uint16_t, uint16_t)’
+npm error   575 |       Local<Value> data = Local<Value>(),
+npm error       |       ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~
+npm error ./src/util/macros.lzz: At global scope:
+npm error ./src/util/macros.lzz:142:138: error: ‘v8::AccessorGetterCallback’ has not been declared
+npm error ./src/util/macros.lzz: In function ‘void SetPrototypeGetter(v8::Isolate*, v8::Local<v8::External>, v8::Local<v8::FunctionTemplate>, const char*, int)’:
+npm error ./src/util/macros.lzz:150:35: error: ‘class v8::ObjectTemplate’ has no member named ‘SetAccessor’
+npm error ./src/util/constants.lzz: In member function ‘v8::Local<v8::String> CS::Code(v8::Isolate*, int)’:
+npm error ./src/util/constants.lzz:5:32: error: ‘codes’ was not declared in this scope; did you mean ‘code’?
+npm error ./src/util/constants.lzz: In constructor ‘CS::CS(v8::Isolate*)’:
+npm error ./src/util/constants.lzz:11:36: error: ‘database’ was not declared in this scope; did you mean ‘Database’?
+npm error ./src/util/constants.lzz:12:36: error: ‘reader’ was not declared in this scope; did you mean ‘read’?
+npm error ./src/util/constants.lzz:13:36: error: ‘source’ was not declared in this scope
+npm error ./src/util/constants.lzz:14:36: error: ‘memory’ was not declared in this scope; did you mean ‘memcpy’?
+npm error ./src/util/constants.lzz:15:36: error: ‘readonly’ was not declared in this scope
+npm error ./src/util/constants.lzz:16:36: error: ‘name’ was not declared in this scope; did you mean ‘tzname’?
+npm error ./src/util/constants.lzz:17:36: error: ‘next’ was not declared in this scope; did you mean ‘std::next’?
+npm error In file included from /usr/include/c++/11/bits/stl_algobase.h:66,
+npm error                  from /usr/include/c++/11/bits/char_traits.h:39,
+npm error                  from /usr/include/c++/11/string:40,
+npm error                  from ./src/better_sqlite3.lzz:5,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /usr/include/c++/11/bits/stl_iterator_base_funcs.h:213:5: note: ‘std::next’ declared here
+npm error   213 |     next(_InputIterator __x, typename
+npm error       |     ^~~~
+npm error ./src/util/constants.lzz:18:36: error: ‘length’ was not declared in this scope
+npm error ./src/util/constants.lzz:19:36: error: ‘done’ was not declared in this scope
+npm error ./src/util/constants.lzz:20:36: error: ‘value’ was not declared in this scope
+npm error ./src/util/constants.lzz:21:36: error: ‘changes’ was not declared in this scope
+npm error ./src/util/constants.lzz:22:36: error: ‘lastInsertRowid’ was not declared in this scope
+npm error ./src/util/constants.lzz:23:36: error: ‘statement’ was not declared in this scope; did you mean ‘Statement’?
+npm error ./src/util/constants.lzz:24:36: error: ‘column’ was not declared in this scope
+npm error ./src/util/constants.lzz:25:36: error: ‘table’ was not declared in this scope
+npm error ./src/util/constants.lzz:26:36: error: ‘type’ was not declared in this scope; did you mean ‘wctype’?
+npm error ./src/util/constants.lzz:27:36: error: ‘totalPages’ was not declared in this scope
+npm error ./src/util/constants.lzz:28:36: error: ‘remainingPages’ was not declared in this scope
+npm error ./src/util/constants.lzz: At global scope:
+npm error ./src/util/constants.lzz:140:44: error: ‘CopyablePersistent’ has not been declared
+npm error ./src/util/constants.lzz:140:63: error: expected ‘,’ or ‘...’ before ‘<’ token
+npm error ./src/util/constants.lzz: In static member function ‘static void CS::SetString(v8::Isolate*, int)’:
+npm error ./src/util/constants.lzz:141:17: error: ‘constant’ was not declared in this scope
+npm error ./src/util/constants.lzz:141:73: error: ‘str’ was not declared in this scope; did you mean ‘std’?
+npm error ./src/util/constants.lzz: In member function ‘void CS::SetCode(v8::Isolate*, int, const char*)’:
+npm error ./src/util/constants.lzz:145:17: error: ‘codes’ was not declared in this scope; did you mean ‘code’?
+npm error ./src/util/bind-map.lzz: In constructor ‘BindMap::Pair::Pair(v8::Isolate*, const char*, int)’:
+npm error ./src/util/bind-map.lzz:20:5: error: class ‘BindMap::Pair’ does not have any field named ‘name’
+npm error ./src/util/bind-map.lzz: In constructor ‘BindMap::Pair::Pair(v8::Isolate*, BindMap::Pair*)’:
+npm error ./src/util/bind-map.lzz:23:5: error: class ‘BindMap::Pair’ does not have any field named ‘name’
+npm error ./src/util/bind-map.lzz:23:26: error: ‘class BindMap::Pair’ has no member named ‘name’
+npm error ./src/objects/database.lzz: In static member function ‘static v8::Local<v8::Function> Database::Init(v8::Isolate*, v8::Local<v8::External>)’:
+npm error ./src/objects/database.lzz:17:35: error: invalid conversion from ‘void (*)(v8::Local<v8::String>, const v8::PropertyCallbackInfo<v8::Value>&)’ to ‘int’ [-fpermissive]
+npm error ./src/util/macros.lzz:142:165: note:   initializing argument 5 of ‘void SetPrototypeGetter(v8::Isolate*, v8::Local<v8::External>, v8::Local<v8::FunctionTemplate>, const char*, int)’
+npm error ./src/objects/database.lzz:18:35: error: invalid conversion from ‘void (*)(v8::Local<v8::String>, const v8::PropertyCallbackInfo<v8::Value>&)’ to ‘int’ [-fpermissive]
+npm error ./src/util/macros.lzz:142:165: note:   initializing argument 5 of ‘void SetPrototypeGetter(v8::Isolate*, v8::Local<v8::External>, v8::Local<v8::FunctionTemplate>, const char*, int)’
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::ThrowSqliteError(Addon*, const char*, int)’:
+npm error ./src/objects/database.lzz:55:39: error: conversion from ‘Local<v8::String>’ to non-scalar type ‘Local<v8::Value>’ requested
+npm error ./src/objects/database.lzz:56:39: error: conversion from ‘Local<v8::String>’ to non-scalar type ‘Local<v8::Value>’ requested
+npm error ./src/objects/database.lzz:58:48: error: ‘struct Addon’ has no member named ‘SqliteError’
+npm error ./src/objects/database.lzz: In member function ‘bool Database::Log(v8::Isolate*, sqlite3_stmt*)’:
+npm error ./src/objects/database.lzz:68:58: error: conversion from ‘Local<v8::String>’ to non-scalar type ‘Local<v8::Value>’ requested
+npm error ./src/objects/database.lzz:69:32: error: ‘logger’ was not declared in this scope
+npm error ./src/objects/database.lzz:69:67: error: expected primary-expression before ‘>’ token
+npm error ./src/objects/database.lzz:69:69: error: expected primary-expression before ‘)’ token
+npm error ./src/objects/database.lzz: In constructor ‘Database::Database(v8::Isolate*, Addon*, sqlite3*, v8::Local<v8::Value>)’:
+npm error ./src/objects/database.lzz:131:203: error: class ‘Database’ does not have any field named ‘logger’
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_new(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:163:61: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/database.lzz:194:64: error: ‘class CS’ has no member named ‘memory’
+npm error ./src/objects/database.lzz:195:64: error: ‘class CS’ has no member named ‘readonly’
+npm error ./src/objects/database.lzz:196:64: error: ‘class CS’ has no member named ‘name’
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_prepare(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:210:52: error: ‘struct Addon’ has no member named ‘Statement’
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_exec(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:226:59: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_backup(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:268:52: error: ‘struct Addon’ has no member named ‘Backup’
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_serialize(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:283:74: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_function(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:310:63: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_aggregate(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:337:63: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_table(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:360:63: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/database.lzz: In static member function ‘static void Database::JS_loadExtension(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/database.lzz:382:65: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/database.lzz:383:97: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/statement.lzz: In static member function ‘static v8::Local<v8::Function> Statement::Init(v8::Isolate*, v8::Local<v8::External>)’:
+npm error ./src/objects/statement.lzz:16:35: error: invalid conversion from ‘void (*)(v8::Local<v8::String>, const v8::PropertyCallbackInfo<v8::Value>&)’ to ‘int’ [-fpermissive]
+npm error ./src/util/macros.lzz:142:165: note:   initializing argument 5 of ‘void SetPrototypeGetter(v8::Isolate*, v8::Local<v8::External>, v8::Local<v8::FunctionTemplate>, const char*, int)’
+npm error ./src/objects/statement.lzz: In static member function ‘static void Statement::JS_new(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/statement.lzz:106:59: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/statement.lzz:148:64: error: ‘class CS’ has no member named ‘reader’
+npm error ./src/objects/statement.lzz:149:64: error: ‘class CS’ has no member named ‘readonly’
+npm error ./src/objects/statement.lzz:150:64: error: ‘class CS’ has no member named ‘source’
+npm error ./src/objects/statement.lzz:151:64: error: ‘class CS’ has no member named ‘database’
+npm error ./src/objects/statement.lzz: In static member function ‘static void Statement::JS_run(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/statement.lzz:168:52: error: ‘class CS’ has no member named ‘changes’
+npm error ./src/objects/statement.lzz:169:52: error: ‘class CS’ has no member named ‘lastInsertRowid’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-maybe.h: In instantiation of ‘class v8::Maybe<bool>’:
+npm error ./src/objects/statement.lzz:205:36:   required from here
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-maybe.h:33:7: error: invalid use of incomplete type ‘class cppgc::internal::ConditionalStackAllocatedBase<bool>’
+npm error    33 | class Maybe : public cppgc::internal::ConditionalStackAllocatedBase<T> {
+npm error       |       ^~~~~
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-maybe.h:11,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:10,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/cppgc/internal/conditional-stack-allocated.h:19:7: note: declaration of ‘class cppgc::internal::ConditionalStackAllocatedBase<bool>’
+npm error    19 | class ConditionalStackAllocatedBase;
+npm error       |       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+npm error ./src/objects/statement.lzz: In static member function ‘static void Statement::JS_iterate(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/statement.lzz:218:52: error: ‘struct Addon’ has no member named ‘StatementIterator’
+npm error ./src/objects/statement.lzz: In static member function ‘static void Statement::JS_columns(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/statement.lzz:290:56: error: ‘class CS’ has no member named ‘name’
+npm error ./src/objects/statement.lzz:291:62: error: ‘class CS’ has no member named ‘column’
+npm error ./src/objects/statement.lzz:292:61: error: ‘class CS’ has no member named ‘table’
+npm error ./src/objects/statement.lzz:293:64: error: ‘class CS’ has no member named ‘database’
+npm error ./src/objects/statement.lzz:294:60: error: ‘class CS’ has no member named ‘type’
+npm error ./src/objects/statement.lzz:299:36: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>&, v8::Local<v8::Value>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/objects/statement.lzz:302:36: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>&, v8::Local<v8::Value>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/objects/statement.lzz:305:36: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>&, v8::Local<v8::Value>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/objects/statement.lzz:308:36: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>&, v8::Local<v8::Value>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/objects/statement.lzz:311:36: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>&, v8::Local<v8::Value>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/objects/statement.lzz:315:37: error: no matching function for call to ‘v8::Array::Set(v8::Local<v8::Context>&, int&, v8::Local<v8::Object>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘int’ to ‘v8::Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:246:54: note:   no known conversion for argument 3 from ‘Local<v8::Object>’ to ‘Local<v8::Value>’
+npm error   246 |                                         Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~~~
+npm error ./src/objects/statement-iterator.lzz: In static member function ‘static void StatementIterator::JS_new(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/statement-iterator.lzz:52:64: error: ‘class CS’ has no member named ‘statement’
+npm error ./src/objects/backup.lzz: In static member function ‘static void Backup::JS_new(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/backup.lzz:70:66: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/backup.lzz:71:74: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/objects/backup.lzz:93:94: error: ‘class CS’ has no member named ‘database’
+npm error ./src/objects/backup.lzz: In static member function ‘static void Backup::JS_transfer(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/objects/backup.lzz:115:52: error: ‘class CS’ has no member named ‘totalPages’
+npm error ./src/objects/backup.lzz:116:52: error: ‘class CS’ has no member named ‘remainingPages’
+npm error ./src/util/custom-function.lzz: In constructor ‘CustomFunction::CustomFunction(v8::Isolate*, Database*, const char*, v8::Local<v8::Function>, bool)’:
+npm error ./src/util/custom-function.lzz:10:46: error: class ‘CustomFunction’ does not have any field named ‘fn’
+npm error ./src/util/custom-function.lzz: In static member function ‘static void CustomFunction::xFunc(sqlite3_context*, int, sqlite3_value**)’:
+npm error ./src/util/custom-function.lzz:33:68: error: ‘class CustomFunction’ has no member named ‘fn’
+npm error ./src/util/custom-aggregate.lzz: In constructor ‘CustomAggregate::CustomAggregate(v8::Isolate*, Database*, const char*, v8::Local<v8::Value>, v8::Local<v8::Function>, v8::Local<v8::Value>, v8::Local<v8::Value>, bool)’:
+npm error ./src/util/custom-aggregate.lzz:13:132: error: class ‘CustomAggregate’ does not have any field named ‘inverse’
+npm error ./src/util/custom-aggregate.lzz:13:231: error: class ‘CustomAggregate’ does not have any field named ‘result’
+npm error ./src/util/custom-aggregate.lzz:13:327: error: class ‘CustomAggregate’ does not have any field named ‘start’
+npm error ./src/util/custom-aggregate.lzz: In static member function ‘static void CustomAggregate::xStep(sqlite3_context*, int, sqlite3_value**)’:
+npm error ./src/util/custom-aggregate.lzz:22:69: error: ‘fn’ is not a member of ‘CustomAggregate’
+npm error ./src/util/custom-aggregate.lzz: In static member function ‘static void CustomAggregate::xInverse(sqlite3_context*, int, sqlite3_value**)’:
+npm error ./src/util/custom-aggregate.lzz:26:69: error: ‘inverse’ is not a member of ‘CustomAggregate’
+npm error ./src/util/custom-aggregate.lzz: In member function ‘CustomAggregate::Accumulator* CustomAggregate::GetAccumulator(sqlite3_context*)’:
+npm error ./src/util/custom-aggregate.lzz:94:71: error: ‘start’ was not declared in this scope
+npm error ./src/util/custom-aggregate.lzz:94:105: error: expected primary-expression before ‘>’ token
+npm error ./src/util/custom-aggregate.lzz:94:107: error: expected primary-expression before ‘)’ token
+npm error ./src/util/custom-aggregate.lzz:96:43: error: ‘struct CustomAggregate::Accumulator’ has no member named ‘value’
+npm error ./src/util/custom-aggregate.lzz:99:38: error: ‘struct CustomAggregate::Accumulator’ has no member named ‘value’
+npm error ./src/util/custom-aggregate.lzz:99:59: error: ‘start’ was not declared in this scope
+npm error ./src/util/custom-aggregate.lzz: In static member function ‘static void CustomAggregate::DestroyAccumulator(sqlite3_context*)’:
+npm error ./src/util/custom-aggregate.lzz:108:22: error: ‘struct CustomAggregate::Accumulator’ has no member named ‘value’
+npm error ./src/util/custom-table.lzz: In constructor ‘CustomTable::CustomTable(v8::Isolate*, Database*, const char*, v8::Local<v8::Function>)’:
+npm error ./src/util/custom-table.lzz:9:70: error: class ‘CustomTable’ does not have any field named ‘factory’
+npm error ./src/util/custom-table.lzz: In constructor ‘CustomTable::VTab::VTab(CustomTable*, v8::Local<v8::Function>, std::vector<std::__cxx11::basic_string<char> >, bool)’:
+npm error ./src/util/custom-table.lzz:83:87: error: class ‘CustomTable::VTab’ does not have any field named ‘generator’
+npm error ./src/util/custom-table.lzz: In static member function ‘static int CustomTable::xConnect(sqlite3*, void*, int, const char* const*, sqlite3_vtab**, char**)’:
+npm error ./src/util/custom-table.lzz:164:70: error: no match for ‘operator=’ (operand types are ‘v8::Local<v8::Value>’ and ‘v8::Local<v8::String>’)
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:261:22: note: candidate: ‘constexpr v8::Local<v8::Value>& v8::Local<v8::Value>::operator=(const v8::Local<v8::Value>&)’
+npm error   261 | class V8_TRIVIAL_ABI Local : public LocalBase<T>,
+npm error       |                      ^~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:261:22: note:   no known conversion for argument 1 from ‘v8::Local<v8::String>’ to ‘const v8::Local<v8::Value>&’
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:261:22: note: candidate: ‘constexpr v8::Local<v8::Value>& v8::Local<v8::Value>::operator=(v8::Local<v8::Value>&&)’
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:261:22: note:   no known conversion for argument 1 from ‘v8::Local<v8::String>’ to ‘v8::Local<v8::Value>&&’
+npm error ./src/util/custom-table.lzz:168:68: error: ‘class CustomTable’ has no member named ‘factory’
+npm error ./src/util/custom-table.lzz:184:61: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/util/custom-table.lzz:191:84: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/util/custom-table.lzz: In static member function ‘static int CustomTable::xFilter(sqlite3_vtab_cursor*, int, const char*, int, sqlite3_value**)’:
+npm error ./src/util/custom-table.lzz:257:72: error: no match for ‘operator=’ (operand types are ‘v8::Local<v8::Value>’ and ‘v8::Local<v8::Primitive>’)
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:261:22: note: candidate: ‘constexpr v8::Local<v8::Value>& v8::Local<v8::Value>::operator=(const v8::Local<v8::Value>&)’
+npm error   261 | class V8_TRIVIAL_ABI Local : public LocalBase<T>,
+npm error       |                      ^~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:261:22: note:   no known conversion for argument 1 from ‘v8::Local<v8::Primitive>’ to ‘const v8::Local<v8::Value>&’
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:261:22: note: candidate: ‘constexpr v8::Local<v8::Value>& v8::Local<v8::Value>::operator=(v8::Local<v8::Value>&&)’
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-local-handle.h:261:22: note:   no known conversion for argument 1 from ‘v8::Local<v8::Primitive>’ to ‘v8::Local<v8::Value>&&’
+npm error ./src/util/custom-table.lzz:263:65: error: ‘class CustomTable::VTab’ has no member named ‘generator’
+npm error ./src/util/custom-table.lzz:273:77: error: ‘class CS’ has no member named ‘next’
+npm error ./src/util/custom-table.lzz:273:128: error: expected primary-expression before ‘>’ token
+npm error ./src/util/custom-table.lzz:273:130: error: expected primary-expression before ‘)’ token
+npm error ./src/util/custom-table.lzz:274:25: error: ‘class CustomTable::Cursor’ has no member named ‘iterator’
+npm error ./src/util/custom-table.lzz:275:25: error: ‘class CustomTable::Cursor’ has no member named ‘next’
+npm error ./src/util/custom-table.lzz: In static member function ‘static int CustomTable::xNext(sqlite3_vtab_cursor*)’:
+npm error ./src/util/custom-table.lzz:292:58: error: ‘class CustomTable::Cursor’ has no member named ‘iterator’
+npm error ./src/util/custom-table.lzz:293:56: error: ‘class CustomTable::Cursor’ has no member named ‘next’
+npm error ./src/util/custom-table.lzz:295:67: error: no matching function for call to ‘v8::Function::Call(v8::Local<v8::Context>&, v8::Local<v8::Object>&, int, NULL)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:33,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:56:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Function::Call(v8::Isolate*, v8::Local<v8::Context>, v8::Local<v8::Value>, int, v8::Local<v8::Value>*)’
+npm error    56 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Call(v8::Isolate* isolate,
+npm error       |                                           ^~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:56:43: note:   candidate expects 5 arguments, 4 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:60:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Function::Call(v8::Local<v8::Context>, v8::Local<v8::Value>, int, v8::Local<v8::Value>*)’
+npm error    60 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Call(Local<Context> context,
+npm error       |                                           ^~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function.h:61:61: note:   no known conversion for argument 2 from ‘Local<v8::Object>’ to ‘Local<v8::Value>’
+npm error    61 |                                                Local<Value> recv, int argc,
+npm error       |                                                ~~~~~~~~~~~~~^~~~
+npm error ./src/util/custom-table.lzz:302:56: error: ‘class CS’ has no member named ‘done’
+npm error ./src/util/custom-table.lzz:302:106: error: expected primary-expression before ‘>’ token
+npm error ./src/util/custom-table.lzz:302:108: error: expected primary-expression before ‘)’ token
+npm error ./src/util/custom-table.lzz:304:33: error: ‘class CustomTable::Cursor’ has no member named ‘row’; did you mean ‘rowid’?
+npm error ./src/util/custom-table.lzz:304:79: error: ‘class CS’ has no member named ‘value’
+npm error ./src/util/custom-table.lzz:304:128: error: expected primary-expression before ‘>’ token
+npm error ./src/util/custom-table.lzz:304:130: error: expected primary-expression before ‘)’ token
+npm error ./src/util/custom-table.lzz: In static member function ‘static int CustomTable::xColumn(sqlite3_vtab_cursor*, sqlite3_context*, int)’:
+npm error ./src/util/custom-table.lzz:325:52: error: ‘class CustomTable::Cursor’ has no member named ‘row’; did you mean ‘rowid’?
+npm error ./src/util/data.lzz: In function ‘v8::Local<v8::Value> Data::GetValueJS(v8::Isolate*, sqlite3_stmt*, int, bool)’:
+npm error ./src/util/data.lzz:73:138: error: could not convert ‘v8::BigInt::New(isolate, ((int64_t)sqlite3_column_int64(handle, column)))’ from ‘Local<v8::BigInt>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz:73:244: error: could not convert ‘v8::Number::New(isolate, sqlite3_column_double(handle, column))’ from ‘Local<v8::Number>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz:73:343: error: could not convert ‘StringFromUtf8(isolate, ((const char*)sqlite3_column_text(handle, column)), sqlite3_column_bytes(handle, column))’ from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz:73:676: error: could not convert ‘node::Buffer::Copy(isolate, ((const char*)sqlite3_column_blob(handle, column)), ((size_t)sqlite3_column_bytes(handle, column))).v8::MaybeLocal<v8::Object>::ToLocalChecked()’ from ‘Local<v8::Object>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz:73:778: error: could not convert ‘v8::Null(isolate)’ from ‘Local<v8::Primitive>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz: In function ‘v8::Local<v8::Value> Data::GetValueJS(v8::Isolate*, sqlite3_value*, bool)’:
+npm error ./src/util/data.lzz:77:127: error: could not convert ‘v8::BigInt::New(isolate, ((int64_t)sqlite3_value_int64(value)))’ from ‘Local<v8::BigInt>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz:77:222: error: could not convert ‘v8::Number::New(isolate, sqlite3_value_double(value))’ from ‘Local<v8::Number>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz:77:310: error: could not convert ‘StringFromUtf8(isolate, ((const char*)sqlite3_value_text(value)), sqlite3_value_bytes(value))’ from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz:77:599: error: could not convert ‘node::Buffer::Copy(isolate, ((const char*)sqlite3_value_blob(value)), ((size_t)sqlite3_value_bytes(value))).v8::MaybeLocal<v8::Object>::ToLocalChecked()’ from ‘Local<v8::Object>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz:77:690: error: could not convert ‘v8::Null(isolate)’ from ‘Local<v8::Primitive>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz: In function ‘v8::Local<v8::Value> Data::GetFlatRowJS(v8::Isolate*, v8::Local<v8::Context>, sqlite3_stmt*, bool)’:
+npm error ./src/util/data.lzz:84:33: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>, v8::Local<v8::Value>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/util/data.lzz:88:24: error: could not convert ‘row’ from ‘Local<v8::Object>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz: In function ‘v8::Local<v8::Value> Data::GetExpandedRowJS(v8::Isolate*, v8::Local<v8::Context>, sqlite3_stmt*, bool)’:
+npm error ./src/util/data.lzz:99:48: error: no matching function for call to ‘v8::Object::HasOwnProperty(v8::Local<v8::Context>&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:621:37: note: candidate: ‘v8::Maybe<bool> v8::Object::HasOwnProperty(v8::Local<v8::Context>, v8::Local<v8::Name>)’
+npm error   621 |   V8_WARN_UNUSED_RESULT Maybe<bool> HasOwnProperty(Local<Context> context,
+npm error       |                                     ^~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:622:64: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Name>’
+npm error   622 |                                                    Local<Name> key);
+npm error       |                                                    ~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:623:37: note: candidate: ‘v8::Maybe<bool> v8::Object::HasOwnProperty(v8::Local<v8::Context>, uint32_t)’
+npm error   623 |   V8_WARN_UNUSED_RESULT Maybe<bool> HasOwnProperty(Local<Context> context,
+npm error       |                                     ^~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:624:61: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   624 |                                                    uint32_t index);
+npm error       |                                                    ~~~~~~~~~^~~~~
+npm error ./src/util/data.lzz:100:41: error: no matching function for call to ‘v8::Object::Get(v8::Local<v8::Context>&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:297:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>)’
+npm error   297 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:298:60: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   298 |                                               Local<Value> key);
+npm error       |                                               ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   299 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note:   candidate expects 3 arguments, 2 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:303:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, uint32_t)’
+npm error   303 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:304:56: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   304 |                                               uint32_t index);
+npm error       |                                               ~~~~~~~~~^~~~~
+npm error ./src/util/data.lzz:100:84: error: expected primary-expression before ‘>’ token
+npm error ./src/util/data.lzz:100:86: error: expected primary-expression before ‘)’ token
+npm error ./src/util/data.lzz:103:41: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>&, v8::Local<v8::Object>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/util/data.lzz:104:44: error: no matching function for call to ‘v8::Object::Set(v8::Local<v8::Context>&, v8::Local<v8::String>&, v8::Local<v8::Value>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:239:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>)’
+npm error   239 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:240:54: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   240 |                                         Local<Value> key, Local<Value> value);
+npm error       |                                         ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   241 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:241:37: note:   candidate expects 4 arguments, 3 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:37: note: candidate: ‘v8::Maybe<bool> v8::Object::Set(v8::Local<v8::Context>, uint32_t, v8::Local<v8::Value>)’
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                     ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:245:74: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   245 |   V8_WARN_UNUSED_RESULT Maybe<bool> Set(Local<Context> context, uint32_t index,
+npm error       |                                                                 ~~~~~~~~~^~~~~
+npm error ./src/util/data.lzz:107:24: error: could not convert ‘row’ from ‘Local<v8::Object>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz: In function ‘v8::Local<v8::Value> Data::GetRawRowJS(v8::Isolate*, v8::Local<v8::Context>, sqlite3_stmt*, bool)’:
+npm error ./src/util/data.lzz:116:24: error: could not convert ‘row’ from ‘Local<v8::Array>’ to ‘Local<v8::Value>’
+npm error ./src/util/data.lzz: In function ‘int Data::BindValueFromJS(v8::Isolate*, sqlite3_stmt*, int, v8::Local<v8::Value>)’:
+npm error ./src/util/data.lzz:136:456: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/util/data.lzz: In function ‘void Data::ResultValueFromJS(v8::Isolate*, sqlite3_context*, v8::Local<v8::Value>, DataConverter*)’:
+npm error ./src/util/data.lzz:141:452: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/util/binder.lzz: In member function ‘int Binder::BindObject(v8::Isolate*, v8::Local<v8::Object>, Statement*)’:
+npm error ./src/util/binder.lzz:126:75: error: no matching function for call to ‘v8::Object::HasOwnProperty(v8::Local<v8::Context>&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:621:37: note: candidate: ‘v8::Maybe<bool> v8::Object::HasOwnProperty(v8::Local<v8::Context>, v8::Local<v8::Name>)’
+npm error   621 |   V8_WARN_UNUSED_RESULT Maybe<bool> HasOwnProperty(Local<Context> context,
+npm error       |                                     ^~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:622:64: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Name>’
+npm error   622 |                                                    Local<Name> key);
+npm error       |                                                    ~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:623:37: note: candidate: ‘v8::Maybe<bool> v8::Object::HasOwnProperty(v8::Local<v8::Context>, uint32_t)’
+npm error   623 |   V8_WARN_UNUSED_RESULT Maybe<bool> HasOwnProperty(Local<Context> context,
+npm error       |                                     ^~~~~~~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:624:61: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   624 |                                                    uint32_t index);
+npm error       |                                                    ~~~~~~~~~^~~~~
+npm error ./src/util/binder.lzz:132:78: error: no matching function for call to ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:12,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:5: note: candidate: ‘v8::String::Utf8Value::Utf8Value(v8::Isolate*, v8::Local<v8::Value>, v8::String::WriteOptions)’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |     ^~~~~~~~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-primitive.h:650:50: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   650 |     Utf8Value(Isolate* isolate, Local<v8::Value> obj,
+npm error       |                                 ~~~~~~~~~~~~~~~~~^~~
+npm error ./src/util/binder.lzz:138:72: error: no matching function for call to ‘v8::Object::Get(v8::Local<v8::Context>&, v8::Local<v8::String>&)’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-array-buffer.h:14,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:24,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:297:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>)’
+npm error   297 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:298:60: note:   no known conversion for argument 2 from ‘Local<v8::String>’ to ‘Local<v8::Value>’
+npm error   298 |                                               Local<Value> key);
+npm error       |                                               ~~~~~~~~~~~~~^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, v8::Local<v8::Value>, v8::MaybeLocal<v8::Object>)’
+npm error   299 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:299:43: note:   candidate expects 3 arguments, 2 provided
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:303:43: note: candidate: ‘v8::MaybeLocal<v8::Value> v8::Object::Get(v8::Local<v8::Context>, uint32_t)’
+npm error   303 |   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Get(Local<Context> context,
+npm error       |                                           ^~~
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-object.h:304:56: note:   no known conversion for argument 2 from ‘v8::Local<v8::String>’ to ‘uint32_t’ {aka ‘unsigned int’}
+npm error   304 |                                               uint32_t index);
+npm error       |                                               ~~~~~~~~~^~~~~
+npm error ./src/better_sqlite3.lzz: In static member function ‘static void Addon::JS_setErrorConstructor(const v8::FunctionCallbackInfo<v8::Value>&)’:
+npm error ./src/better_sqlite3.lzz:37:104: error: ‘struct Addon’ has no member named ‘SqliteError’
+npm error In file included from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-isolate.h:22,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-snapshot.h:9,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-context.h:15,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8.h:26,
+npm error                  from /home/omotemmy/.cache/node-gyp/24.14.0/include/node/node.h:74,
+npm error                  from ./src/better_sqlite3.lzz:11,
+npm error                  from ../src/better_sqlite3.cpp:4:
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function-callback.h: In instantiation of ‘v8::Local<v8::Value> v8::FunctionCallbackInfo<F>::operator[](int) const [with T = v8::Value]’:
+npm error ./src/objects/database.lzz:151:63:   required from here
+npm error /home/omotemmy/.cache/node-gyp/24.14.0/include/node/v8-function-callback.h:623:47: error: could not convert ‘v8::Undefined(((const v8::FunctionCallbackInfo<v8::Value>*)this)->v8::FunctionCallbackInfo<v8::Value>::GetIsolate())’ from ‘Local<v8::Primitive>’ to ‘Local<v8::Value>’
+npm error   623 |   if (i < 0 || Length() <= i) return Undefined(GetIsolate());
+npm error       |                                      ~~~~~~~~~^~~~~~~~~~~~~~
+npm error       |                                               |
+npm error       |                                               Local<v8::Primitive>
+npm error make: *** [better_sqlite3.target.mk:122: Release/obj.target/better_sqlite3/src/better_sqlite3.o] Error 1
+npm error gyp ERR! build error 
+npm error gyp ERR! stack Error: `make` failed with exit code: 2
+npm error gyp ERR! stack at ChildProcess.<anonymous> (/home/omotemmy/.nvm/versions/node/v24.14.0/lib/node_modules/npm/node_modules/node-gyp/lib/build.js:219:23)
+npm error gyp ERR! System Linux 6.17.9-76061709-generic
+npm error gyp ERR! command "/home/omotemmy/.nvm/versions/node/v24.14.0/bin/node" "/home/omotemmy/.nvm/versions/node/v24.14.0/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js" "rebuild" "--release"
+npm error gyp ERR! cwd /home/omotemmy/Documents/drips/soroban-playground/node_modules/better-sqlite3
+npm error gyp ERR! node -v v24.14.0
+npm error gyp ERR! node-gyp -v v12.2.0
+npm error gyp ERR! $npm_package_name better-sqlite3
+npm error gyp ERR! $npm_package_version 8.7.0
+npm error gyp ERR! not ok
+npm error A complete log of this run can be found in: /home/omotemmy/.npm/_logs/2026-04-26T13_26_31_433Z-debug-0.log

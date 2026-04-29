@@ -2,18 +2,31 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
+    "@apollo/client": "^4.1.9",
     "@monaco-editor/react": "^4.7.0",
+    "@stellar/freighter-api": "file:./vendor/freighter-api",
+    "@types/react-window": "^1.8.8",
+    "chart.js": "^4.5.1",
+    "graphql": "^16.13.2",
     "lucide-react": "^0.577.0",
+    "monaco-languageclient": "^10.7.0",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "19.2.3",
+    "react-window": "^2.2.7",
+    "reactflow": "^11.11.4",
+    "rxjs": "^7.8.2",
+    "vscode-languageserver-protocol": "^3.17.5",
+    "wabt": "^1.0.39"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
