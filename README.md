@@ -8,7 +8,7 @@ No setup required. Write Rust smart contracts directly in your browser.
 - **In-browser Compilation**: Compile Soroban contracts online and view logs/WASM outputs.
 - **Deploy to Testnet**: Deploy your contracts instantly to the Stellar Testnet.
 - **Contract Interaction**: Read and write functions easily via an auto-generated UI.
-- **Storage Viewer**: Explore contract storage keys and values.
+- **Storage Viewer**: Explore contract storage keys and values
 
 ## Project Structure
 This repository uses a monorepo setup:
