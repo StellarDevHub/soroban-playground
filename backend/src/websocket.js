@@ -1,10 +1,14 @@
 import { WebSocketServer } from 'ws';
+import { EventEmitter } from 'events';
 import { invokeProgressBus } from './services/invokeService.js';
 import { deployProgressBus } from './services/deployService.js';
 import { compileProgressBus } from './services/compileService.js';
 import oracleProofQueueService from './services/oracleProofQueueService.js';
 import redisService from './services/redisService.js';
 import { sharedOracleEventBus } from './services/oracle/oracleEvents.js';
+
+// REIT event bus for real-time updates
+export const reitEventBus = new EventEmitter();
 
 const clients = new Set();
 
@@ -60,6 +64,35 @@ export function setupWebsocketServer(httpServer) {
   // so the frontend can subscribe with one handler.
   sharedOracleEventBus.on('*', (payload) => {
     const message = JSON.stringify({ type: 'oracle-event', ...payload });
+    for (const socket of clients) {
+      if (socket.readyState === socket.OPEN) socket.send(message);
+    }
+  });
+
+  // Forward REIT events for real-time updates
+  reitEventBus.on('property-update', (payload) => {
+    const message = JSON.stringify({ type: 'reit-property', ...payload });
+    for (const socket of clients) {
+      if (socket.readyState === socket.OPEN) socket.send(message);
+    }
+  });
+
+  reitEventBus.on('transaction', (payload) => {
+    const message = JSON.stringify({ type: 'reit-transaction', ...payload });
+    for (const socket of clients) {
+      if (socket.readyState === socket.OPEN) socket.send(message);
+    }
+  });
+
+  reitEventBus.on('dividend', (payload) => {
+    const message = JSON.stringify({ type: 'reit-dividend', ...payload });
+    for (const socket of clients) {
+      if (socket.readyState === socket.OPEN) socket.send(message);
+    }
+  });
+
+  reitEventBus.on('stats', (payload) => {
+    const message = JSON.stringify({ type: 'reit-stats', ...payload });
     for (const socket of clients) {
       if (socket.readyState === socket.OPEN) socket.send(message);
     }

@@ -1,11 +1,3 @@
-import express from "express";
-import cors from "cors";
-import { initializeDatabase } from "./database/connection.js";
-import compileRoute from "./routes/compile.js";
-import deployRoute from "./routes/deploy.js";
-import invokeRoute from "./routes/invoke.js";
-import searchRoute from "./routes/search.js";
-import cacheService from "./services/cacheService.js";
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
@@ -13,11 +5,14 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import morgan from 'morgan';
-// import rateLimit from 'express-rate-limit'; // Replaced by custom Redis limiter
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import logger from './utils/logger.js';
+
+import { initializeDatabase } from './database/connection.js';
+import cacheService from './services/cacheService.js';
 import apiRouter from './routes/api.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
@@ -25,12 +20,13 @@ import { setupWebsocketServer } from './websocket.js';
 import { initializeCompileService } from './services/compileService.js';
 import oracleProofQueueService from './services/oracleProofQueueService.js';
 import adminRoute from './routes/admin.js';
-import metricsRoute, { requestLatency } from './routes/metrics.js';
-import oracleRoute from './routes/oracle.js';
+import metricsRoute from './routes/metrics.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
+import reitRoute from './routes/reit.js';
+import { reitService } from './services/reitService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,12 +52,7 @@ try {
 }
 
 // Morgan logging format
-const logFormat = config.tracing.enabled 
-  ? ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" trace_id=:traceId - :response-time ms'
-  : ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms';
-
-// Custom morgan token for trace ID
-morgan.token('traceId', (req) => req.traceId || '-');
+const logFormat = ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms';
 
 // Basic middleware
 app.use(morgan(logFormat));
@@ -72,70 +63,25 @@ app.use(express.json({ limit: '5mb' }));
 async function initializeServices() {
   try {
     await initializeDatabase();
-    console.log('Database initialized successfully');
+    logger.info('Database initialized successfully');
     
     await cacheService.initialize();
-    console.log('Cache service initialized');
+    logger.info('Cache service initialized');
   } catch (error) {
-    console.error('Service initialization error:', error);
+    logger.error('Service initialization error:', error);
   }
 }
 
-// Routes
-app.use("/api/compile", compileRoute);
-app.use("/api/deploy", deployRoute);
-app.use("/api/invoke", invokeRoute);
-app.use("/api/search", searchRoute);
-
-// Enhanced health check
-app.get("/api/health", async (req, res) => {
-  const cacheHealth = await cacheService.healthCheck();
-  
-  res.json({
-    status: "ok",
-    message: "Soroban Playground API is running",
-    timestamp: new Date().toISOString(),
-    service: "soroban-playground-backend",
-    services: {
-      database: "connected",
-      cache: cacheHealth.status
-    }
-  });
-});
-
-// Search-specific health check
-app.get("/api/search/health", async (req, res) => {
-  const cacheHealth = await cacheService.healthCheck();
-  
-  res.json({
-    success: cacheHealth.status === 'connected',
-    status: cacheHealth.status,
-    timestamp: new Date().toISOString(),
-    service: "search-service"
 // Latency tracking middleware
 app.use((req, res, next) => {
   const start = process.hrtime();
   res.on('finish', () => {
     const diff = process.hrtime(start);
-    const time = diff[0] + diff[1] / 1e9;
-    const timeMs = time * 1000;
-    requestLatency.observe({ 
-      method: req.method, 
-      route: req.route ? req.route.path : req.path, 
-      status: res.statusCode 
-    }, time);
-
-    // Add to current span if tracing is enabled
-    if (config.tracing.enabled) {
-      const span = getCurrentSpan();
-      if (span) {
-        setSpanAttributes(span, {
-          'http.duration_ms': timeMs,
-          'http.status_code': res.statusCode,
-          'http.method': req.method,
-          'http.route': req.route ? req.route.path : req.path,
-        });
-      }
+    const timeMs = (diff[0] + diff[1] / 1e9) * 1000;
+    
+    // Log slow requests
+    if (timeMs > 1000) {
+      logger.warn(`Slow request: ${req.method} ${req.path} took ${timeMs.toFixed(2)}ms`);
     }
   });
   next();
@@ -151,11 +97,11 @@ app.use('/api', apiRouter);
 app.use('/api/oracle', oracleQueueRoute);
 app.use('/api/admin', adminRoute);
 app.use('/api/migrations', migrationRoute);
+app.use('/api/reit', reitRoute);
 app.use('/metrics', metricsRoute);
 
-// GraphQL — mounted at /graphql (GraphiQL playground available at GET /graphql)
-const yoga = createGraphQLServer();
-app.use('/graphql', yoga);
+// GraphQL would be mounted here if implemented
+// app.use('/graphql', yoga);
 
 // ─── Health Check Helpers ────────────────────────────────────────────────────
 
@@ -241,25 +187,39 @@ app.get('/api/health', (_req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, async () => {
 // Error handlers (must be after routes)
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-setupWebsocketServer(server);
-await initializeCompileService();
-await oracleProofQueueService.startWorkers();
-startCleanupWorker();
-oracleWorkerPool.start(); // Start the oracle worker pool
-server.listen(PORT, () => {
-  console.log(`Backend server running on http://localhost:${PORT}`);
-  await initializeServices();
-});
+// Start server
+async function startServer() {
+  try {
+    await initializeServices();
+    await initializeCompileService();
+    await oracleProofQueueService.startWorkers();
+    startCleanupWorker();
+    oracleWorkerPool.start();
+    
+    // Initialize REIT service
+    await reitService.initialize();
+    logger.info('REIT service initialized');
+    
+    setupWebsocketServer(server);
+    
+    server.listen(PORT, () => {
+      logger.info(`Backend server running on http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('Shutting down gracefully...');
+  logger.info('Shutting down gracefully...');
   await cacheService.close();
   process.exit(0);
 });
