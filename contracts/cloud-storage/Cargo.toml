@@ -2,13 +2,18 @@
 name = "cloud-storage"
 version = "0.1.0"
 edition = "2021"
-publish = false
+description = "Decentralized cloud storage contract with file sharding and redundancy management"
+authors = ["StellarDevTools"]
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-soroban-sdk = "20.0.0"
+soroban-sdk = "21.0.6"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.6", features = ["testutils"] }
 
 [profile.release]
 opt-level = "z"
