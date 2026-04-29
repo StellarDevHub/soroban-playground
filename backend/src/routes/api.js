@@ -6,6 +6,7 @@ import v2Compile from './v2/compile.js';
 import v2Deploy from './v2/deploy.js';
 import v2Invoke from './v2/invoke.js';
 import eventsRouter from './events.js';
+import cloudStorageRouter from './cloudStorage.js';
 import { versionTransformer, requestTransformerV2 } from '../middleware/versionTransformer.js';
 import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
@@ -44,6 +45,7 @@ v2Router.use('/invoke', rateLimitMiddleware('invoke'), v2Invoke);
 router.use('/v1', v1Router);
 router.use('/v2', v2Router);
 router.use('/oracle', oracleRouter);
+router.use('/cloud-storage', cloudStorageRouter);
 
 // Default to v1 for backward compatibility (requests to /api/compile, etc.)
 router.use('/compile', versionTransformer('v1'), rateLimitMiddleware('compile'), v1Compile);
