@@ -72,3 +72,12 @@ pub fn is_handler(env: &Env, addr: &Address) -> bool {
 pub fn set_handler(env: &Env, addr: &Address, v: bool) {
     env.storage().persistent().set(&DataKey::Handler(addr.clone()), &v);
 }
+
+// ── Pause ─────────────────────────────────────────────────────────────────────
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage().instance().get(&InstanceKey::Paused).unwrap_or(false)
+}
+pub fn set_paused(env: &Env, v: bool) {
+    env.storage().instance().set(&InstanceKey::Paused, &v);
+}

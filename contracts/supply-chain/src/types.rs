@@ -73,6 +73,8 @@ pub struct QualityReport {
 pub enum InstanceKey {
     Admin,
     ProductCount,
+    /// Whether the contract is paused (emergency stop).
+    Paused,
 }
 
 #[contracttype]
@@ -104,4 +106,5 @@ pub enum Error {
     NotHandler = 8,
     AlreadyRecalled = 9,
     QualityReportNotFound = 10,
+    ContractPaused = 11,
 }

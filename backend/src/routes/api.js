@@ -2,6 +2,7 @@ import express from 'express';
 import v1Compile from './v1/compile.js';
 import v1Deploy from './v1/deploy.js';
 import v1Invoke from './v1/invoke.js';
+import v1SupplyChain from './v1/supply-chain.js';
 import v2Compile from './v2/compile.js';
 import v2Deploy from './v2/deploy.js';
 import v2Invoke from './v2/invoke.js';
@@ -31,6 +32,7 @@ v1Router.use(versionTransformer('v1'));
 v1Router.use('/compile', rateLimitMiddleware('compile'), v1Compile);
 v1Router.use('/deploy', rateLimitMiddleware('deploy'), v1Deploy);
 v1Router.use('/invoke', rateLimitMiddleware('invoke'), v1Invoke);
+v1Router.use('/supply-chain', rateLimitMiddleware('invoke'), v1SupplyChain);
 
 // v2 Routes
 const v2Router = express.Router();

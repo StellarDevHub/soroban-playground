@@ -8,6 +8,8 @@
 //! - Checkpoint-based traceability (location + handler at each step)
 //! - Quality assurance reports by authorised inspectors
 //! - Recall mechanism for compromised products
+//! - Emergency pause / unpause (admin only)
+//! - Event emissions for all critical state changes
 
 #![no_std]
 
@@ -15,17 +17,26 @@ mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 
 use crate::storage::{
     get_admin, get_checkpoint, get_checkpoint_count, get_product, get_product_count,
-    get_quality_report, is_handler, is_initialized, is_inspector, set_admin, set_checkpoint,
-    set_checkpoint_count, set_handler, set_inspector, set_product, set_product_count,
-    set_quality_report,
+    get_quality_report, is_handler, is_initialized, is_inspector, is_paused, set_admin,
+    set_checkpoint, set_checkpoint_count, set_handler, set_inspector, set_paused, set_product,
+    set_product_count, set_quality_report,
 };
-use crate::types::{
-    Checkpoint, Error, Product, ProductStatus, QualityReport, QualityResult,
-};
+use crate::types::{Checkpoint, Error, Product, ProductStatus, QualityReport, QualityResult};
+
+// ── Event topic symbols ───────────────────────────────────────────────────────
+
+const EVT_INIT: soroban_sdk::Symbol = symbol_short!("init");
+const EVT_PAUSE: soroban_sdk::Symbol = symbol_short!("pause");
+const EVT_UNPAUSE: soroban_sdk::Symbol = symbol_short!("unpause");
+const EVT_REG: soroban_sdk::Symbol = symbol_short!("reg");
+const EVT_CHKPT: soroban_sdk::Symbol = symbol_short!("chkpt");
+const EVT_STATUS: soroban_sdk::Symbol = symbol_short!("status");
+const EVT_QA: soroban_sdk::Symbol = symbol_short!("qa");
+const EVT_RECALL: soroban_sdk::Symbol = symbol_short!("recall");
 
 #[contract]
 pub struct SupplyChain;
@@ -34,13 +45,44 @@ pub struct SupplyChain;
 impl SupplyChain {
     // ── Initialisation ────────────────────────────────────────────────────────
 
+    /// Initialise the contract with an admin address.
     pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
         set_admin(&env, &admin);
+        env.events().publish((EVT_INIT,), admin);
         Ok(())
+    }
+
+    // ── Emergency pause ───────────────────────────────────────────────────────
+
+    /// Pause all state-mutating operations. Admin only.
+    pub fn pause(env: Env, caller: Address) -> Result<(), Error> {
+        caller.require_auth();
+        if caller != get_admin(&env)? {
+            return Err(Error::Unauthorized);
+        }
+        set_paused(&env, true);
+        env.events().publish((EVT_PAUSE,), caller);
+        Ok(())
+    }
+
+    /// Resume normal operations. Admin only.
+    pub fn unpause(env: Env, caller: Address) -> Result<(), Error> {
+        caller.require_auth();
+        if caller != get_admin(&env)? {
+            return Err(Error::Unauthorized);
+        }
+        set_paused(&env, false);
+        env.events().publish((EVT_UNPAUSE,), caller);
+        Ok(())
+    }
+
+    /// Returns true when the contract is paused.
+    pub fn paused(env: Env) -> bool {
+        is_paused(&env)
     }
 
     // ── Role management ───────────────────────────────────────────────────────
@@ -85,12 +127,17 @@ impl SupplyChain {
     // ── Product registration ──────────────────────────────────────────────────
 
     /// Register a new product. Returns the new product ID.
+    ///
+    /// Emits: `("reg", product_id)`
     pub fn register_product(
         env: Env,
         owner: Address,
         name: String,
         metadata_hash: u64,
     ) -> Result<u32, Error> {
+        if is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
         owner.require_auth();
         if name.is_empty() {
             return Err(Error::EmptyName);
@@ -99,7 +146,7 @@ impl SupplyChain {
         let now = env.ledger().timestamp();
         let product = Product {
             id,
-            owner,
+            owner: owner.clone(),
             name,
             metadata_hash,
             status: ProductStatus::Registered,
@@ -108,12 +155,15 @@ impl SupplyChain {
         };
         set_product(&env, &product);
         set_product_count(&env, id);
+        env.events().publish((EVT_REG,), (id, owner));
         Ok(id)
     }
 
     // ── Checkpoint / traceability ─────────────────────────────────────────────
 
     /// Record a supply chain checkpoint (location + handler).
+    ///
+    /// Emits: `("chkpt", product_id, checkpoint_index)`
     pub fn add_checkpoint(
         env: Env,
         handler: Address,
@@ -121,6 +171,9 @@ impl SupplyChain {
         location_hash: u64,
         notes_hash: u64,
     ) -> Result<u32, Error> {
+        if is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
         handler.require_auth();
         if !is_handler(&env, &handler) {
             return Err(Error::NotHandler);
@@ -135,7 +188,7 @@ impl SupplyChain {
         let checkpoint = Checkpoint {
             product_id,
             index,
-            handler,
+            handler: handler.clone(),
             location_hash,
             notes_hash,
             timestamp: now,
@@ -146,16 +199,22 @@ impl SupplyChain {
         product.status = ProductStatus::InTransit;
         product.updated_at = now;
         set_product(&env, &product);
+        env.events().publish((EVT_CHKPT,), (product_id, index, handler));
         Ok(index)
     }
 
     /// Update product status (e.g. AtWarehouse, QualityCheck, Delivered).
+    ///
+    /// Emits: `("status", product_id, new_status_u32)`
     pub fn update_status(
         env: Env,
         caller: Address,
         product_id: u32,
         new_status: ProductStatus,
     ) -> Result<(), Error> {
+        if is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
         caller.require_auth();
         let admin = get_admin(&env)?;
         let is_auth = caller == admin || is_handler(&env, &caller);
@@ -169,12 +228,15 @@ impl SupplyChain {
         product.status = new_status;
         product.updated_at = env.ledger().timestamp();
         set_product(&env, &product);
+        env.events().publish((EVT_STATUS,), (product_id, new_status as u32));
         Ok(())
     }
 
     // ── Quality assurance ─────────────────────────────────────────────────────
 
     /// Submit a quality inspection report.
+    ///
+    /// Emits: `("qa", product_id, result_u32)`
     pub fn submit_quality_report(
         env: Env,
         inspector: Address,
@@ -182,6 +244,9 @@ impl SupplyChain {
         result: QualityResult,
         report_hash: u64,
     ) -> Result<(), Error> {
+        if is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
         inspector.require_auth();
         if !is_inspector(&env, &inspector) {
             return Err(Error::NotInspector);
@@ -193,7 +258,7 @@ impl SupplyChain {
         let now = env.ledger().timestamp();
         let report = QualityReport {
             product_id,
-            inspector,
+            inspector: inspector.clone(),
             result,
             report_hash,
             timestamp: now,
@@ -207,12 +272,19 @@ impl SupplyChain {
         };
         product.updated_at = now;
         set_product(&env, &product);
+        env.events().publish((EVT_QA,), (product_id, result as u32, inspector));
         Ok(())
     }
 
     // ── Recall ────────────────────────────────────────────────────────────────
 
+    /// Recall a product. Admin only.
+    ///
+    /// Emits: `("recall", product_id)`
     pub fn recall_product(env: Env, caller: Address, product_id: u32) -> Result<(), Error> {
+        if is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
         caller.require_auth();
         if caller != get_admin(&env)? {
             return Err(Error::Unauthorized);
@@ -224,6 +296,7 @@ impl SupplyChain {
         product.status = ProductStatus::Recalled;
         product.updated_at = env.ledger().timestamp();
         set_product(&env, &product);
+        env.events().publish((EVT_RECALL,), product_id);
         Ok(())
     }
 
@@ -233,11 +306,7 @@ impl SupplyChain {
         get_product(&env, product_id)
     }
 
-    pub fn get_checkpoint(
-        env: Env,
-        product_id: u32,
-        index: u32,
-    ) -> Result<Checkpoint, Error> {
+    pub fn get_checkpoint(env: Env, product_id: u32, index: u32) -> Result<Checkpoint, Error> {
         get_checkpoint(&env, product_id, index).ok_or(Error::ProductNotFound)
     }
 

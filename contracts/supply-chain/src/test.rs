@@ -195,3 +195,87 @@ fn test_recall_unauthorized_fails() {
     let result = client.try_recall_product(&rando, &id);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
+
+// ── Pause tests ───────────────────────────────────────────────────────────────
+
+#[test]
+fn test_pause_blocks_register() {
+    let (env, admin, client) = setup();
+    client.pause(&admin);
+    assert!(client.paused());
+    let owner = Address::generate(&env);
+    let result = client.try_register_product(&owner, &String::from_str(&env, "Widget"), &1u64);
+    assert_eq!(result, Err(Ok(Error::ContractPaused)));
+}
+
+#[test]
+fn test_unpause_restores_register() {
+    let (env, admin, client) = setup();
+    client.pause(&admin);
+    client.unpause(&admin);
+    assert!(!client.paused());
+    let owner = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Widget"), &1u64);
+    assert_eq!(id, 1);
+}
+
+#[test]
+fn test_pause_blocks_checkpoint() {
+    let (env, admin, client) = setup();
+    let handler = Address::generate(&env);
+    client.add_handler(&admin, &handler);
+    let owner = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Widget"), &1u64);
+    client.pause(&admin);
+    let result = client.try_add_checkpoint(&handler, &id, &1u64, &0u64);
+    assert_eq!(result, Err(Ok(Error::ContractPaused)));
+}
+
+#[test]
+fn test_pause_blocks_recall() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Widget"), &1u64);
+    client.pause(&admin);
+    let result = client.try_recall_product(&admin, &id);
+    assert_eq!(result, Err(Ok(Error::ContractPaused)));
+}
+
+#[test]
+fn test_pause_unauthorized_fails() {
+    let (env, _admin, client) = setup();
+    let rando = Address::generate(&env);
+    let result = client.try_pause(&rando);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_unpause_unauthorized_fails() {
+    let (env, admin, client) = setup();
+    client.pause(&admin);
+    let rando = Address::generate(&env);
+    let result = client.try_unpause(&rando);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_pause_blocks_quality_report() {
+    let (env, admin, client) = setup();
+    let inspector = Address::generate(&env);
+    client.add_inspector(&admin, &inspector);
+    let owner = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Widget"), &1u64);
+    client.pause(&admin);
+    let result = client.try_submit_quality_report(&inspector, &id, &QualityResult::Pass, &0u64);
+    assert_eq!(result, Err(Ok(Error::ContractPaused)));
+}
+
+#[test]
+fn test_pause_blocks_update_status() {
+    let (env, admin, client) = setup();
+    let owner = Address::generate(&env);
+    let id = client.register_product(&owner, &String::from_str(&env, "Widget"), &1u64);
+    client.pause(&admin);
+    let result = client.try_update_status(&admin, &id, &ProductStatus::Delivered);
+    assert_eq!(result, Err(Ok(Error::ContractPaused)));
+}
