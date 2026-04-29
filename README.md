@@ -1,135 +1,121 @@
 # Soroban Playground
 
-Soroban Playground is a browser-based IDE for writing, compiling, deploying, and interacting with Stellar Soroban smart contracts.
-No setup required. Write Rust smart contracts directly in your browser.
+Soroban Playground is a browser-based workspace for writing, compiling, deploying, and exploring Stellar Soroban smart contracts. This repo includes a Next.js frontend, an Express backend, and a growing set of Rust contract examples.
 
-## Features
-- **Code Editor**: Monaco-based editor with Rust syntax highlighting, auto-formatting, and contract templates.
-- **In-browser Compilation**: Compile Soroban contracts online and view logs/WASM outputs.
-- **Deploy to Testnet**: Deploy your contracts instantly to the Stellar Testnet.
-- **Contract Interaction**: Read and write functions easily via an auto-generated UI.
-- **Storage Viewer**: Explore contract storage keys and values.
+## Core Stack
 
-## Project Structure
-This repository uses a monorepo setup:
-- `frontend/`: The Next.js React application containing the UI.
-- `backend/`: The Node.js Express application responsible for Soroban CLI interactions.
+- `frontend/`: Next.js app-router UI and interactive dashboards
+- `backend/`: Express APIs for compile, deploy, invoke, search, and feature demos
+- `contracts/`: Self-contained Soroban contract examples compiled to WASM
 
-## Getting Started
+## Patent Registry Feature
+
+Issue `#350` adds a smallest-complete decentralized patent workflow that fits the existing playground architecture.
+
+### Architecture Summary
+
+- Smart contract: `contracts/patent-registry/`
+  - Patent registration and owner-managed updates
+  - Verifier or admin approval flow
+  - License offer creation, update, and acceptance
+  - Pause and unpause emergency control
+- Backend: `backend/src/routes/patents.js` + `backend/src/services/patentRegistryService.js`
+  - REST endpoints for patents, licenses, dashboard state, and history
+  - Validation and rate limiting via existing middleware patterns
+  - Lightweight cache integration for dashboard and list endpoints
+- Frontend: `frontend/src/app/patents/page.tsx`
+  - Responsive patent registry dashboard
+  - Patent registration and update forms
+  - Verification controls
+  - Licensing marketplace and transaction history
+
+## Patent API Usage
+
+Base path: `/api/patents`
+
+- `GET /api/patents`
+  Returns patents, offers, history, and verifier config
+- `GET /api/patents/items`
+  Lists patents with optional `owner` and `verificationStatus` filters
+- `POST /api/patents/items`
+  Registers a new patent
+- `PATCH /api/patents/items/:id`
+  Updates a patent. Requires `x-actor-address` header for owner authorization
+- `POST /api/patents/items/:id/verify`
+  Verifies a patent. Requires verifier or admin actor header
+- `GET /api/patents/licenses`
+  Lists license offers
+- `POST /api/patents/licenses`
+  Creates a license offer
+- `PATCH /api/patents/licenses/:id`
+  Updates open license terms
+- `POST /api/patents/licenses/:id/accept`
+  Accepts an open offer
+- `GET /api/patents/history`
+  Returns backend transaction history
+
+## Contract Functions
+
+The patent contract exposes these main functions:
+
+- `initialize(admin, verifier)`
+- `register_patent(owner, title, description, content_hash, metadata_uri)`
+- `update_patent(owner, patent_id, title, description, content_hash, metadata_uri)`
+- `verify_patent(verifier, patent_id)`
+- `create_license_offer(owner, patent_id, terms_uri, payment_amount, payment_token)`
+- `update_license_offer(owner, offer_id, terms_uri, payment_amount, payment_token)`
+- `accept_license_offer(licensee, offer_id)`
+- `pause(admin)`
+- `unpause(admin)`
+
+## Local Setup
 
 ### Prerequisites
-- Node.js (v18+)
-- NPM or Yarn
-- Rust (for the backend compilation engine)
+
+- Node.js 18+
+- npm
+- Rust toolchain
 - Soroban CLI
 
-### Local Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/soroban-playground.git
-   ```
-2. Install dependencies for all workspaces:
-   ```bash
-   npm install
-   ```
-3. Start the application stack (Frontend and Backend concurrently):
-   ```bash
-   npm run dev
-   ```
+### Run Frontend
 
-## Contributing
-We welcome contributions! Please see our [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on how to get started.
-
-## License
-MIT License.
-# Soroban Playground
-
-Soroban Playground is a browser-based IDE for writing, compiling, deploying, and interacting with Stellar Soroban smart contracts.
-No setup required. Write Rust smart contracts directly in your browser.
-
-## Features
-- **Code Editor**: Monaco-based editor with Rust syntax highlighting, auto-formatting, and contract templates.
-- **In-browser Compilation**: Compile Soroban contracts online and view logs/WASM outputs.
-- **Deploy to Testnet**: Deploy your contracts instantly to the Stellar Testnet.
-- **Contract Interaction**: Read and write functions easily via an auto-generated UI.
-- **Storage Viewer**: Explore contract storage keys and values.
-
-## Tech Stack Diagram
-
-```mermaid
-flowchart LR
-   U[Developer / Contributor]
-
-   subgraph FE[Frontend - Next.js + React + TypeScript]
-      UI[UI Panels + Monaco Editor]
-      APIClient[Fetch Client]
-   end
-
-   subgraph BE[Backend - Node.js + Express]
-      Routes[/REST Routes\ncompile | deploy | invoke/]
-      CLI[Child Process Runner]
-   end
-
-   subgraph SC[Soroban Contracts - Rust]
-      Contracts[contracts/*\ncompiled to WASM]
-   end
-
-   subgraph ST[Stellar / Soroban Network]
-      Testnet[Testnet RPC + Ledger]
-   end
-
-   U --> UI
-   UI --> APIClient
-   APIClient --> Routes
-   Routes --> CLI
-   CLI --> Contracts
-   CLI --> Testnet
-   Testnet --> CLI
-   CLI --> Routes
-   Routes --> APIClient
-   APIClient --> UI
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-### How To Read This Diagram
-1. Start from the left: a contributor writes or updates contract code in the browser UI.
-2. Follow the center: the frontend calls backend API routes for compile, deploy, and invoke actions.
-3. End on the right: backend tools compile Rust contracts to WASM and interact with Soroban on Stellar Testnet, then return results to the UI.
+### Run Backend
 
-### Stack At A Glance
-- **Frontend** (`frontend/`): Next.js app router UI, Monaco editor integration, and interactive panels for compile/deploy/invoke flows.
-- **Backend** (`backend/`): Express API routes (`/compile`, `/deploy`, `/invoke`) that orchestrate Soroban toolchain commands.
-- **Smart Contracts** (`contracts/`): Example Soroban contracts written in Rust, compiled to WASM, and deployed/invoked via backend routes.
-- **Toolchain**: Rust + Cargo + Soroban CLI for compilation and network interactions.
+```bash
+cd backend
+npm install
+npm run dev
+```
 
-## Project Structure
-This repository uses a monorepo setup:
-- `frontend/`: The Next.js React application containing the UI.
-- `backend/`: The Node.js Express application responsible for Soroban CLI interactions.
+Optional environment variables for the patent module:
 
-## Getting Started
+- `PATENT_ADMIN_ADDRESS`
+- `PATENT_VERIFIER_ADDRESS`
+- `NEXT_PUBLIC_API_URL`
 
-### Prerequisites
-- Node.js (v18+)
-- NPM or Yarn
-- Rust (for the backend compilation engine)
-- Soroban CLI
+### Test Contract
 
-### Local Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/soroban-playground.git
-   ```
-2. Install dependencies for all workspaces:
-   ```bash
-   npm install
-   ```
-3. Start the application stack (Frontend and Backend concurrently):
-   ```bash
-   npm run dev
-   ```
+```bash
+cd contracts/patent-registry
+cargo test
+```
+
+## Troubleshooting
+
+- If the patent dashboard shows offline, confirm the backend is running on `http://localhost:5000`.
+- If verification fails, use the configured verifier or admin address returned by `GET /api/patents/config`.
+- If contract invocation is required for other playground flows, make sure Soroban CLI and the Stellar testnet source account are configured in the backend environment.
 
 ## Contributing
-We welcome contributions! Please see our [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on how to get started.
+
+Please see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
-MIT License.
+
+MIT

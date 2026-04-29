@@ -68,3 +68,15 @@ export const rateLimiter = (options = {}) => {
     }
   };
 };
+
+const PRESETS = {
+  global: { limit: 120, windowMs: 60 * 1000 },
+  compile: { limit: 20, windowMs: 60 * 1000, identifier: 'endpoint' },
+  deploy: { limit: 15, windowMs: 60 * 1000, identifier: 'endpoint' },
+  invoke: { limit: 60, windowMs: 60 * 1000, identifier: 'endpoint' },
+  patents: { limit: 90, windowMs: 60 * 1000, identifier: 'endpoint' },
+};
+
+export function rateLimitMiddleware(name = 'global') {
+  return rateLimiter(PRESETS[name] || PRESETS.global);
+}

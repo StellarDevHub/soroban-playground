@@ -1,7 +1,7 @@
 {
-  "name": "backend",
+  "name": "soroban-playground-backend",
   "version": "1.0.0",
-  "description": "Production-grade search API for project funding platform",
+  "description": "Backend services for Soroban Playground",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
@@ -10,28 +10,24 @@
     "format:check": "echo \"No backend format check configured\"",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest --runInBand",
     "init-db": "node src/database/init.js"
-    "test": "echo \"No backend tests configured\""
   },
-  "keywords": ["search", "fts", "fuzzy", "api"],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.6",
-    "ioredis": "^5.3.2"
+  "keywords": [
+    "soroban",
+    "stellar",
+    "backend",
+    "express"
+  ],
   "license": "MIT",
   "dependencies": {
     "@opentelemetry/api": "^1.8.0",
     "@opentelemetry/auto-instrumentations-node": "^0.52.1",
     "@opentelemetry/exporter-jaeger": "^1.28.0",
+    "@opentelemetry/exporter-prometheus": "^0.54.2",
     "@opentelemetry/exporter-zipkin": "^1.28.0",
     "@opentelemetry/instrumentation-express": "^0.42.0",
     "@opentelemetry/instrumentation-ioredis": "^0.43.0",
-    "@opentelemetry/exporter-prometheus": "^0.54.2",
     "cors": "^2.8.5",
     "dataloader": "^2.2.3",
     "dotenv": "^17.3.1",

@@ -18,6 +18,7 @@ Examples in this area should be:
 Current example:
 
 - `hello-world/`: a minimal Soroban contract with its own README
+- `patent-registry/`: decentralized invention registration, verification, and licensing
 
 ## Recommended structure
 
