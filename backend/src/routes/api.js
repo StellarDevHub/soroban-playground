@@ -51,4 +51,7 @@ router.use('/deploy', versionTransformer('v1'), rateLimitMiddleware('deploy'), v
 router.use('/invoke', versionTransformer('v1'), rateLimitMiddleware('invoke'), v1Invoke);
 router.use('/events', eventsRouter);
 
+import bugBountyRoutes from './bugBountyRoutes.js';
+router.use('/bug-bounty', bugBountyRoutes);
+
 export default router;
