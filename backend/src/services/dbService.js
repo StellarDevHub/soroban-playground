@@ -5,7 +5,10 @@ import initSqlJs from 'sql.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DEFAULT_DB_PATH = path.join(__dirname, '../../data/soroban_playground.sqlite');
+const DEFAULT_DB_PATH = path.join(
+  __dirname,
+  '../../data/soroban_playground.sqlite'
+);
 
 let db = null;
 let dbPath = null;
@@ -14,7 +17,8 @@ export async function getDatabase() {
   if (db) return db;
 
   const SQL = await initSqlJs({
-    locateFile: (file) => path.join(__dirname, '../../node_modules/sql.js/dist', file),
+    locateFile: (file) =>
+      path.join(__dirname, '../../node_modules/sql.js/dist', file),
   });
 
   dbPath = process.env.MIGRATION_DB_PATH || DEFAULT_DB_PATH;

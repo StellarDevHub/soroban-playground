@@ -30,7 +30,9 @@ class RedisService {
         connectTimeout: 5000,
         retryStrategy: (times) => {
           if (times > this.maxAttempts) {
-            console.error('Redis connection failed, switching to fallback mode');
+            console.error(
+              'Redis connection failed, switching to fallback mode'
+            );
             this.isFallbackMode = true;
             return null;
           }
@@ -137,11 +139,21 @@ class RedisService {
         const windowIdx = Math.floor(now / windowMs);
         const currentKey = `${key}:${windowIdx}`;
         const previousKey = `${key}:${windowIdx - 1}`;
-        result = await this.client.slidingWindowCounter(currentKey, previousKey, limit, windowMs, now);
+        result = await this.client.slidingWindowCounter(
+          currentKey,
+          previousKey,
+          limit,
+          windowMs,
+          now
+        );
       } else {
-        result = await this.client.fixedWindow(key, limit, Math.ceil(windowMs / 1000));
+        result = await this.client.fixedWindow(
+          key,
+          limit,
+          Math.ceil(windowMs / 1000)
+        );
       }
-      
+
       const [allowed, current, retryAfter] = result;
       return { allowed: allowed === 1, current, retryAfter };
     } catch (err) {
@@ -155,19 +167,24 @@ class RedisService {
     const now = Date.now();
     const bucket = this.localCache.get(key) || [];
     const windowStart = now - windowMs;
-    
+
     // Filter out expired timestamps and enforce a hard cap to prevent array bloat
     // Even if the limit is high, we don't store more than what is needed to verify the current window
-    const fresh = bucket.filter(ts => ts > windowStart).slice(-limit);
+    const fresh = bucket.filter((ts) => ts > windowStart).slice(-limit);
 
     if (fresh.length < limit) {
       fresh.push(now);
       this.localCache.set(key, fresh);
       return { allowed: true, current: fresh.length, fallback: true };
     }
-    
+
     const retryAfter = Math.ceil((fresh[0] + windowMs - now) / 1000) || 1;
-    return { allowed: false, current: fresh.length, retryAfter, fallback: true };
+    return {
+      allowed: false,
+      current: fresh.length,
+      retryAfter,
+      fallback: true,
+    };
   }
 
   async logAnalytics(endpoint, ip, status) {

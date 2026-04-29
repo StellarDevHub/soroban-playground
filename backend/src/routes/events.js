@@ -7,10 +7,7 @@ const router = express.Router();
 
 function getClientIdentity(req) {
   return (
-    req.headers['x-admin-user'] ||
-    req.headers['x-user'] ||
-    req.ip ||
-    'api'
+    req.headers['x-admin-user'] || req.headers['x-user'] || req.ip || 'api'
   );
 }
 
@@ -202,7 +199,10 @@ router.get(
 router.patch(
   '/quarantine/:id',
   asyncHandler(async (req, res, next) => {
-    const item = eventSchemaService.updateQuarantineItem(req.params.id, req.body);
+    const item = eventSchemaService.updateQuarantineItem(
+      req.params.id,
+      req.body
+    );
     if (!item) {
       return next(createHttpError(404, 'Quarantine item not found'));
     }

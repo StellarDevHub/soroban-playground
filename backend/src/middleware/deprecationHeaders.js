@@ -13,7 +13,7 @@ export const deprecationHeaders = (req, res, next) => {
 
     if (versionInfo.status === 'deprecated') {
       // Deprecation header: date or 'true'
-      const deprecationValue = versionInfo.deprecationDate 
+      const deprecationValue = versionInfo.deprecationDate
         ? new Date(versionInfo.deprecationDate).toUTCString()
         : 'true';
       res.setHeader('Deprecation', deprecationValue);
@@ -25,7 +25,7 @@ export const deprecationHeaders = (req, res, next) => {
       // Link headers for migration guides
       if (versionInfo.links && versionInfo.links.length > 0) {
         const linkHeader = versionInfo.links
-          .map(link => `<${link.href}>; rel="${link.rel}"`)
+          .map((link) => `<${link.href}>; rel="${link.rel}"`)
           .join(', ');
         res.setHeader('Link', linkHeader);
       }

@@ -16,7 +16,7 @@ class CacheService {
         db: process.env.REDIS_DB || 0,
         retryDelayOnFailover: 100,
         maxRetriesPerRequest: 3,
-        lazyConnect: true
+        lazyConnect: true,
       });
 
       this.redis.on('connect', () => {
@@ -48,7 +48,7 @@ class CacheService {
     const keyData = {
       query,
       filters,
-      pagination
+      pagination,
     };
     return `search:${Buffer.from(JSON.stringify(keyData)).toString('base64')}`;
   }
@@ -66,7 +66,7 @@ class CacheService {
   // Get cached data
   async get(key) {
     if (!this.isConnected) return null;
-    
+
     try {
       const cached = await this.redis.get(key);
       return cached ? JSON.parse(cached) : null;
@@ -77,9 +77,10 @@ class CacheService {
   }
 
   // Set cache data with TTL
-  async set(key, data, ttl = 300) { // Default 5 minutes
+  async set(key, data, ttl = 300) {
+    // Default 5 minutes
     if (!this.isConnected) return false;
-    
+
     try {
       await this.redis.setex(key, ttl, JSON.stringify(data));
       return true;
@@ -92,7 +93,7 @@ class CacheService {
   // Delete cache key
   async del(key) {
     if (!this.isConnected) return false;
-    
+
     try {
       await this.redis.del(key);
       return true;
@@ -105,7 +106,7 @@ class CacheService {
   // Clear all search-related cache
   async clearSearchCache() {
     if (!this.isConnected) return false;
-    
+
     try {
       const keys = await this.redis.keys('search:*');
       if (keys.length > 0) {
@@ -121,7 +122,7 @@ class CacheService {
   // Increment search popularity counter
   async incrementSearchPopularity(query) {
     if (!this.isConnected) return false;
-    
+
     try {
       const key = `popular:${query}`;
       await this.redis.incr(key);
@@ -136,28 +137,26 @@ class CacheService {
   // Get popular searches from cache
   async getPopularSearches(limit = 10) {
     if (!this.isConnected) return [];
-    
+
     try {
       const keys = await this.redis.keys('popular:*');
       const pipeline = this.redis.pipeline();
-      
-      keys.forEach(key => {
+
+      keys.forEach((key) => {
         pipeline.get(key);
       });
-      
+
       const results = await pipeline.exec();
       const searches = [];
-      
+
       results.forEach(([err, count], index) => {
         if (!err && count) {
           const query = keys[index].replace('popular:', '');
           searches.push({ query, count: parseInt(count) });
         }
       });
-      
-      return searches
-        .sort((a, b) => b.count - a.count)
-        .slice(0, limit);
+
+      return searches.sort((a, b) => b.count - a.count).slice(0, limit);
     } catch (error) {
       console.error('Popular searches cache error:', error);
       return [];
@@ -167,17 +166,17 @@ class CacheService {
   // Cache search results with smart TTL based on query complexity
   async cacheSearchResults(query, filters, pagination, results) {
     if (!this.isConnected) return false;
-    
+
     try {
       const key = this.generateSearchKey(query, filters, pagination);
-      
+
       // Smart TTL: more popular queries get longer cache time
       const popularityScore = await this.getQueryPopularity(query);
-      const ttl = Math.min(300 + (popularityScore * 60), 1800); // 5-30 minutes
-      
+      const ttl = Math.min(300 + popularityScore * 60, 1800); // 5-30 minutes
+
       await this.set(key, results, ttl);
       await this.incrementSearchPopularity(query);
-      
+
       return true;
     } catch (error) {
       console.error('Search results caching error:', error);
@@ -188,7 +187,7 @@ class CacheService {
   // Get query popularity score
   async getQueryPopularity(query) {
     if (!this.isConnected) return 0;
-    
+
     try {
       const key = `popular:${query}`;
       const count = await this.redis.get(key);
@@ -204,21 +203,21 @@ class CacheService {
     if (!this.isConnected) {
       return { status: 'disconnected', message: 'Redis not connected' };
     }
-    
+
     try {
       const pong = await this.redis.ping();
       const info = await this.redis.info('memory');
-      
+
       return {
         status: 'connected',
         message: 'Redis is healthy',
         ping: pong,
-        memory: info
+        memory: info,
       };
     } catch (error) {
       return {
         status: 'error',
-        message: error.message
+        message: error.message,
       };
     }
   }

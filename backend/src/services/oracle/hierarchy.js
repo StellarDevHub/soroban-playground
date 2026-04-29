@@ -49,7 +49,11 @@ export function rankOf(scope) {
 // (lower-rank) lock cannot be acquired if a broader one is *not* held
 // when strict mode is on; and vice versa, a broader lock cannot be
 // acquired *after* a narrower one (would invert ordering).
-export function validateAcquisitionOrder(candidateScope, heldScopes, { strictParent = false } = {}) {
+export function validateAcquisitionOrder(
+  candidateScope,
+  heldScopes,
+  { strictParent = false } = {}
+) {
   const candidateRank = rankOf(candidateScope);
   for (const held of heldScopes) {
     const heldRank = rankOf(held);
@@ -61,10 +65,14 @@ export function validateAcquisitionOrder(candidateScope, heldScopes, { strictPar
     }
   }
   if (strictParent && candidateScope === LockScope.BATCH) {
-    if (!heldScopes.includes(LockScope.PROJECT) && !heldScopes.includes(LockScope.GLOBAL)) {
+    if (
+      !heldScopes.includes(LockScope.PROJECT) &&
+      !heldScopes.includes(LockScope.GLOBAL)
+    ) {
       return {
         ok: false,
-        reason: 'BATCH lock requires holding PROJECT or GLOBAL first (strictParent=true)',
+        reason:
+          'BATCH lock requires holding PROJECT or GLOBAL first (strictParent=true)',
       };
     }
   }

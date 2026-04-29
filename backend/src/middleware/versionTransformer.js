@@ -9,17 +9,22 @@ export const versionTransformer = (requestedVersion) => {
   return (req, res, next) => {
     // 1. Version Negotiation: Accept-Version header > URL version
     const headerVersion = req.headers['accept-version'];
-    const version = (headerVersion && versions[headerVersion]) 
-      ? headerVersion 
-      : (requestedVersion || DEFAULT_VERSION);
+    const version =
+      headerVersion && versions[headerVersion]
+        ? headerVersion
+        : requestedVersion || DEFAULT_VERSION;
 
     req.apiVersion = version;
 
     // Log usage for analytics as requested in issue
     if (versions[version]?.status === 'deprecated') {
-      console.warn(`[API Deprecation Warning] Client called deprecated version ${version}: ${req.method} ${req.originalUrl}`);
+      console.warn(
+        `[API Deprecation Warning] Client called deprecated version ${version}: ${req.method} ${req.originalUrl}`
+      );
     } else {
-      console.log(`[API Usage] ${version} endpoint called: ${req.method} ${req.originalUrl}`);
+      console.log(
+        `[API Usage] ${version} endpoint called: ${req.method} ${req.originalUrl}`
+      );
     }
 
     if (version === 'v1') {

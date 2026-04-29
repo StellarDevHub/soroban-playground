@@ -110,7 +110,10 @@ function stableStringify(value) {
 }
 
 function hashPayload(value) {
-  return crypto.createHash('sha256').update(stableStringify(value)).digest('hex');
+  return crypto
+    .createHash('sha256')
+    .update(stableStringify(value))
+    .digest('hex');
 }
 
 function createTaskId() {
@@ -210,18 +213,23 @@ function transition(task, toState, detail = {}) {
 
 function normalizeProofTask(input = {}, source = 'api') {
   const proof = input.proof ?? input.oracleProof ?? input.oracle_proof;
-  const payload = input.payload && typeof input.payload === 'object' ? input.payload : {};
+  const payload =
+    input.payload && typeof input.payload === 'object' ? input.payload : {};
   const errors = [];
 
   if (proof === undefined || proof === null || proof === '') {
     errors.push('proof is required');
   }
 
-  if (input.payload !== undefined && (typeof input.payload !== 'object' || Array.isArray(input.payload))) {
+  if (
+    input.payload !== undefined &&
+    (typeof input.payload !== 'object' || Array.isArray(input.payload))
+  ) {
     errors.push('payload must be an object when provided');
   }
 
-  const scheduledAt = parseOptionalDate(input.scheduledAt || input.scheduled_at) || nowIso();
+  const scheduledAt =
+    parseOptionalDate(input.scheduledAt || input.scheduled_at) || nowIso();
   const deadlineAt = parseOptionalDate(input.deadlineAt || input.deadline_at);
 
   if ((input.deadlineAt || input.deadline_at) && !deadlineAt) {
@@ -234,11 +242,18 @@ function normalizeProofTask(input = {}, source = 'api') {
     MAX_PRIORITY,
     DEFAULT_PRIORITY
   );
-  const maxRetries = clampNumber(input.maxRetries ?? input.max_retries, 0, 10, DEFAULT_MAX_RETRIES);
+  const maxRetries = clampNumber(
+    input.maxRetries ?? input.max_retries,
+    0,
+    10,
+    DEFAULT_MAX_RETRIES
+  );
   const proofType = String(input.proofType || input.proof_type || 'generic');
   const idempotencyKey = input.idempotencyKey || input.idempotency_key;
   const metadata = {
-    ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}),
+    ...(input.metadata && typeof input.metadata === 'object'
+      ? input.metadata
+      : {}),
     source,
     requestId: input.requestId || input.request_id,
   };
@@ -408,7 +423,11 @@ class OracleProofQueueService extends EventEmitter {
     const multi = client.multi();
     multi.hset(taskKey(task.id), serializeTask(task));
     multi.sadd(key('ids'), task.id);
-    multi.zadd(key('pending'), scoreFor(task.scheduledAt, task.priority), task.id);
+    multi.zadd(
+      key('pending'),
+      scoreFor(task.scheduledAt, task.priority),
+      task.id
+    );
     if (task.idempotencyKey) {
       multi.hset(key('idempotency'), task.idempotencyKey, task.id);
     }
@@ -419,7 +438,10 @@ class OracleProofQueueService extends EventEmitter {
   async findByIdempotencyKey(idempotencyKey) {
     if (!idempotencyKey) return null;
     if (this.storageMode() === 'redis') {
-      const id = await redisService.client.hget(key('idempotency'), idempotencyKey);
+      const id = await redisService.client.hget(
+        key('idempotency'),
+        idempotencyKey
+      );
       return id ? this.getTask(id) : null;
     }
     const id = this.memory.idempotency.get(idempotencyKey);
@@ -523,7 +545,8 @@ class OracleProofQueueService extends EventEmitter {
           Date.parse(task.scheduledAt) <= now
       )
       .sort((a, b) => {
-        const scheduledDiff = Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt);
+        const scheduledDiff =
+          Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt);
         if (scheduledDiff !== 0) return scheduledDiff;
         if (a.priority !== b.priority) return b.priority - a.priority;
         return Date.parse(a.createdAt) - Date.parse(b.createdAt);
@@ -594,7 +617,10 @@ class OracleProofQueueService extends EventEmitter {
     task.workerId = workerId;
     transition(task, 'completed', { workerId });
     this.activeLocalTasks.delete(task.id);
-    oracleProofProcessingDuration.observe({ outcome: 'completed' }, durationSeconds);
+    oracleProofProcessingDuration.observe(
+      { outcome: 'completed' },
+      durationSeconds
+    );
 
     if (this.storageMode() === 'redis') {
       const script = `
@@ -649,11 +675,15 @@ class OracleProofQueueService extends EventEmitter {
 
   async failTask(task, workerId, error, options = {}) {
     const reason = options.reason || error?.code || 'processing_failed';
-    const message = error?.message || String(error || 'Oracle proof processing failed');
+    const message =
+      error?.message || String(error || 'Oracle proof processing failed');
     const now = nowMs();
-    const deadlineExpired = task.deadlineAt && Date.parse(task.deadlineAt) <= now;
+    const deadlineExpired =
+      task.deadlineAt && Date.parse(task.deadlineAt) <= now;
     const shouldRetry =
-      !deadlineExpired && task.attempts <= task.maxRetries && !options.forceDeadLetter;
+      !deadlineExpired &&
+      task.attempts <= task.maxRetries &&
+      !options.forceDeadLetter;
 
     task.lastError = message;
     task.failedAt = nowIso();
@@ -689,7 +719,12 @@ class OracleProofQueueService extends EventEmitter {
 
   async persistRetry(task, workerId, allowAnyWorker = false) {
     if (this.storageMode() === 'redis') {
-      await this.persistFailureRedis(task, workerId, 'retrying', allowAnyWorker);
+      await this.persistFailureRedis(
+        task,
+        workerId,
+        'retrying',
+        allowAnyWorker
+      );
       await this.refreshRedisMetrics();
       return;
     }
@@ -699,7 +734,12 @@ class OracleProofQueueService extends EventEmitter {
 
   async persistDeadLetter(task, workerId, allowAnyWorker = false) {
     if (this.storageMode() === 'redis') {
-      await this.persistFailureRedis(task, workerId, 'dead_letter', allowAnyWorker);
+      await this.persistFailureRedis(
+        task,
+        workerId,
+        'dead_letter',
+        allowAnyWorker
+      );
       await this.refreshRedisMetrics();
       return;
     }
@@ -708,9 +748,12 @@ class OracleProofQueueService extends EventEmitter {
   }
 
   async persistFailureRedis(task, workerId, nextState, allowAnyWorker) {
-    const targetQueue = nextState === 'retrying' ? key('pending') : key('dead_letter');
+    const targetQueue =
+      nextState === 'retrying' ? key('pending') : key('dead_letter');
     const targetScore =
-      nextState === 'retrying' ? scoreFor(task.scheduledAt, task.priority) : nowMs();
+      nextState === 'retrying'
+        ? scoreFor(task.scheduledAt, task.priority)
+        : nowMs();
     const script = `
       local taskKey = KEYS[1]
       local processing = KEYS[2]
@@ -762,7 +805,10 @@ class OracleProofQueueService extends EventEmitter {
   }
 
   async verifyProofTask(task) {
-    const configuredDelay = Number.parseInt(task.payload?.processingMs || '0', 10);
+    const configuredDelay = Number.parseInt(
+      task.payload?.processingMs || '0',
+      10
+    );
     if (Number.isFinite(configuredDelay) && configuredDelay > 0) {
       await sleep(Math.min(configuredDelay, 5000));
     }
@@ -861,11 +907,19 @@ class OracleProofQueueService extends EventEmitter {
 
     let recovered = 0;
     for (const task of this.memory.tasks.values()) {
-      if (task.status === 'processing' && Date.parse(task.leaseExpiresAt) <= nowMs()) {
-        await this.failTask(task, task.workerId, new Error('Worker heartbeat expired'), {
-          reason: 'heartbeat_expired',
-          allowAnyWorker: true,
-        });
+      if (
+        task.status === 'processing' &&
+        Date.parse(task.leaseExpiresAt) <= nowMs()
+      ) {
+        await this.failTask(
+          task,
+          task.workerId,
+          new Error('Worker heartbeat expired'),
+          {
+            reason: 'heartbeat_expired',
+            allowAnyWorker: true,
+          }
+        );
         recovered += 1;
       }
     }
@@ -928,7 +982,10 @@ class OracleProofQueueService extends EventEmitter {
             await sleep(DEFAULT_POLL_MS);
           }
         } catch (error) {
-          console.error(`Oracle proof worker ${workerId} failed:`, error.message);
+          console.error(
+            `Oracle proof worker ${workerId} failed:`,
+            error.message
+          );
           await sleep(DEFAULT_POLL_MS);
         }
       }
@@ -1032,7 +1089,10 @@ class OracleProofQueueService extends EventEmitter {
   }
 
   async listTasks(state = 'all', limit = 50) {
-    const cappedLimit = Math.min(500, Math.max(1, Number.parseInt(limit, 10) || 50));
+    const cappedLimit = Math.min(
+      500,
+      Math.max(1, Number.parseInt(limit, 10) || 50)
+    );
     if (this.storageMode() !== 'redis') {
       return [...this.memory.tasks.values()]
         .filter((task) => state === 'all' || task.status === state)
@@ -1042,15 +1102,34 @@ class OracleProofQueueService extends EventEmitter {
 
     let ids;
     if (state === 'queued' || state === 'retrying' || state === 'pending') {
-      ids = await redisService.client.zrange(key('pending'), 0, cappedLimit - 1);
+      ids = await redisService.client.zrange(
+        key('pending'),
+        0,
+        cappedLimit - 1
+      );
     } else if (state === 'processing') {
-      ids = await redisService.client.zrange(key('processing'), 0, cappedLimit - 1);
+      ids = await redisService.client.zrange(
+        key('processing'),
+        0,
+        cappedLimit - 1
+      );
     } else if (state === 'completed') {
-      ids = await redisService.client.zrevrange(key('completed'), 0, cappedLimit - 1);
+      ids = await redisService.client.zrevrange(
+        key('completed'),
+        0,
+        cappedLimit - 1
+      );
     } else if (state === 'dead_letter' || state === 'failed') {
-      ids = await redisService.client.zrevrange(key('dead_letter'), 0, cappedLimit - 1);
+      ids = await redisService.client.zrevrange(
+        key('dead_letter'),
+        0,
+        cappedLimit - 1
+      );
     } else {
-      ids = (await redisService.client.smembers(key('ids'))).slice(0, cappedLimit);
+      ids = (await redisService.client.smembers(key('ids'))).slice(
+        0,
+        cappedLimit
+      );
     }
 
     const tasks = [];
@@ -1084,7 +1163,11 @@ class OracleProofQueueService extends EventEmitter {
     if (this.storageMode() === 'redis') {
       const multi = redisService.client.multi();
       multi.zrem(key('dead_letter'), task.id);
-      multi.zadd(key('pending'), scoreFor(task.scheduledAt, task.priority), task.id);
+      multi.zadd(
+        key('pending'),
+        scoreFor(task.scheduledAt, task.priority),
+        task.id
+      );
       multi.hset(taskKey(task.id), serializeTask(task));
       await multi.exec();
       await this.refreshRedisMetrics();
@@ -1099,9 +1182,6 @@ class OracleProofQueueService extends EventEmitter {
 
 const oracleProofQueueService = new OracleProofQueueService();
 
-export {
-  normalizeProofTask,
-  scoreFor,
-};
+export { normalizeProofTask, scoreFor };
 
 export default oracleProofQueueService;

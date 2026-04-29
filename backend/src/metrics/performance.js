@@ -17,20 +17,29 @@ export function initializeMetrics() {
     interval: 10000, // Collect every 10 seconds
   });
 
-  meter = meterProvider.getMeter(config.tracing.serviceName, config.tracing.serviceVersion);
+  meter = meterProvider.getMeter(
+    config.tracing.serviceName,
+    config.tracing.serviceVersion
+  );
 
   // Performance profiling metrics
-  const memoryUsage = meter.createObservableGauge('process_memory_usage_bytes', {
-    description: 'Current memory usage of the process',
-  });
+  const memoryUsage = meter.createObservableGauge(
+    'process_memory_usage_bytes',
+    {
+      description: 'Current memory usage of the process',
+    }
+  );
 
   const cpuUsage = meter.createObservableGauge('process_cpu_usage_percent', {
     description: 'Current CPU usage percentage',
   });
 
-  const eventLoopLag = meter.createObservableGauge('nodejs_eventloop_lag_seconds', {
-    description: 'Event loop lag in seconds',
-  });
+  const eventLoopLag = meter.createObservableGauge(
+    'nodejs_eventloop_lag_seconds',
+    {
+      description: 'Event loop lag in seconds',
+    }
+  );
 
   // Observable callbacks
   memoryUsage.addCallback((observableResult) => {
@@ -68,17 +77,26 @@ export function initializeMetrics() {
 export function createOperationMetrics() {
   if (!meter) return {};
 
-  const compileDuration = meter.createHistogram('soroban_compile_duration_seconds', {
-    description: 'Duration of contract compilation operations',
-  });
+  const compileDuration = meter.createHistogram(
+    'soroban_compile_duration_seconds',
+    {
+      description: 'Duration of contract compilation operations',
+    }
+  );
 
-  const deployDuration = meter.createHistogram('soroban_deploy_duration_seconds', {
-    description: 'Duration of contract deployment operations',
-  });
+  const deployDuration = meter.createHistogram(
+    'soroban_deploy_duration_seconds',
+    {
+      description: 'Duration of contract deployment operations',
+    }
+  );
 
-  const invokeDuration = meter.createHistogram('soroban_invoke_duration_seconds', {
-    description: 'Duration of contract invocation operations',
-  });
+  const invokeDuration = meter.createHistogram(
+    'soroban_invoke_duration_seconds',
+    {
+      description: 'Duration of contract invocation operations',
+    }
+  );
 
   const queueSize = meter.createObservableGauge('soroban_queue_size', {
     description: 'Current size of operation queues',

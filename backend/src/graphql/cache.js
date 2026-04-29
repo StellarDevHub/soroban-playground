@@ -34,7 +34,12 @@ export async function getCached(operationName, variables) {
   return memCache.get(key) ?? null;
 }
 
-export async function setCached(operationName, variables, data, ttlMs = DEFAULT_TTL_MS) {
+export async function setCached(
+  operationName,
+  variables,
+  data,
+  ttlMs = DEFAULT_TTL_MS
+) {
   const key = cacheKey(operationName, variables);
 
   if (!redisService.isFallbackMode && redisService.client) {

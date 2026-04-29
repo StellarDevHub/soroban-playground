@@ -18,7 +18,10 @@ const schema = createSchema({ typeDefs, resolvers });
  */
 function buildUserContext(request) {
   const role = request.headers.get('x-role') ?? 'guest';
-  const token = (request.headers.get('authorization') ?? '').replace('Bearer ', '');
+  const token = (request.headers.get('authorization') ?? '').replace(
+    'Bearer ',
+    ''
+  );
   return {
     roles: role ? [role] : ['guest'],
     token,
@@ -52,7 +55,11 @@ query Health {
       {
         onExecute({ args }) {
           try {
-            const score = analyzeComplexity(args.schema, args.document, args.variableValues);
+            const score = analyzeComplexity(
+              args.schema,
+              args.document,
+              args.variableValues
+            );
             // Attach score to extensions so clients can see it
             args.contextValue._complexityScore = score;
           } catch (err) {

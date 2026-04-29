@@ -3,7 +3,12 @@ import redisService from './redisService.js';
 import { oracleTasksEnqueued, oracleQueueDepth } from '../routes/metrics.js';
 
 export class ProofTask {
-  constructor(payload, priority = 1, maxRetries = 3, deadline = Date.now() + 3600000) {
+  constructor(
+    payload,
+    priority = 1,
+    maxRetries = 3,
+    deadline = Date.now() + 3600000
+  ) {
     this.id = crypto.randomUUID();
     this.payload = payload;
     this.priority = priority;
@@ -40,7 +45,7 @@ class OracleQueueService {
     );
 
     const pipeline = this.client.pipeline();
-    
+
     // Store task metadata
     pipeline.hset(
       `${this.TASK_PREFIX}${task.id}`,
@@ -60,7 +65,7 @@ class OracleQueueService {
     }
 
     await pipeline.exec();
-    
+
     // Update Metrics
     oracleTasksEnqueued.inc();
     this.updateQueueDepthMetric();
@@ -79,7 +84,7 @@ class OracleQueueService {
     for (const payload of payloads) {
       const task = new ProofTask(payload, priority, maxRetries);
       taskIds.push(task.id);
-      
+
       pipeline.hset(
         `${this.TASK_PREFIX}${task.id}`,
         'data',
@@ -94,7 +99,7 @@ class OracleQueueService {
     }
 
     await pipeline.exec();
-    
+
     // Update Metrics
     oracleTasksEnqueued.inc(payloads.length);
     this.updateQueueDepthMetric();
@@ -104,17 +109,23 @@ class OracleQueueService {
 
   async getTaskStatus(taskId) {
     if (!this.client || redisService.isFallbackMode) return null;
-    
-    const taskData = await this.client.hget(`${this.TASK_PREFIX}${taskId}`, 'data');
+
+    const taskData = await this.client.hget(
+      `${this.TASK_PREFIX}${taskId}`,
+      'data'
+    );
     if (!taskData) return null;
-    
+
     return JSON.parse(taskData);
   }
 
   async updateTaskState(taskId, state, updates = {}) {
     if (!this.client || redisService.isFallbackMode) return;
 
-    const taskData = await this.client.hget(`${this.TASK_PREFIX}${taskId}`, 'data');
+    const taskData = await this.client.hget(
+      `${this.TASK_PREFIX}${taskId}`,
+      'data'
+    );
     if (!taskData) return;
 
     const task = JSON.parse(taskData);

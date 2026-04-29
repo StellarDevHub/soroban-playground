@@ -119,7 +119,10 @@ export class DeadlockDetector {
 
   snapshot() {
     return {
-      holders: [...this.holders.entries()].map(([key, owner]) => ({ key, owner })),
+      holders: [...this.holders.entries()].map(([key, owner]) => ({
+        key,
+        owner,
+      })),
       waits: [...this.waitsFor.entries()].map(([owner, set]) => ({
         owner,
         waitingFor: [...set],

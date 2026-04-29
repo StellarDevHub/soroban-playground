@@ -11,9 +11,10 @@ class SearchService {
 
   // Levenshtein distance calculation for fuzzy matching
   calculateLevenshteinDistance(str1, str2) {
-    const matrix = Array(str2.length + 1).fill(null).map(() => 
-      Array(str1.length + 1).fill(null));
-    
+    const matrix = Array(str2.length + 1)
+      .fill(null)
+      .map(() => Array(str1.length + 1).fill(null));
+
     for (let i = 0; i <= str1.length; i++) matrix[0][i] = i;
     for (let j = 0; j <= str2.length; j++) matrix[j][0] = j;
 
@@ -34,19 +35,31 @@ class SearchService {
   getPhoneticCode(str) {
     const code = str.toUpperCase().replace(/[^A-Z]/g, '');
     if (!code) return '';
-    
+
     const soundex = {
-      'B': '1', 'F': '1', 'P': '1', 'V': '1',
-      'C': '2', 'G': '2', 'J': '2', 'K': '2', 'Q': '2', 'S': '2', 'X': '2', 'Z': '2',
-      'D': '3', 'T': '3',
-      'L': '4',
-      'M': '5', 'N': '5',
-      'R': '6'
+      B: '1',
+      F: '1',
+      P: '1',
+      V: '1',
+      C: '2',
+      G: '2',
+      J: '2',
+      K: '2',
+      Q: '2',
+      S: '2',
+      X: '2',
+      Z: '2',
+      D: '3',
+      T: '3',
+      L: '4',
+      M: '5',
+      N: '5',
+      R: '6',
     };
-    
+
     let result = code[0];
     let lastCode = soundex[code[0]] || '';
-    
+
     for (let i = 1; i < code.length; i++) {
       const currentCode = soundex[code[i]] || '';
       if (currentCode && currentCode !== lastCode) {
@@ -54,19 +67,28 @@ class SearchService {
       }
       lastCode = currentCode;
     }
-    
+
     return result.padEnd(4, '0').substring(0, 4);
   }
 
   // BM25 ranking algorithm implementation
-  calculateBM25Score(termFreq, docLength, avgDocLength, totalDocs, docsWithTerm) {
+  calculateBM25Score(
+    termFreq,
+    docLength,
+    avgDocLength,
+    totalDocs,
+    docsWithTerm
+  ) {
     const k1 = 1.2;
     const b = 0.75;
-    
-    const idf = Math.log((totalDocs - docsWithTerm + 0.5) / (docsWithTerm + 0.5));
-    const normalizedTermFreq = (termFreq * (k1 + 1)) / 
+
+    const idf = Math.log(
+      (totalDocs - docsWithTerm + 0.5) / (docsWithTerm + 0.5)
+    );
+    const normalizedTermFreq =
+      (termFreq * (k1 + 1)) /
       (termFreq + k1 * (1 - b + b * (docLength / avgDocLength)));
-    
+
     return idf * normalizedTermFreq;
   }
 
@@ -81,11 +103,11 @@ class SearchService {
       fundingMax,
       sortBy = 'relevance',
       page = 1,
-      limit = 20
+      limit = 20,
     } = filters;
 
     const offset = (page - 1) * limit;
-    
+
     try {
       // Build base search query with FTS5
       let searchQuery = `
@@ -102,11 +124,7 @@ class SearchService {
         WHERE projects_fts MATCH ?
       `;
 
-      const queryParams = [
-        `%${query}%`,
-        `%${query}%`,
-        query
-      ];
+      const queryParams = [`%${query}%`, `%${query}%`, query];
 
       // Add filters
       if (category) {
@@ -132,11 +150,12 @@ class SearchService {
 
       // Add sorting based on ranking algorithm
       const sortMapping = {
-        'relevance': 'search_rank DESC, field_weight DESC, p.completion_rate DESC',
-        'funding': 'p.current_funding DESC',
-        'recent': 'p.created_at DESC',
-        'completion': 'p.completion_rate DESC',
-        'title': 'p.title ASC'
+        relevance:
+          'search_rank DESC, field_weight DESC, p.completion_rate DESC',
+        funding: 'p.current_funding DESC',
+        recent: 'p.created_at DESC',
+        completion: 'p.completion_rate DESC',
+        title: 'p.title ASC',
       };
 
       searchQuery += ` ORDER BY ${sortMapping[sortBy] || sortMapping['relevance']}`;
@@ -170,14 +189,23 @@ class SearchService {
 
       // Apply fuzzy matching for additional results if needed
       if (results.length < limit && query.length > 2) {
-        const fuzzyResults = await this.getFuzzyMatches(query, filters, limit - results.length);
+        const fuzzyResults = await this.getFuzzyMatches(
+          query,
+          filters,
+          limit - results.length
+        );
         results.push(...fuzzyResults);
       }
 
       const responseTime = Date.now() - startTime;
 
       // Log search analytics
-      await this.logSearchAnalytics(query, filters, results.length, responseTime);
+      await this.logSearchAnalytics(
+        query,
+        filters,
+        results.length,
+        responseTime
+      );
 
       return {
         results,
@@ -187,13 +215,13 @@ class SearchService {
           total,
           totalPages: Math.ceil(total / limit),
           hasNext: page * limit < total,
-          hasPrev: page > 1
+          hasPrev: page > 1,
         },
         meta: {
           query,
           responseTime,
-          searchType: results.length > 0 ? 'fts' : 'fuzzy'
-        }
+          searchType: results.length > 0 ? 'fts' : 'fuzzy',
+        },
       };
     } catch (error) {
       console.error('Search error:', error);
@@ -203,7 +231,8 @@ class SearchService {
 
   // Fuzzy matching for typos and similar terms
   async getFuzzyMatches(query, filters, limit) {
-    const projects = await this.db.all(`
+    const projects = await this.db.all(
+      `
       SELECT *, 
         CASE 
           WHEN LOWER(title) LIKE LOWER(?) THEN 0.8
@@ -216,15 +245,22 @@ class SearchService {
         AND status LIKE COALESCE(?, status)
       ORDER BY similarity_score DESC, completion_rate DESC
       LIMIT ?
-    `, [
-      `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`,
-      filters.category || '%', filters.status || '%', limit
-    ]);
+    `,
+      [
+        `%${query}%`,
+        `%${query}%`,
+        `%${query}%`,
+        `%${query}%`,
+        filters.category || '%',
+        filters.status || '%',
+        limit,
+      ]
+    );
 
-    return projects.map(project => ({
+    return projects.map((project) => ({
       ...project,
       search_rank: project.similarity_score * 10,
-      is_fuzzy_match: true
+      is_fuzzy_match: true,
     }));
   }
 
@@ -234,27 +270,34 @@ class SearchService {
       const facets = {};
 
       // Category counts
-      facets.categories = await this.db.all(`
+      facets.categories = await this.db.all(
+        `
         SELECT category as name, COUNT(*) as count
         FROM projects p
         LEFT JOIN projects_fts fts ON p.id = fts.rowid
         WHERE (? = '' OR fts MATCH ?)
         GROUP BY category
         ORDER BY count DESC
-      `, [query, query]);
+      `,
+        [query, query]
+      );
 
       // Status counts
-      facets.statuses = await this.db.all(`
+      facets.statuses = await this.db.all(
+        `
         SELECT status as name, COUNT(*) as count
         FROM projects p
         LEFT JOIN projects_fts fts ON p.id = fts.rowid
         WHERE (? = '' OR fts MATCH ?)
         GROUP BY status
         ORDER BY count DESC
-      `, [query, query]);
+      `,
+        [query, query]
+      );
 
       // Creator counts (top 10)
-      facets.creators = await this.db.all(`
+      facets.creators = await this.db.all(
+        `
         SELECT creator_name as name, COUNT(*) as count
         FROM projects p
         LEFT JOIN projects_fts fts ON p.id = fts.rowid
@@ -262,10 +305,13 @@ class SearchService {
         GROUP BY creator_name
         ORDER BY count DESC
         LIMIT 10
-      `, [query, query]);
+      `,
+        [query, query]
+      );
 
       // Funding range counts
-      facets.fundingRanges = await this.db.all(`
+      facets.fundingRanges = await this.db.all(
+        `
         SELECT 
           CASE 
             WHEN funding_goal < 10000 THEN 'Under $10k'
@@ -279,7 +325,9 @@ class SearchService {
         WHERE (? = '' OR fts MATCH ?)
         GROUP BY name
         ORDER BY count DESC
-      `, [query, query]);
+      `,
+        [query, query]
+      );
 
       return facets;
     } catch (error) {
@@ -293,7 +341,8 @@ class SearchService {
     try {
       if (query.length < 2) return [];
 
-      const suggestions = await this.db.all(`
+      const suggestions = await this.db.all(
+        `
         SELECT DISTINCT 
           substr(title, 1, 50) as suggestion,
           'title' as type,
@@ -315,7 +364,9 @@ class SearchService {
         FROM projects_fts
         WHERE creator_name MATCH ?
         LIMIT ?
-      `, [`${query}*`, `${query}*`, `${query}*`, limit]);
+      `,
+        [`${query}*`, `${query}*`, `${query}*`, limit]
+      );
 
       return suggestions;
     } catch (error) {
@@ -327,19 +378,25 @@ class SearchService {
   // Log search analytics
   async logSearchAnalytics(query, filters, resultsCount, responseTime) {
     try {
-      await this.db.run(`
+      await this.db.run(
+        `
         INSERT INTO search_analytics (query, filters_applied, results_count, response_time_ms)
         VALUES (?, ?, ?, ?)
-      `, [query, JSON.stringify(filters), resultsCount, responseTime]);
+      `,
+        [query, JSON.stringify(filters), resultsCount, responseTime]
+      );
 
       // Update popular searches
-      await this.db.run(`
+      await this.db.run(
+        `
         INSERT INTO popular_searches (query, search_count)
         VALUES (?, 1)
         ON CONFLICT(query) DO UPDATE SET 
           search_count = search_count + 1,
           last_updated = CURRENT_TIMESTAMP
-      `, [query]);
+      `,
+        [query]
+      );
     } catch (error) {
       console.error('Analytics logging error:', error);
     }
@@ -348,12 +405,15 @@ class SearchService {
   // Get popular searches
   async getPopularSearches(limit = 10) {
     try {
-      return await this.db.all(`
+      return await this.db.all(
+        `
         SELECT query, search_count, last_updated
         FROM popular_searches
         ORDER BY search_count DESC, last_updated DESC
         LIMIT ?
-      `, [limit]);
+      `,
+        [limit]
+      );
     } catch (error) {
       console.error('Popular searches error:', error);
       return [];

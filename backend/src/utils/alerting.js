@@ -99,8 +99,8 @@ export class AlertManager {
   }
 
   getRecentAlerts() {
-    return Array.from(this.alerts.values()).sort((a, b) => 
-      new Date(b.timestamp) - new Date(a.timestamp)
+    return Array.from(this.alerts.values()).sort(
+      (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
     );
   }
 }

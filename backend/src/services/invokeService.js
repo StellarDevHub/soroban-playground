@@ -2,7 +2,12 @@ import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
-import { createSpan, setSpanAttributes, addSpanEvent, injectTraceContext } from '../utils/tracing.js';
+import {
+  createSpan,
+  setSpanAttributes,
+  addSpanEvent,
+  injectTraceContext,
+} from '../utils/tracing.js';
 
 const MAX_CONCURRENT = Number.parseInt(process.env.INVOKE_POOL_SIZE || '3', 10);
 const INVOKE_TIMEOUT_MS = Number.parseInt(
@@ -97,7 +102,8 @@ export async function invokeSorobanContract(request, { signal } = {}) {
   const span = createSpan('soroban.invoke', {
     'invoke.contract_id': request.contractId,
     'invoke.function_name': request.functionName,
-    'invoke.network': request.network || process.env.DEFAULT_NETWORK || 'testnet',
+    'invoke.network':
+      request.network || process.env.DEFAULT_NETWORK || 'testnet',
     'invoke.request_id': request.requestId,
     'invoke.args_count': Object.keys(request.args || {}).length,
   });
@@ -155,7 +161,7 @@ export async function invokeSorobanContract(request, { signal } = {}) {
             const durationMs = Date.now() - Date.parse(startedAt);
             setSpanAttributes(span, {
               'invoke.duration_ms': durationMs,
-              'invoke.exit_code': err ? (err.code || 1) : 0,
+              'invoke.exit_code': err ? err.code || 1 : 0,
             });
 
             if (err) {

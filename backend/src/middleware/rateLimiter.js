@@ -7,7 +7,7 @@ import { createHttpError } from './errorHandler.js';
 
 /**
  * Production-grade Rate Limiter Middleware
- * @param {Object} options 
+ * @param {Object} options
  * @param {number} options.limit - Max requests in window
  * @param {number} options.windowMs - Window size in milliseconds
  * @param {string} options.strategyName - Strategy name (FixedWindow, SlidingWindowLog, SlidingWindowCounter)
@@ -18,7 +18,7 @@ export const rateLimiter = (options = {}) => {
     limit = 100,
     windowMs = 60 * 1000,
     strategyName = 'SlidingWindowCounter',
-    identifier = 'ip'
+    identifier = 'ip',
   } = options;
 
   const strategy = getStrategy(strategyName);
@@ -51,13 +51,18 @@ export const rateLimiter = (options = {}) => {
       });
 
       if (!result.allowed) {
-        res.set('Retry-After', String(result.retryAfter || Math.ceil(windowMs / 1000)));
-        
+        res.set(
+          'Retry-After',
+          String(result.retryAfter || Math.ceil(windowMs / 1000))
+        );
+
         await redisService.logAnalytics(req.originalUrl, id, 'blocked');
-        
-        return next(createHttpError(429, 'Too Many Requests', { 
-          retryAfter: result.retryAfter 
-        }));
+
+        return next(
+          createHttpError(429, 'Too Many Requests', {
+            retryAfter: result.retryAfter,
+          })
+        );
       }
 
       await redisService.logAnalytics(req.originalUrl, id, 'allowed');

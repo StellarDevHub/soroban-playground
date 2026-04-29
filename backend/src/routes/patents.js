@@ -185,7 +185,9 @@ router.patch(
   asyncHandler(async (req, res, next) => {
     const actor = parseActor(req);
     if (!actor) {
-      return next(createHttpError(400, 'Validation failed', ['actor is required']));
+      return next(
+        createHttpError(400, 'Validation failed', ['actor is required'])
+      );
     }
 
     const errors = validatePatchPayload(req.body || {});
@@ -194,12 +196,16 @@ router.patch(
     }
 
     try {
-      const patent = await patentRegistryService.updatePatent(req.params.id, actor, {
-        title: req.body.title.trim(),
-        description: req.body.description.trim(),
-        contentHash: req.body.contentHash.trim(),
-        metadataUri: req.body.metadataUri.trim(),
-      });
+      const patent = await patentRegistryService.updatePatent(
+        req.params.id,
+        actor,
+        {
+          title: req.body.title.trim(),
+          description: req.body.description.trim(),
+          contentHash: req.body.contentHash.trim(),
+          metadataUri: req.body.metadataUri.trim(),
+        }
+      );
 
       if (!patent) {
         return next(createHttpError(404, 'Patent not found'));
@@ -220,11 +226,16 @@ router.post(
   asyncHandler(async (req, res, next) => {
     const actor = parseActor(req);
     if (!actor) {
-      return next(createHttpError(400, 'Validation failed', ['actor is required']));
+      return next(
+        createHttpError(400, 'Validation failed', ['actor is required'])
+      );
     }
 
     try {
-      const patent = await patentRegistryService.verifyPatent(req.params.id, actor);
+      const patent = await patentRegistryService.verifyPatent(
+        req.params.id,
+        actor
+      );
       if (!patent) {
         return next(createHttpError(404, 'Patent not found'));
       }
@@ -312,7 +323,9 @@ router.patch(
   asyncHandler(async (req, res, next) => {
     const actor = parseActor(req);
     if (!actor) {
-      return next(createHttpError(400, 'Validation failed', ['actor is required']));
+      return next(
+        createHttpError(400, 'Validation failed', ['actor is required'])
+      );
     }
 
     const body = {
@@ -325,11 +338,15 @@ router.patch(
     }
 
     try {
-      const offer = await patentRegistryService.updateOffer(req.params.id, actor, {
-        terms: body.terms.trim(),
-        paymentAmount: body.paymentAmount,
-        paymentToken: body.paymentToken.trim(),
-      });
+      const offer = await patentRegistryService.updateOffer(
+        req.params.id,
+        actor,
+        {
+          terms: body.terms.trim(),
+          paymentAmount: body.paymentAmount,
+          paymentToken: body.paymentToken.trim(),
+        }
+      );
 
       if (!offer) {
         return next(createHttpError(404, 'License offer not found'));
@@ -350,11 +367,16 @@ router.post(
   asyncHandler(async (req, res, next) => {
     const actor = parseActor(req);
     if (!actor) {
-      return next(createHttpError(400, 'Validation failed', ['actor is required']));
+      return next(
+        createHttpError(400, 'Validation failed', ['actor is required'])
+      );
     }
 
     try {
-      const offer = await patentRegistryService.acceptOffer(req.params.id, actor);
+      const offer = await patentRegistryService.acceptOffer(
+        req.params.id,
+        actor
+      );
       if (!offer) {
         return next(createHttpError(404, 'License offer not found'));
       }

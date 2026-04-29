@@ -54,10 +54,13 @@ export class OracleService {
     proofRetention = 100, // keep last N proofs in memory for status queries
   } = {}) {
     if (threshold > nodeCount && !nodeIds) {
-      throw new Error(`threshold (${threshold}) cannot exceed nodeCount (${nodeCount})`);
+      throw new Error(
+        `threshold (${threshold}) cannot exceed nodeCount (${nodeCount})`
+      );
     }
     this.backend = backend || new MemoryBackend();
-    this.voteStore = voteStore || new MemoryVoteStore({ defaultTtlMs: DEFAULT_PROOF_TTL_MS });
+    this.voteStore =
+      voteStore || new MemoryVoteStore({ defaultTtlMs: DEFAULT_PROOF_TTL_MS });
     this.eventBus = eventBus;
     this.audit = auditLog;
     this.submitter = submitter;
@@ -66,7 +69,8 @@ export class OracleService {
     this.proofs = new Map(); // proofId -> proof state
     this.proofOrder = []; // FIFO of proofIds for retention pruning
 
-    const ids = nodeIds || Array.from({ length: nodeCount }, (_, i) => `oracle-${i + 1}`);
+    const ids =
+      nodeIds || Array.from({ length: nodeCount }, (_, i) => `oracle-${i + 1}`);
     this.voteSigner =
       voteSigner ||
       new VoteSigner({
@@ -134,7 +138,11 @@ export class OracleService {
       error: null,
     };
     this._trackProof(proof);
-    this.eventBus.publish(OracleEvent.PROOF_RECEIVED, { proofId, payload, metadata });
+    this.eventBus.publish(OracleEvent.PROOF_RECEIVED, {
+      proofId,
+      payload,
+      metadata,
+    });
 
     // Fire-and-forget node fan-out. We collect results to populate proof
     // state, but the HTTP caller doesn't wait for it.
@@ -184,7 +192,8 @@ export class OracleService {
       const anyRejected = nodeResults.some(
         (r) => r.status === 'fulfilled' && r.value.phase === 'rejected'
       );
-      proof.status = tally.totalVotes === 0 && anyRejected ? 'failed' : 'no_quorum';
+      proof.status =
+        tally.totalVotes === 0 && anyRejected ? 'failed' : 'no_quorum';
     }
   }
 
@@ -197,7 +206,9 @@ export class OracleService {
         if (!proof) return resolve();
         if (terminalStatuses.includes(proof.status)) return resolve();
         if (Date.now() - start > timeoutMs) {
-          return reject(new Error(`Proof ${proofId} did not complete within ${timeoutMs}ms`));
+          return reject(
+            new Error(`Proof ${proofId} did not complete within ${timeoutMs}ms`)
+          );
         }
         setTimeout(check, 5);
       };
@@ -225,8 +236,8 @@ export class OracleService {
       nodes: this.nodes.length,
       threshold: this.threshold,
       processedProofs: this.proofOrder.length,
-      activeProofs: this.listProofs({ limit: this.proofRetention }).filter((p) =>
-        ['voting'].includes(p.status)
+      activeProofs: this.listProofs({ limit: this.proofRetention }).filter(
+        (p) => ['voting'].includes(p.status)
       ).length,
     };
   }

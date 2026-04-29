@@ -1,8 +1,11 @@
 import cacheService from './cacheService.js';
 
-const DEFAULT_ADMIN = process.env.PATENT_ADMIN_ADDRESS || 'GADMINPATENTREGISTRY0000000000000000000000000000000';
+const DEFAULT_ADMIN =
+  process.env.PATENT_ADMIN_ADDRESS ||
+  'GADMINPATENTREGISTRY0000000000000000000000000000000';
 const DEFAULT_VERIFIER =
-  process.env.PATENT_VERIFIER_ADDRESS || 'GVERIFIERPATENTREGISTRY00000000000000000000000000000';
+  process.env.PATENT_VERIFIER_ADDRESS ||
+  'GVERIFIERPATENTREGISTRY00000000000000000000000000000';
 
 function now() {
   return new Date().toISOString();
@@ -136,7 +139,9 @@ class PatentRegistryService {
     }
 
     if (![DEFAULT_ADMIN, DEFAULT_VERIFIER].includes(actor)) {
-      const error = new Error('Only an admin or verifier can verify inventions');
+      const error = new Error(
+        'Only an admin or verifier can verify inventions'
+      );
       error.statusCode = 403;
       throw error;
     }
@@ -160,7 +165,9 @@ class PatentRegistryService {
   async listOffers(filters = {}) {
     let offers = [...this.offers];
     if (filters.patentId) {
-      offers = offers.filter((item) => item.patentId === Number(filters.patentId));
+      offers = offers.filter(
+        (item) => item.patentId === Number(filters.patentId)
+      );
     }
     if (filters.owner) {
       offers = offers.filter((item) => item.owner === filters.owner);
@@ -179,13 +186,17 @@ class PatentRegistryService {
   }
 
   async createOffer(input) {
-    const patent = this.patents.find((item) => item.id === Number(input.patentId));
+    const patent = this.patents.find(
+      (item) => item.id === Number(input.patentId)
+    );
     if (!patent) {
       return null;
     }
 
     if (patent.owner !== input.owner) {
-      const error = new Error('Only the patent owner can create a license offer');
+      const error = new Error(
+        'Only the patent owner can create a license offer'
+      );
       error.statusCode = 403;
       throw error;
     }
@@ -293,7 +304,9 @@ class PatentRegistryService {
   async listHistory(filters = {}) {
     let events = [...this.history];
     if (filters.patentId) {
-      events = events.filter((item) => item.patentId === Number(filters.patentId));
+      events = events.filter(
+        (item) => item.patentId === Number(filters.patentId)
+      );
     }
 
     events.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));

@@ -4,7 +4,12 @@
 import crypto from 'crypto';
 
 import { MemoryBackend, RedisBackend, selectBackend } from './backends.js';
-import { buildKey, LockScope, parseKey, validateAcquisitionOrder } from './hierarchy.js';
+import {
+  buildKey,
+  LockScope,
+  parseKey,
+  validateAcquisitionOrder,
+} from './hierarchy.js';
 import { nextDelay, normalizeRetry, sleep } from './retry.js';
 import {
   lockAcquireLatency,
@@ -41,7 +46,8 @@ export class LockManager {
   } = {}) {
     if (!backend) throw new Error('LockManager requires a backend');
     this.backend = backend;
-    this.nodeId = nodeId || `node-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    this.nodeId =
+      nodeId || `node-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
     this.audit = auditLog;
     this.deadlock = deadlockDetector;
     this.defaultTtlMs = defaultTtlMs;
@@ -72,7 +78,10 @@ export class LockManager {
         nodeId: this.nodeId,
         reason: ordering.reason,
       });
-      throw new LockAcquisitionError(ordering.reason, { code: 'LOCK_ORDER_VIOLATION', key });
+      throw new LockAcquisitionError(ordering.reason, {
+        code: 'LOCK_ORDER_VIOLATION',
+        key,
+      });
     }
 
     const owner = this._newOwner();
@@ -140,11 +149,14 @@ export class LockManager {
       });
       endTimer({ outcome: 'timeout' });
       lockAcquireTotal.inc({ scope, outcome: 'timeout' });
-      throw new LockAcquisitionError(`Could not acquire ${key} after ${attempts} attempts`, {
-        code: 'LOCK_TIMEOUT',
-        key,
-        attempts,
-      });
+      throw new LockAcquisitionError(
+        `Could not acquire ${key} after ${attempts} attempts`,
+        {
+          code: 'LOCK_TIMEOUT',
+          key,
+          attempts,
+        }
+      );
     }
 
     // Success bookkeeping.
@@ -160,7 +172,12 @@ export class LockManager {
       extend: (newTtl) => this.extend(owner, newTtl),
       heldFor: () => Date.now() - acquiredAt,
     };
-    this.heldByOwner.set(owner, { key, scope, acquiredAt, ttlMs: effectiveTtl });
+    this.heldByOwner.set(owner, {
+      key,
+      scope,
+      acquiredAt,
+      ttlMs: effectiveTtl,
+    });
     this.heldScopes.add(scope);
     this.deadlock.registerHold(key, owner);
     lockActiveGauge.inc({ scope });
@@ -181,7 +198,10 @@ export class LockManager {
   async release(owner) {
     const held = this.heldByOwner.get(owner);
     if (!held) {
-      this.audit.record('release.unknown_owner', { owner, nodeId: this.nodeId });
+      this.audit.record('release.unknown_owner', {
+        owner,
+        nodeId: this.nodeId,
+      });
       lockReleaseTotal.inc({ scope: 'unknown', outcome: 'no_owner' });
       return false;
     }
@@ -190,7 +210,13 @@ export class LockManager {
     try {
       ok = await this.backend.release(key, owner);
     } catch (err) {
-      this.audit.record('release.error', { key, scope, owner, nodeId: this.nodeId, error: err.message });
+      this.audit.record('release.error', {
+        key,
+        scope,
+        owner,
+        nodeId: this.nodeId,
+        error: err.message,
+      });
       lockReleaseTotal.inc({ scope, outcome: 'error' });
       this._forgetLocal(owner, key, scope);
       throw err;
@@ -246,7 +272,11 @@ export class LockManager {
       if (!inspected) {
         this._forgetLocal(owner, meta.key, meta.scope);
         recovered.push({ key: meta.key, owner, action: 'forgotten' });
-        this.audit.record('recovery.forgotten', { key: meta.key, owner, nodeId: this.nodeId });
+        this.audit.record('recovery.forgotten', {
+          key: meta.key,
+          owner,
+          nodeId: this.nodeId,
+        });
       } else if (inspected.owner !== owner) {
         // Someone else owns this now — drop our local record, do not delete theirs.
         this._forgetLocal(owner, meta.key, meta.scope);

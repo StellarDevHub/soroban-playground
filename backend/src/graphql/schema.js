@@ -174,13 +174,16 @@ export const typeDefs = /* GraphQL */ `
   type Query {
     # Compile
     compileStats: CompileStats! @complexity(value: 1)
-    compileHistory(first: Int, after: String): CompileHistoryConnection! @complexity(value: 3, multipliers: ["first"])
+    compileHistory(first: Int, after: String): CompileHistoryConnection!
+      @complexity(value: 3, multipliers: ["first"])
 
     # Deploy
-    deployHistory(first: Int, after: String): DeployHistoryConnection! @complexity(value: 3, multipliers: ["first"])
+    deployHistory(first: Int, after: String): DeployHistoryConnection!
+      @complexity(value: 3, multipliers: ["first"])
 
     # Invoke — admin only
-    invokeLog(contractId: String!, first: Int, after: String): JSON @complexity(value: 5)
+    invokeLog(contractId: String!, first: Int, after: String): JSON
+      @complexity(value: 5)
 
     # Health
     health: String! @complexity(value: 1)

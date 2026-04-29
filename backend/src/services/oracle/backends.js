@@ -64,7 +64,13 @@ export class RedisBackend {
     const out = [];
     let cursor = '0';
     do {
-      const [next, batch] = await this.client.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 200);
+      const [next, batch] = await this.client.scan(
+        cursor,
+        'MATCH',
+        `${prefix}*`,
+        'COUNT',
+        200
+      );
       cursor = next;
       for (const key of batch) {
         const inspected = await this.inspect(key);
@@ -161,7 +167,10 @@ export class MemoryBackend {
 // Selects redis if the supplied client is healthy, otherwise memory.
 // `client.status === 'ready'` is the ioredis convention.
 export function selectBackend({ redisClient, memoryFallback = true } = {}) {
-  if (redisClient && (redisClient.status === 'ready' || redisClient.status === 'connect')) {
+  if (
+    redisClient &&
+    (redisClient.status === 'ready' || redisClient.status === 'connect')
+  ) {
     return new RedisBackend(redisClient);
   }
   if (!memoryFallback) {

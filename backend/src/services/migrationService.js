@@ -41,7 +41,7 @@ class MigrationService {
     const files = fs.readdirSync(this.migrationsPath);
     const migrationFiles = [];
 
-    files.forEach(file => {
+    files.forEach((file) => {
       const match = file.match(/^(\d+)_(.+)\.(up|down)\.sql$/);
       if (match) {
         const [, version, description, direction] = match;
@@ -50,7 +50,7 @@ class MigrationService {
           description,
           direction,
           filename: file,
-          fullPath: path.join(this.migrationsPath, file)
+          fullPath: path.join(this.migrationsPath, file),
         });
       }
     });
@@ -60,20 +60,24 @@ class MigrationService {
 
   async validateMigrationFiles() {
     const files = await this.getMigrationFiles();
-    const upFiles = files.filter(f => f.direction === 'up');
-    const downFiles = files.filter(f => f.direction === 'down');
+    const upFiles = files.filter((f) => f.direction === 'up');
+    const downFiles = files.filter((f) => f.direction === 'down');
     const errors = [];
 
     // Check for paired up/down files
-    upFiles.forEach(upFile => {
-      const correspondingDown = downFiles.find(f => f.version === upFile.version);
+    upFiles.forEach((upFile) => {
+      const correspondingDown = downFiles.find(
+        (f) => f.version === upFile.version
+      );
       if (!correspondingDown) {
         errors.push(`Missing down migration for version ${upFile.version}`);
       }
     });
 
-    downFiles.forEach(downFile => {
-      const correspondingUp = upFiles.find(f => f.version === downFile.version);
+    downFiles.forEach((downFile) => {
+      const correspondingUp = upFiles.find(
+        (f) => f.version === downFile.version
+      );
       if (!correspondingUp) {
         errors.push(`Missing up migration for version ${downFile.version}`);
       }
@@ -81,7 +85,7 @@ class MigrationService {
 
     // Check for version duplicates
     const versionCounts = {};
-    upFiles.forEach(file => {
+    upFiles.forEach((file) => {
       versionCounts[file.version] = (versionCounts[file.version] || 0) + 1;
     });
 
@@ -91,7 +95,10 @@ class MigrationService {
       }
     });
 
-    return { errors, upFiles: upFiles.sort((a, b) => a.version.localeCompare(b.version)) };
+    return {
+      errors,
+      upFiles: upFiles.sort((a, b) => a.version.localeCompare(b.version)),
+    };
   }
 
   async getAppliedMigrations() {
@@ -106,9 +113,9 @@ class MigrationService {
     }
 
     const appliedMigrations = await this.getAppliedMigrations();
-    const appliedVersions = new Set(appliedMigrations.map(m => m.version));
+    const appliedVersions = new Set(appliedMigrations.map((m) => m.version));
 
-    return upFiles.filter(file => !appliedVersions.has(file.version));
+    return upFiles.filter((file) => !appliedVersions.has(file.version));
   }
 
   async validateMigrationChecksum(migrationFile) {
@@ -121,7 +128,9 @@ class MigrationService {
     );
 
     if (appliedMigration && appliedMigration.checksum !== checksum) {
-      throw new Error(`Migration ${migrationFile.version} has been modified since application`);
+      throw new Error(
+        `Migration ${migrationFile.version} has been modified since application`
+      );
     }
 
     return checksum;
@@ -133,11 +142,11 @@ class MigrationService {
       /DROP\s+TABLE/i,
       /DROP\s+DATABASE/i,
       /DELETE\s+FROM\s+\w+\s+WHERE\s+1\s*=\s*1/i,
-      /TRUNCATE/i
+      /TRUNCATE/i,
     ];
 
     const warnings = [];
-    destructivePatterns.forEach(pattern => {
+    destructivePatterns.forEach((pattern) => {
       if (pattern.test(sql)) {
         warnings.push('Potentially destructive operation detected');
       }
@@ -157,17 +166,17 @@ class MigrationService {
         dryRun: true,
         migration: migrationFile,
         warnings,
-        sql: content
+        sql: content,
       };
     }
 
     const startTime = Date.now();
-    
+
     try {
       await this.dbService.transaction(async (db) => {
         // Execute migration SQL
         await db.run(content);
-        
+
         // Record migration
         await db.run(
           `INSERT INTO ${this.migrationTable} (version, checksum, execution_time, status) VALUES (?, ?, ?, ?)`,
@@ -179,20 +188,24 @@ class MigrationService {
         success: true,
         migration: migrationFile,
         executionTime: Date.now() - startTime,
-        warnings
+        warnings,
       };
     } catch (error) {
-      throw new Error(`Migration ${migrationFile.version} failed: ${error.message}`);
+      throw new Error(
+        `Migration ${migrationFile.version} failed: ${error.message}`
+      );
     }
   }
 
   async rollbackMigration(migrationFile, dryRun = false) {
     const downFile = (await this.getMigrationFiles()).find(
-      f => f.version === migrationFile.version && f.direction === 'down'
+      (f) => f.version === migrationFile.version && f.direction === 'down'
     );
 
     if (!downFile) {
-      throw new Error(`No down migration found for version ${migrationFile.version}`);
+      throw new Error(
+        `No down migration found for version ${migrationFile.version}`
+      );
     }
 
     const content = fs.readFileSync(downFile.fullPath, 'utf8');
@@ -204,7 +217,7 @@ class MigrationService {
         dryRun: true,
         migration: downFile,
         warnings,
-        sql: content
+        sql: content,
       };
     }
 
@@ -214,7 +227,7 @@ class MigrationService {
       await this.dbService.transaction(async (db) => {
         // Execute rollback SQL
         await db.run(content);
-        
+
         // Update migration record
         await db.run(
           `UPDATE ${this.migrationTable} SET status = ?, execution_time = ? WHERE version = ?`,
@@ -226,10 +239,12 @@ class MigrationService {
         success: true,
         migration: downFile,
         executionTime: Date.now() - startTime,
-        warnings
+        warnings,
       };
     } catch (error) {
-      throw new Error(`Rollback for migration ${migrationFile.version} failed: ${error.message}`);
+      throw new Error(
+        `Rollback for migration ${migrationFile.version} failed: ${error.message}`
+      );
     }
   }
 
@@ -241,14 +256,23 @@ class MigrationService {
       try {
         const result = await this.executeMigration(migration, dryRun);
         results.push(result);
-        
+
         if (!dryRun && !result.success) {
           // Attempt rollback on failure
           try {
             await this.rollbackMigration(migration);
-            results.push({ ...result, rollbackAttempted: true, rollbackSuccess: true });
+            results.push({
+              ...result,
+              rollbackAttempted: true,
+              rollbackSuccess: true,
+            });
           } catch (rollbackError) {
-            results.push({ ...result, rollbackAttempted: true, rollbackSuccess: false, rollbackError: rollbackError.message });
+            results.push({
+              ...result,
+              rollbackAttempted: true,
+              rollbackSuccess: false,
+              rollbackError: rollbackError.message,
+            });
           }
           break;
         }
@@ -263,8 +287,8 @@ class MigrationService {
 
   async migrateDown(targetVersion = null, dryRun = false) {
     const appliedMigrations = await this.getAppliedMigrations();
-    const migrationsToRollback = targetVersion 
-      ? appliedMigrations.filter(m => m.version > targetVersion).reverse()
+    const migrationsToRollback = targetVersion
+      ? appliedMigrations.filter((m) => m.version > targetVersion).reverse()
       : appliedMigrations.slice(-1); // Rollback last migration only
 
     const results = [];
@@ -272,17 +296,23 @@ class MigrationService {
     for (const appliedMigration of migrationsToRollback) {
       try {
         const migrationFile = (await this.getMigrationFiles()).find(
-          f => f.version === appliedMigration.version && f.direction === 'up'
+          (f) => f.version === appliedMigration.version && f.direction === 'up'
         );
-        
+
         if (!migrationFile) {
-          throw new Error(`Migration file not found for version ${appliedMigration.version}`);
+          throw new Error(
+            `Migration file not found for version ${appliedMigration.version}`
+          );
         }
 
         const result = await this.rollbackMigration(migrationFile, dryRun);
         results.push(result);
       } catch (error) {
-        results.push({ success: false, migration: appliedMigration, error: error.message });
+        results.push({
+          success: false,
+          migration: appliedMigration,
+          error: error.message,
+        });
         break;
       }
     }
@@ -293,8 +323,10 @@ class MigrationService {
   async getMigrationStatus() {
     const { errors, upFiles } = await this.validateMigrationFiles();
     const appliedMigrations = await this.getAppliedMigrations();
-    const appliedVersions = new Set(appliedMigrations.map(m => m.version));
-    const pendingMigrations = upFiles.filter(f => !appliedVersions.has(f.version));
+    const appliedVersions = new Set(appliedMigrations.map((m) => m.version));
+    const pendingMigrations = upFiles.filter(
+      (f) => !appliedVersions.has(f.version)
+    );
 
     return {
       totalMigrations: upFiles.length,
@@ -303,7 +335,7 @@ class MigrationService {
       validationErrors: errors,
       appliedMigrationsDetails: appliedMigrations,
       pendingMigrationsDetails: pendingMigrations,
-      lastMigration: appliedMigrations[appliedMigrations.length - 1] || null
+      lastMigration: appliedMigrations[appliedMigrations.length - 1] || null,
     };
   }
 

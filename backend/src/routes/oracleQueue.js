@@ -12,15 +12,22 @@ router.post('/verify', async (req, res, next) => {
     const { payload, priority, maxRetries, deadline } = req.body;
 
     if (!payload) {
-      return res.status(400).json({ success: false, error: 'Payload is required' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Payload is required' });
     }
 
-    const taskId = await oracleQueueService.enqueue(payload, priority, maxRetries, deadline);
-    
+    const taskId = await oracleQueueService.enqueue(
+      payload,
+      priority,
+      maxRetries,
+      deadline
+    );
+
     return res.status(202).json({
       success: true,
       message: 'Proof task enqueued successfully',
-      data: { taskId }
+      data: { taskId },
     });
   } catch (err) {
     next(err);
@@ -36,15 +43,21 @@ router.post('/verify/batch', async (req, res, next) => {
     const { payloads, priority, maxRetries } = req.body;
 
     if (!Array.isArray(payloads) || payloads.length === 0) {
-      return res.status(400).json({ success: false, error: 'Array of payloads is required' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Array of payloads is required' });
     }
 
-    const taskIds = await oracleQueueService.enqueueBatch(payloads, priority, maxRetries);
-    
+    const taskIds = await oracleQueueService.enqueueBatch(
+      payloads,
+      priority,
+      maxRetries
+    );
+
     return res.status(202).json({
       success: true,
       message: `${taskIds.length} proof tasks enqueued successfully`,
-      data: { taskIds }
+      data: { taskIds },
     });
   } catch (err) {
     next(err);

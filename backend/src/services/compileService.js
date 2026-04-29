@@ -5,7 +5,12 @@ import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
 import { LRUCache } from 'lru-cache';
 import { buildCargoToml } from '../routes/compile_utils.js';
-import { createSpan, setSpanAttributes, addSpanEvent, getTraceId } from '../utils/tracing.js';
+import {
+  createSpan,
+  setSpanAttributes,
+  addSpanEvent,
+  getTraceId,
+} from '../utils/tracing.js';
 import { alertManager } from '../utils/alerting.js';
 import {
   initializeCacheService,
@@ -199,18 +204,24 @@ class WorkerPool {
             setSpanAttributes(span, {
               'worker.exit_code': message.payload.exitCode || 0,
               'worker.duration_ms': message.payload.durationMs,
-              'worker.memory_peak_mb': (message.payload.memoryPeakBytes || 0) / (1024 * 1024),
+              'worker.memory_peak_mb':
+                (message.payload.memoryPeakBytes || 0) / (1024 * 1024),
             });
             cleanup();
             resolve(message.payload);
           } else if (message?.type === 'progress') {
-            addSpanEvent(span, 'worker.progress', { 'progress.status': message.payload.status });
+            addSpanEvent(span, 'worker.progress', {
+              'progress.status': message.payload.status,
+            });
             queueBus.emit('progress', message.payload);
           }
         };
 
         const onError = (error) => {
-          setSpanAttributes(span, { 'error': true, 'error.message': error.message });
+          setSpanAttributes(span, {
+            error: true,
+            'error.message': error.message,
+          });
           cleanup();
           reject(error);
         };
@@ -251,7 +262,7 @@ async function compileOnce({ code, dependencies = {}, requestId }) {
 
     await evictExpiredArtifacts();
 
-const hit = await loadCacheEntryFromCache(hash);
+    const hit = await loadCacheEntryFromCache(hash);
     if (hit) {
       addSpanEvent(span, 'cache.hit', {
         'cache.size_bytes': hit.sizeBytes,
@@ -318,17 +329,20 @@ const hit = await loadCacheEntryFromCache(hash);
     });
 
     const startTime = Date.now();
-const result = await executeUnderLock(hash, requestId, async () => {
-        return await pool.run({
-          code,
-          dependencies,
-          requestId,
-          hash,
-          cacheRoot: CACHE_ROOT,
-          artifactRoot: ARTIFACT_ROOT,
-          cargoToml: buildCargoToml(dependencies),
-          timeoutMs: Number.parseInt(process.env.COMPILE_TIMEOUT_MS || '30000', 10),
-        });
+    const result = await executeUnderLock(hash, requestId, async () => {
+      return await pool.run({
+        code,
+        dependencies,
+        requestId,
+        hash,
+        cacheRoot: CACHE_ROOT,
+        artifactRoot: ARTIFACT_ROOT,
+        cargoToml: buildCargoToml(dependencies),
+        timeoutMs: Number.parseInt(
+          process.env.COMPILE_TIMEOUT_MS || '30000',
+          10
+        ),
+      });
     });
 
     const durationMs = Date.now() - startTime;

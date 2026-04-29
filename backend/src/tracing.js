@@ -3,7 +3,11 @@ import { JaegerExporter } from '@opentelemetry/exporter-jaeger';
 import { ZipkinExporter } from '@opentelemetry/exporter-zipkin';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { ParentBasedSampler, TraceIdRatioBasedSampler, AlwaysOnSampler } from '@opentelemetry/sdk-trace-base';
+import {
+  ParentBasedSampler,
+  TraceIdRatioBasedSampler,
+  AlwaysOnSampler,
+} from '@opentelemetry/sdk-trace-base';
 import { Resource } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-base';
@@ -15,17 +19,36 @@ import config from './config/index.js';
 // - 100% slow requests (>5s)
 class CustomSampler {
   constructor() {
-    this.successSampler = new TraceIdRatioBasedSampler(config.tracing.sampleRateSuccess); // Configurable success rate
+    this.successSampler = new TraceIdRatioBasedSampler(
+      config.tracing.sampleRateSuccess
+    ); // Configurable success rate
     this.alwaysOnSampler = new AlwaysOnSampler(); // 100% errors and slow
   }
 
   shouldSample(context, traceId, spanName, spanKind, attributes, links) {
     // Always sample errors and slow requests
-    if (attributes?.['http.status_code'] >= 400 || attributes?.['http.duration_ms'] > config.tracing.slowRequestThresholdMs) {
-      return this.alwaysOnSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+    if (
+      attributes?.['http.status_code'] >= 400 ||
+      attributes?.['http.duration_ms'] > config.tracing.slowRequestThresholdMs
+    ) {
+      return this.alwaysOnSampler.shouldSample(
+        context,
+        traceId,
+        spanName,
+        spanKind,
+        attributes,
+        links
+      );
     }
     // Configurable rate for success
-    return this.successSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+    return this.successSampler.shouldSample(
+      context,
+      traceId,
+      spanName,
+      spanKind,
+      attributes,
+      links
+    );
   }
 }
 
@@ -67,7 +90,9 @@ export function initializeTracing() {
     exporters.push(new ConsoleSpanExporter());
   }
 
-  const spanProcessors = exporters.map(exporter => new BatchSpanProcessor(exporter));
+  const spanProcessors = exporters.map(
+    (exporter) => new BatchSpanProcessor(exporter)
+  );
 
   const sdk = new NodeSDK({
     resource,
@@ -103,17 +128,23 @@ export function initializeTracing() {
   // Start the SDK
   sdk.start();
 
-  console.log('OpenTelemetry tracing initialized with exporters:', exporters.map(e => e.constructor.name));
+  console.log(
+    'OpenTelemetry tracing initialized with exporters:',
+    exporters.map((e) => e.constructor.name)
+  );
 
   // Graceful shutdown
   process.on('SIGTERM', () => {
-    sdk.shutdown().then(() => {
-      console.log('OpenTelemetry tracing shut down');
-      process.exit(0);
-    }).catch((error) => {
-      console.error('Error shutting down tracing', error);
-      process.exit(1);
-    });
+    sdk
+      .shutdown()
+      .then(() => {
+        console.log('OpenTelemetry tracing shut down');
+        process.exit(0);
+      })
+      .catch((error) => {
+        console.error('Error shutting down tracing', error);
+        process.exit(1);
+      });
   });
 
   return sdk;
