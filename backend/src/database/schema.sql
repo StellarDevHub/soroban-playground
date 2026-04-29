@@ -85,6 +85,62 @@ CREATE INDEX IF NOT EXISTS idx_projects_completion ON projects(completion_rate);
 CREATE INDEX IF NOT EXISTS idx_search_analytics_timestamp ON search_analytics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_search_suggestions_freq ON search_suggestions(frequency DESC);
 
+-- Voting System Tables
+CREATE TABLE IF NOT EXISTS proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    description_hash TEXT NOT NULL,
+    duration INTEGER NOT NULL,
+    creator TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    end_time INTEGER NOT NULL,
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'finalized', 'cancelled')),
+    votes_for INTEGER DEFAULT 0,
+    votes_against INTEGER DEFAULT 0,
+    total_participants INTEGER DEFAULT 0,
+    finalized_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS vote_commitments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposal_id INTEGER NOT NULL,
+    voter TEXT NOT NULL,
+    commitment_hash TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY (proposal_id) REFERENCES proposals(id) ON DELETE CASCADE,
+    UNIQUE(proposal_id, voter)
+);
+
+CREATE TABLE IF NOT EXISTS votes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposal_id INTEGER NOT NULL,
+    voter TEXT NOT NULL,
+    credits INTEGER NOT NULL,
+    votes INTEGER NOT NULL,
+    is_for INTEGER NOT NULL,
+    revealed_at INTEGER NOT NULL,
+    FOREIGN KEY (proposal_id) REFERENCES proposals(id) ON DELETE CASCADE,
+    UNIQUE(proposal_id, voter)
+);
+
+CREATE TABLE IF NOT EXISTS whitelisted_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    address TEXT UNIQUE NOT NULL,
+    initial_credits INTEGER DEFAULT 0,
+    whitelisted_by TEXT NOT NULL,
+    whitelisted_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
+CREATE INDEX IF NOT EXISTS idx_proposals_end_time ON proposals(end_time);
+CREATE INDEX IF NOT EXISTS idx_proposals_creator ON proposals(creator);
+CREATE INDEX IF NOT EXISTS idx_vote_commitments_proposal ON vote_commitments(proposal_id);
+CREATE INDEX IF NOT EXISTS idx_vote_commitments_voter ON vote_commitments(voter);
+CREATE INDEX IF NOT EXISTS idx_votes_proposal ON votes(proposal_id);
+CREATE INDEX IF NOT EXISTS idx_votes_voter ON votes(voter);
+CREATE INDEX IF NOT EXISTS idx_whitelisted_address ON whitelisted_users(address);
+
 -- Sample data for testing
 INSERT OR IGNORE INTO projects (title, description, category, status, creator_id, creator_name, funding_goal, current_funding, completion_rate, tags) VALUES
 ('Decentralized Voting Platform', 'A blockchain-based voting system ensuring transparency and immutability', 'DeFi', 'active', 1, 'Alice Johnson', 50000, 25000, 50.0, '["voting", "governance", "blockchain"]'),

@@ -1,11 +1,3 @@
-import express from "express";
-import cors from "cors";
-import { initializeDatabase } from "./database/connection.js";
-import compileRoute from "./routes/compile.js";
-import deployRoute from "./routes/deploy.js";
-import invokeRoute from "./routes/invoke.js";
-import searchRoute from "./routes/search.js";
-import cacheService from "./services/cacheService.js";
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
@@ -13,12 +5,13 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import morgan from 'morgan';
-// import rateLimit from 'express-rate-limit'; // Replaced by custom Redis limiter
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { initializeDatabase } from "./database/connection.js";
 import apiRouter from './routes/api.js';
+import votingRoute from './routes/voting.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { setupWebsocketServer } from './websocket.js';
@@ -31,6 +24,10 @@ import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
+import cacheService from "./services/cacheService.js";
+import { createGraphQLServer } from './graphql/index.js';
+import config from './config/index.js';
+import { getCurrentSpan, setSpanAttributes } from './utils/tracing.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,6 +148,7 @@ app.use('/api', apiRouter);
 app.use('/api/oracle', oracleQueueRoute);
 app.use('/api/admin', adminRoute);
 app.use('/api/migrations', migrationRoute);
+app.use('/api/voting', votingRoute);
 app.use('/metrics', metricsRoute);
 
 // GraphQL — mounted at /graphql (GraphiQL playground available at GET /graphql)
