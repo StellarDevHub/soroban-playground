@@ -31,6 +31,7 @@ import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
+import lendingRoute from './routes/lending.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -18,6 +18,7 @@ pub struct UserPosition {
     pub deposited: i128,
     pub borrowed: i128,
     pub last_updated: u64,
+    pub credit_score: i128,
 }
 
 #[contracttype]
