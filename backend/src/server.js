@@ -1,3 +1,4 @@
+import freelanceRoute from './routes/freelance.js';
 import express from "express";
 import cors from "cors";
 import { initializeDatabase } from "./database/connection.js";
@@ -245,6 +246,7 @@ app.get('/api/health', (_req, res) => {
 app.listen(PORT, async () => {
 // Error handlers (must be after routes)
 app.use(notFoundHandler);
+app.use('/api/freelance', freelanceRoute);
 app.use(errorHandler);
 
 setupWebsocketServer(server);
