@@ -24,6 +24,10 @@ import WalletConnect from "@/components/WalletConnect";
 import TransactionStatus from "@/components/TransactionStatus";
 import VestingDashboard, { VestingScheduleData } from "@/components/VestingDashboard";
 import IdentityPortal, { IdentityData } from "@/components/IdentityPortal";
+import FreelancerIdentityDashboard, {
+  type FreelancerIdentityAnalytics,
+  type FreelancerProfileData,
+} from "@/components/FreelancerIdentityDashboard";
 import LendingDashboard from "@/components/LendingDashboard";
 import FlashLoanPanel from "@/components/FlashLoanPanel";
 import CloudStoragePanel from "@/components/CloudStoragePanel";
@@ -346,6 +350,11 @@ export default function Home() {
   const [identities, setIdentities] = useState<IdentityData[]>([]);
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
 
+  // Freelancer identity state
+  const [freelancerProfiles, setFreelancerProfiles] = useState<FreelancerProfileData[]>([]);
+  const [freelancerAnalytics, setFreelancerAnalytics] = useState<FreelancerIdentityAnalytics>();
+  const [isFreelancerIdentityLoading, setIsFreelancerIdentityLoading] = useState(false);
+
   // Carbon Credit state
   const [carbonIssuer, setCarbonIssuer] = useState<IssuerData>();
   const [carbonAssets, setCarbonAssets] = useState<CarbonAssetData>({ balance: 0, totalRetired: 0, totalOwned: 0 });
@@ -468,6 +477,8 @@ export default function Home() {
             appendLog(
               `[compile:${payload.status ?? "update"}] queue=${payload.queueLength ?? 0} workers=${payload.activeWorkers ?? 0}`,
             );
+          } else if (payload.type === "freelancer-identity") {
+            void loadFreelancerIdentity();
           }
         } catch {
           appendLog("[warn] Received malformed websocket payload.");
@@ -494,6 +505,15 @@ export default function Home() {
     };
   }, []);
 
+  async function getJson<T>(path: string) {
+    const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`);
+    const payload = (await response.json().catch(() => ({}))) as T & ApiErrorPayload;
+    if (!response.ok) {
+      throw new Error(payload.message || "Request failed");
+    }
+    return payload;
+  }
+
   async function requestJson<T>(path: string, body: Record<string, unknown>) {
     const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
       method: "POST",
@@ -516,6 +536,83 @@ export default function Home() {
 
     return payload;
   }
+
+  const loadFreelancerIdentity = async () => {
+    setIsFreelancerIdentityLoading(true);
+    try {
+      const [profilesPayload, analyticsPayload] = await Promise.all([
+        getJson<{ data: FreelancerProfileData[] }>("/api/freelancer-identity/profiles"),
+        getJson<{ data: FreelancerIdentityAnalytics }>("/api/freelancer-identity/analytics"),
+      ]);
+      setFreelancerProfiles(profilesPayload.data ?? []);
+      setFreelancerAnalytics(analyticsPayload.data);
+    } catch (error) {
+      appendLog(`[error] Freelancer identity refresh failed: ${formatApiError(error)}`);
+    } finally {
+      setIsFreelancerIdentityLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadFreelancerIdentity();
+  }, []);
+
+  const handleCreateFreelancerProfile = async (input: {
+    owner: string;
+    handle: string;
+    bio: string;
+    portfolioUrl: string;
+    skills: string[];
+  }) => {
+    setIsFreelancerIdentityLoading(true);
+    try {
+      await requestJson("/api/freelancer-identity/profiles", input);
+      await loadFreelancerIdentity();
+      appendLog(`[identity] Freelancer profile created: ${input.handle}`);
+    } catch (error) {
+      appendLog(`[error] Create freelancer profile failed: ${formatApiError(error)}`);
+    } finally {
+      setIsFreelancerIdentityLoading(false);
+    }
+  };
+
+  const handleVerifyFreelancerPortfolio = async (input: {
+    owner: string;
+    verifier: string;
+    projectUrl: string;
+    evidenceUrl: string;
+    score: number;
+  }) => {
+    setIsFreelancerIdentityLoading(true);
+    try {
+      await requestJson("/api/freelancer-identity/portfolio-verifications", input);
+      await loadFreelancerIdentity();
+      appendLog(`[identity] Portfolio verified for ${input.owner.slice(0, 8)}...`);
+    } catch (error) {
+      appendLog(`[error] Portfolio verification failed: ${formatApiError(error)}`);
+    } finally {
+      setIsFreelancerIdentityLoading(false);
+    }
+  };
+
+  const handleEndorseFreelancerSkill = async (input: {
+    owner: string;
+    endorser: string;
+    skill: string;
+    evidenceUrl: string;
+    weight: number;
+  }) => {
+    setIsFreelancerIdentityLoading(true);
+    try {
+      await requestJson("/api/freelancer-identity/skill-endorsements", input);
+      await loadFreelancerIdentity();
+      appendLog(`[identity] Skill endorsed for ${input.owner.slice(0, 8)}...`);
+    } catch (error) {
+      appendLog(`[error] Skill endorsement failed: ${formatApiError(error)}`);
+    } finally {
+      setIsFreelancerIdentityLoading(false);
+    }
+  };
 
   const handleCompile = async () => {
     setIsCompiling(true);
@@ -2395,6 +2492,15 @@ export default function Home() {
               onIssueCredential={handleIssueCredential}
               onRevokeCredential={handleRevokeCredential}
               onAdjustReputation={handleAdjustReputation}
+            />
+            <FreelancerIdentityDashboard
+              profiles={freelancerProfiles}
+              analytics={freelancerAnalytics}
+              isLoading={isFreelancerIdentityLoading}
+              onRefresh={loadFreelancerIdentity}
+              onCreateProfile={handleCreateFreelancerProfile}
+              onVerifyPortfolio={handleVerifyFreelancerPortfolio}
+              onEndorseSkill={handleEndorseFreelancerSkill}
             />
             <CarbonCreditDashboard
               isLoading={isCarbonLoading}

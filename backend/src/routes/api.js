@@ -6,6 +6,8 @@ import v2Compile from './v2/compile.js';
 import v2Deploy from './v2/deploy.js';
 import v2Invoke from './v2/invoke.js';
 import eventsRouter from './events.js';
+import freelancerIdentityRouter from './freelancerIdentity.js';
+import oracleRouter from './oracle.js';
 import { versionTransformer, requestTransformerV2 } from '../middleware/versionTransformer.js';
 import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
@@ -50,5 +52,6 @@ router.use('/compile', versionTransformer('v1'), rateLimitMiddleware('compile'),
 router.use('/deploy', versionTransformer('v1'), rateLimitMiddleware('deploy'), v1Deploy);
 router.use('/invoke', versionTransformer('v1'), rateLimitMiddleware('invoke'), v1Invoke);
 router.use('/events', eventsRouter);
+router.use('/freelancer-identity', freelancerIdentityRouter);
 
 export default router;

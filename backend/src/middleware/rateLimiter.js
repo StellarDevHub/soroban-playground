@@ -68,3 +68,14 @@ export const rateLimiter = (options = {}) => {
     }
   };
 };
+
+export const rateLimitMiddleware = (scope = 'global') => {
+  const limits = {
+    compile: { limit: 20, windowMs: 60 * 1000, identifier: 'ip' },
+    deploy: { limit: 30, windowMs: 60 * 1000, identifier: 'ip' },
+    invoke: { limit: 60, windowMs: 60 * 1000, identifier: 'ip' },
+    global: { limit: 120, windowMs: 60 * 1000, identifier: 'ip' },
+  };
+
+  return rateLimiter(limits[scope] || limits.global);
+};
