@@ -69,7 +69,9 @@ impl AmmPool {
         nft_collection: Address,
         fee_bps: Option<i128>,
     ) -> Result<(), Error> {
-        Self::initialize(env.clone(), admin, token_a, token_b, fee_bps)?;
+        if !is_initialized(&env) {
+            Self::initialize(env.clone(), admin, token_a, token_b, fee_bps)?;
+        }
         set_nft_collection(&env, nft_collection.clone());
         
         // Initialize collection stats
