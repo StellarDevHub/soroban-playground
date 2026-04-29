@@ -151,6 +151,7 @@ app.use('/api', apiRouter);
 app.use('/api/oracle', oracleQueueRoute);
 app.use('/api/admin', adminRoute);
 app.use('/api/migrations', migrationRoute);
+app.use('/api/notary', (await import('./routes/notary.js')).default);
 app.use('/metrics', metricsRoute);
 
 // GraphQL — mounted at /graphql (GraphiQL playground available at GET /graphql)
