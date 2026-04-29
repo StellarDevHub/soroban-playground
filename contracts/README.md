@@ -18,6 +18,7 @@ Examples in this area should be:
 Current example:
 
 - `hello-world/`: a minimal Soroban contract with its own README
+- `yield-optimizer/`: cross-protocol strategy optimizer with deposits, withdrawals, auto-compound, and pause controls
 
 ## Recommended structure
 

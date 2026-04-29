@@ -98,7 +98,7 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center space-x-4">
-          <a href="#" className="flex items-center text-sm text-gray-400 hover:text-gray-200 transition">
+          <a href="/yield-optimizer" className="flex items-center text-sm text-gray-400 hover:text-gray-200 transition">
             <BookOpen size={16} className="mr-2" /> Docs
           </a>
           <button className="flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-700 text-sm font-medium rounded-lg transition border border-gray-700">

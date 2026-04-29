@@ -3,6 +3,7 @@ import cors from "cors";
 import compileRoute from "./routes/compile.js";
 import deployRoute from "./routes/deploy.js";
 import invokeRoute from "./routes/invoke.js";
+import optimizerRoute from "./routes/optimizer.js";
 import logger from "./utils/logger.js";
 
 const app = express();
@@ -15,6 +16,7 @@ app.use(express.json());
 app.use("/api/compile", compileRoute);
 app.use("/api/deploy", deployRoute);
 app.use("/api/invoke", invokeRoute);
+app.use("/api/optimizer", optimizerRoute);
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -25,9 +27,17 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  logger.info("Backend server started", {
-    port: PORT,
-    url: `http://localhost:${PORT}`,
+export function startServer() {
+  return app.listen(PORT, () => {
+    logger.info("Backend server started", {
+      port: PORT,
+      url: `http://localhost:${PORT}`,
+    });
   });
-});
+}
+
+if (process.env.NODE_ENV !== "test") {
+  startServer();
+}
+
+export default app;

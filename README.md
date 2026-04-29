@@ -9,6 +9,7 @@ No setup required. Write Rust smart contracts directly in your browser.
 - **Deploy to Testnet**: Deploy your contracts instantly to the Stellar Testnet.
 - **Contract Interaction**: Read and write functions easily via an auto-generated UI.
 - **Storage Viewer**: Explore contract storage keys and values.
+- **Yield Optimizer MVP**: Cross-protocol strategy simulation with deposits, withdrawals, auto-compounding, and deterministic backtesting.
 
 ## Project Structure
 This repository uses a monorepo setup:
@@ -39,6 +40,85 @@ This repository uses a monorepo setup:
 
 ## Contributing
 We welcome contributions! Please see our [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on how to get started.
+
+## Yield Optimizer (Issue #316)
+
+This repository includes a smallest-complete implementation across contract, backend, and frontend:
+
+- Soroban contract example: `contracts/yield-optimizer`
+- Backend APIs: `backend/src/routes/optimizer.js`
+- Frontend dashboard: `frontend/src/app/yield-optimizer/page.tsx`
+
+### Contract Summary
+
+`contracts/yield-optimizer` supports:
+
+- strategy create/update/list
+- user deposit and withdraw
+- share and balance tracking per user position
+- executor/admin-only compound flow
+- emergency pause/unpause
+- events on strategy create/update, deposit, withdraw, and compound
+
+### Backend API Examples
+
+Base URL: `http://localhost:5000/api/optimizer`
+
+Create strategy:
+
+```bash
+curl -X POST http://localhost:5000/api/optimizer/strategies \
+   -H "Content-Type: application/json" \
+   -H "x-actor-address: GOPTIMIZERADMIN000000000000000000000000000000000000" \
+   -d '{
+      "name":"Cross-Protocol Stable Vault",
+      "protocol":"Blend + Aquarius",
+      "apyBps":1200,
+      "feeBps":250,
+      "compoundInterval":86400
+   }'
+```
+
+Deposit:
+
+```bash
+curl -X POST http://localhost:5000/api/optimizer/strategies/1/deposit \
+   -H "Content-Type: application/json" \
+   -H "x-actor-address: GUSERADDRESS" \
+   -d '{"amount":5000}'
+```
+
+Run deterministic backtest:
+
+```bash
+curl -X POST http://localhost:5000/api/optimizer/backtest \
+   -H "Content-Type: application/json" \
+   -d '{
+      "depositAmount":10000,
+      "days":30,
+      "apyBps":1200,
+      "feeBps":250,
+      "compoundEveryDays":7
+   }'
+```
+
+### Backtesting Assumptions
+
+- deterministic mocked return series (no external market fetch)
+- strategy protocol text is used as metadata only
+- fees are applied on compound checkpoints
+- output includes projected yield, APY, drawdown, fees, and daily equity series
+
+### Deployment/Configuration
+
+Optional backend environment variables:
+
+- `OPTIMIZER_ADMIN_ADDRESS`
+- `OPTIMIZER_EXECUTOR_ADDRESS`
+
+Frontend API override:
+
+- `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:5000/api`)
 
 ## License
 MIT License.
