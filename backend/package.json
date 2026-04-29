@@ -10,19 +10,11 @@
     "format:check": "echo \"No backend format check configured\"",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "init-db": "node src/database/init.js"
+    "init-db": "node src/database/init.js",
     "test": "echo \"No backend tests configured\""
   },
   "keywords": ["search", "fts", "fuzzy", "api"],
   "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.6",
-    "ioredis": "^5.3.2"
   "license": "MIT",
   "dependencies": {
     "@opentelemetry/api": "^1.8.0",
@@ -46,6 +38,7 @@
     "morgan": "^1.10.1",
     "prom-client": "^15.1.3",
     "sqlite3": "^5.1.7",
+    "sqlite": "^5.1.1",
     "ws": "^8.18.3"
   },
   "devDependencies": {
