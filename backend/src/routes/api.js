@@ -7,7 +7,9 @@ import v2Deploy from './v2/deploy.js';
 import v2Invoke from './v2/invoke.js';
 import eventsRouter from './events.js';
 import ticketingRouter from './ticketing.js';
+import realEstateRouter from './realEstate.js';
 import { versionTransformer, requestTransformerV2 } from '../middleware/versionTransformer.js';
+
 
 import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
@@ -53,6 +55,8 @@ router.use('/deploy', versionTransformer('v1'), rateLimitMiddleware('deploy'), v
 router.use('/invoke', versionTransformer('v1'), rateLimitMiddleware('invoke'), v1Invoke);
 router.use('/events', eventsRouter);
 router.use('/ticketing', ticketingRouter);
+router.use('/real-estate', realEstateRouter);
 
 export default router;
+
 

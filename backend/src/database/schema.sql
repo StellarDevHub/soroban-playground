@@ -118,7 +118,39 @@ CREATE TABLE IF NOT EXISTS ticketing_checkins (
 CREATE INDEX IF NOT EXISTS idx_ticketing_tickets_event ON ticketing_tickets(event_id);
 CREATE INDEX IF NOT EXISTS idx_ticketing_tickets_owner ON ticketing_tickets(owner_address);
 
+-- Real estate tokenization tables
+CREATE TABLE IF NOT EXISTS real_estate_properties (
+    id INTEGER PRIMARY KEY, -- Matches contract property_id
+    owner_address TEXT NOT NULL,
+    name TEXT NOT NULL,
+    total_shares INTEGER NOT NULL,
+    price_per_share REAL NOT NULL,
+    sold_shares INTEGER DEFAULT 0,
+    metadata_url TEXT,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS real_estate_rent_deposits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    deposit_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (property_id) REFERENCES real_estate_properties(id)
+);
+
+CREATE TABLE IF NOT EXISTS real_estate_ownership (
+    property_id INTEGER NOT NULL,
+    owner_address TEXT NOT NULL,
+    shares INTEGER NOT NULL,
+    PRIMARY KEY (property_id, owner_address),
+    FOREIGN KEY (property_id) REFERENCES real_estate_properties(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_re_ownership_owner ON real_estate_ownership(owner_address);
+
 -- Sample data for testing
+
 INSERT OR IGNORE INTO projects (title, description, category, status, creator_id, creator_name, funding_goal, current_funding, completion_rate, tags) VALUES
 ('Decentralized Voting Platform', 'A blockchain-based voting system ensuring transparency and immutability', 'DeFi', 'active', 1, 'Alice Johnson', 50000, 25000, 50.0, '["voting", "governance", "blockchain"]'),
 ('Stellar Payment Gateway', 'Seamless payment processing for merchants using Stellar network', 'Payments', 'funded', 2, 'Bob Smith', 75000, 75000, 100.0, '["payments", "stellar", "merchant"]'),
