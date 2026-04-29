@@ -22,7 +22,9 @@ use crate::storage::{
     get_fee_bps, get_last_ts, get_lp, get_price_a_cum, get_price_b_cum, get_reserve_a,
     get_reserve_b, get_token_a, get_token_b, get_total_lp, is_initialized, set_admin,
     set_fee_bps, set_last_ts, set_lp, set_price_a_cum, set_price_b_cum, set_reserve_a,
-    set_reserve_b, set_token_a, set_token_b, set_total_lp,
+    set_reserve_b, set_token_a, set_token_b, set_total_lp, set_nft_collection,
+    get_total_volume, set_total_volume, get_total_fees, set_total_fees, get_collection_stats,
+    set_collection_stats, get_floor_price, set_floor_price,
 };
 use crate::types::Error;
 
@@ -55,6 +57,33 @@ impl AmmPool {
         set_token_b(&env, &token_b);
         set_fee_bps(&env, fee_bps.unwrap_or(30));
         set_last_ts(&env, env.ledger().timestamp());
+        Ok(())
+    }
+
+    /// Initialize NFT AMM pool with collection tracking.
+    pub fn initialize_nft(
+        env: Env,
+        admin: Address,
+        token_a: Address,
+        token_b: Address,
+        nft_collection: Address,
+        fee_bps: Option<i128>,
+    ) -> Result<(), Error> {
+        Self::initialize(env.clone(), admin, token_a, token_b, fee_bps)?;
+        set_nft_collection(&env, nft_collection.clone());
+        
+        // Initialize collection stats
+        let stats = types::CollectionStats {
+            floor_price: 0,
+            ceiling_price: 0,
+            total_volume: 0,
+            trade_count: 0,
+            unique_holders: 0,
+            last_update: env.ledger().timestamp(),
+        };
+        set_collection_stats(&env, &stats);
+        
+        env.events().publish((symbol_short!("nft_init"),), nft_collection);
         Ok(())
     }
 
@@ -200,6 +229,11 @@ impl AmmPool {
         // Update TWAP accumulators.
         update_twap(&env, ra, rb);
 
+        // Track volume and fees for NFT analytics
+        let fee_amount = amount_in.checked_mul(get_fee_bps(&env)).ok_or(Error::Overflow)? / 10_000;
+        set_total_volume(&env, get_total_volume(&env) + amount_in);
+        set_total_fees(&env, get_total_fees(&env) + fee_amount);
+
         env.events().publish((symbol_short!("swap"),), amount_out);
         Ok(amount_out)
     }
@@ -249,6 +283,52 @@ impl AmmPool {
     pub fn get_fee_bps(env: Env) -> Result<i128, Error> {
         ensure_initialized(&env)?;
         Ok(get_fee_bps(&env))
+    }
+
+    // ── NFT Collection Analytics ──────────────────────────────────────────────
+
+    /// Get current collection statistics.
+    pub fn get_collection_stats(env: Env) -> Result<types::CollectionStats, Error> {
+        ensure_initialized(&env)?;
+        get_collection_stats(&env).ok_or(Error::NotInitialized)
+    }
+
+    /// Update floor price based on swap activity.
+    pub fn update_floor_price(
+        env: Env,
+        admin: Address,
+        new_floor: i128,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        
+        if new_floor < 0 {
+            return Err(Error::ZeroAmount);
+        }
+        
+        set_floor_price(&env, new_floor);
+        
+        // Update collection stats
+        if let Some(mut stats) = get_collection_stats(&env) {
+            stats.floor_price = new_floor;
+            stats.last_update = env.ledger().timestamp();
+            set_collection_stats(&env, &stats);
+        }
+        
+        env.events().publish((symbol_short!("floor_upd"),), new_floor);
+        Ok(())
+    }
+
+    /// Get total trading volume and fees.
+    pub fn get_pool_metrics(env: Env) -> Result<(i128, i128), Error> {
+        ensure_initialized(&env)?;
+        Ok((get_total_volume(&env), get_total_fees(&env)))
+    }
+
+    /// Get floor price for NFT collection.
+    pub fn get_floor_price(env: Env) -> Result<i128, Error> {
+        ensure_initialized(&env)?;
+        Ok(get_floor_price(&env))
     }
 }
 
