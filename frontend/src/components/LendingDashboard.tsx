@@ -23,6 +23,7 @@ export default function LendingDashboard() {
                 </div>
             </div>
 
+            <div className='mb-6 p-4 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg text-white shadow-md'>                <div className='flex justify-between items-center'>                    <div>                        <p className='text-indigo-100 text-sm font-semibold uppercase'>Decentralized Credit Score</p>                        <p className='text-3xl font-bold'>{creditScore}</p>                    </div>                    <div className='text-right'>                        <p className='text-indigo-100 text-xs'>Repayment Reliability</p>                        <p className='text-lg font-semibold'>Excellent</p>                    </div>                </div>            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-700">
                     <div className="flex justify-between items-center mb-2">

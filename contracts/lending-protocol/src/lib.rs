@@ -88,11 +88,14 @@ impl LendingProtocol {
         let actual_repay = if amount > pos.borrowed { pos.borrowed } else { amount };
 
         pos.borrowed -= actual_repay;
+        pos.credit_score += 5; // Reward repayment
         pos.last_updated = env.ledger().timestamp();
         set_position(&env, &user, &pos);
 
         let total = get_total_borrowed(&env);
         set_total_borrowed(&env, total - actual_repay);
+
+        env.events().publish(("repayment", user.clone()), (actual_repay, pos.credit_score));
 
         Ok(())
     }
@@ -110,6 +113,7 @@ impl LendingProtocol {
         let collateral_to_seize = (actual_repay * 110) / 100; // 10% bonus
 
         pos.borrowed -= actual_repay;
+        pos.credit_score += 5; // Reward repayment
         pos.deposited -= collateral_to_seize;
         pos.last_updated = env.ledger().timestamp();
         set_position(&env, &user, &pos);
@@ -144,3 +148,5 @@ impl LendingProtocol {
         get_position(&env, &user)
     }
 }
+
+mod test;
