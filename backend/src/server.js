@@ -31,6 +31,7 @@ import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
+import jobMarketplaceRoute from './routes/jobMarketplace.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,6 +87,7 @@ app.use("/api/compile", compileRoute);
 app.use("/api/deploy", deployRoute);
 app.use("/api/invoke", invokeRoute);
 app.use("/api/search", searchRoute);
+app.use("/api/job-marketplace", jobMarketplaceRoute);
 
 // Enhanced health check
 app.get("/api/health", async (req, res) => {
