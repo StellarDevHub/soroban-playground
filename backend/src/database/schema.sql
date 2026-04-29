@@ -85,6 +85,39 @@ CREATE INDEX IF NOT EXISTS idx_projects_completion ON projects(completion_rate);
 CREATE INDEX IF NOT EXISTS idx_search_analytics_timestamp ON search_analytics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_search_suggestions_freq ON search_suggestions(frequency DESC);
 
+-- Ticketing system tables
+CREATE TABLE IF NOT EXISTS ticketing_events (
+    id INTEGER PRIMARY KEY, -- Matches contract event_id
+    organizer_address TEXT NOT NULL,
+    name TEXT NOT NULL,
+    price REAL NOT NULL,
+    max_tickets INTEGER NOT NULL,
+    sold_tickets INTEGER DEFAULT 0,
+    transferable BOOLEAN DEFAULT 1,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ticketing_tickets (
+    id INTEGER PRIMARY KEY, -- Matches contract ticket_id
+    event_id INTEGER NOT NULL,
+    owner_address TEXT NOT NULL,
+    is_used BOOLEAN DEFAULT 0,
+    purchase_price REAL NOT NULL,
+    bought_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_id) REFERENCES ticketing_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS ticketing_checkins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER NOT NULL,
+    checkin_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticket_id) REFERENCES ticketing_tickets(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticketing_tickets_event ON ticketing_tickets(event_id);
+CREATE INDEX IF NOT EXISTS idx_ticketing_tickets_owner ON ticketing_tickets(owner_address);
+
 -- Sample data for testing
 INSERT OR IGNORE INTO projects (title, description, category, status, creator_id, creator_name, funding_goal, current_funding, completion_rate, tags) VALUES
 ('Decentralized Voting Platform', 'A blockchain-based voting system ensuring transparency and immutability', 'DeFi', 'active', 1, 'Alice Johnson', 50000, 25000, 50.0, '["voting", "governance", "blockchain"]'),
@@ -95,3 +128,4 @@ INSERT OR IGNORE INTO projects (title, description, category, status, creator_id
 ('Stellar Stablecoin', 'Fiat-collateralized stablecoin on Stellar network', 'Payments', 'active', 6, 'Frank Miller', 30000, 12000, 40.0, '["stablecoin", "payments", "fiat"]'),
 ('Smart Contract Auditor', 'Automated smart contract security auditing tool', 'Tools', 'funded', 7, 'Grace Lee', 80000, 80000, 100.0, '["security", "auditing", "smart-contracts"]'),
 ('Stellar DEX Analytics', 'Advanced analytics for Stellar decentralized exchange', 'Analytics', 'active', 8, 'Henry Chen', 60000, 35000, 58.3, '["analytics", "dex", "trading"]');
+
