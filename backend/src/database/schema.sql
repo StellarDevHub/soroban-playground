@@ -180,3 +180,32 @@ INSERT OR IGNORE INTO projects (title, description, category, status, creator_id
 ('Stellar Stablecoin', 'Fiat-collateralized stablecoin on Stellar network', 'Payments', 'active', 6, 'Frank Miller', 30000, 12000, 40.0, '["stablecoin", "payments", "fiat"]'),
 ('Smart Contract Auditor', 'Automated smart contract security auditing tool', 'Tools', 'funded', 7, 'Grace Lee', 80000, 80000, 100.0, '["security", "auditing", "smart-contracts"]'),
 ('Stellar DEX Analytics', 'Advanced analytics for Stellar decentralized exchange', 'Analytics', 'active', 8, 'Henry Chen', 60000, 35000, 58.3, '["analytics", "dex", "trading"]');
+
+-- DAO Treasury Tables
+CREATE TABLE IF NOT EXISTS treasury_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contract_tx_id INTEGER NOT NULL UNIQUE,
+    proposer TEXT NOT NULL,
+    description TEXT NOT NULL,
+    amount REAL NOT NULL,
+    recipient TEXT,
+    status TEXT NOT NULL CHECK (status IN ('Pending', 'Queued', 'Executed', 'Cancelled', 'Expired')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    execute_after DATETIME NOT NULL,
+    expires_at DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS treasury_approvals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposal_id INTEGER NOT NULL,
+    signer TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(proposal_id) REFERENCES treasury_proposals(contract_tx_id)
+);
+
+CREATE TABLE IF NOT EXISTS treasury_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    data TEXT NOT NULL, -- JSON event data
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
