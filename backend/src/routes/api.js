@@ -9,6 +9,7 @@ import v2Deploy from './v2/deploy.js';
 import v2Invoke from './v2/invoke.js';
 import v2Identity from './v2/identity.js';
 import eventsRouter from './events.js';
+import patentsRouter from './patents.js';
 import tokenBurnRouter from './tokenBurn.js';
 import { versionTransformer, requestTransformerV2 } from '../middleware/versionTransformer.js';
 import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
@@ -57,6 +58,7 @@ router.use('/deploy', versionTransformer('v1'), rateLimitMiddleware('deploy'), v
 router.use('/invoke', versionTransformer('v1'), rateLimitMiddleware('invoke'), v1Invoke);
 router.use('/identity', versionTransformer('v1'), rateLimitMiddleware('invoke'), v1Identity);
 router.use('/events', eventsRouter);
+router.use('/patents', patentsRouter);
 router.use('/token-burn', tokenBurnRouter);
 
 import bugBountyRoutes from './bugBountyRoutes.js';
