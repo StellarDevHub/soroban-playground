@@ -32,8 +32,6 @@ import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
 import lotteryRoute from './routes/lottery.js';
-import escrowRoute from './routes/escrow.js';
-import socialRoute from './routes/social.js';
 import quadraticVotingRoute from './routes/quadraticVoting.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -156,8 +154,6 @@ app.use('/api/oracle', oracleQueueRoute);
 app.use('/api/admin', adminRoute);
 app.use('/api/migrations', migrationRoute);
 app.use('/api/lottery', lotteryRoute);
-app.use('/api/escrow', escrowRoute);
-app.use('/api/social', socialRoute);
 app.use('/api/quadratic-voting', quadraticVotingRoute);
 app.use('/metrics', metricsRoute);
 

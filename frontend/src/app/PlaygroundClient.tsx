@@ -42,8 +42,6 @@ import GovernancePortal, {
 } from "@/components/GovernancePortal";
 import SupplyChainPanel, { type ProductData as SupplyChainProduct, type ProductStatus as SupplyChainStatus, type QualityResult as SupplyChainQuality } from "@/components/SupplyChainPanel";
 import LotteryDashboard from "@/components/LotteryDashboard";
-import EscrowDashboard from "@/components/EscrowDashboard";
-import SocialMediaDashboard from "@/components/SocialMediaDashboard";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
@@ -2471,14 +2469,6 @@ export default function Home() {
               onUpdateStatus={handleUpdateSupplyChainStatus}
             />
             <LotteryDashboard
-              contractId={contractId}
-              walletAddress={wallet.address ?? undefined}
-            />
-            <EscrowDashboard
-              contractId={contractId}
-              walletAddress={wallet.address ?? undefined}
-            />
-            <SocialMediaDashboard
               contractId={contractId}
               walletAddress={wallet.address ?? undefined}
             />
