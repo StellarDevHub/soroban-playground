@@ -8,6 +8,9 @@ pub enum Error {
     NotInitialized = 2,
     FileNotFound = 3,
     Unauthorized = 4,
+    Paused = 5,
+    ProviderNotFound = 6,
+    FileNotOwnedByCaller = 7,
 }
 
 #[contracttype]
@@ -17,7 +20,21 @@ pub struct FileMetadata {
     pub name: String,
     pub size: u64,
     pub shard_count: u32,
-    pub cid: String, // Content Identifier
+    pub cid: String,
+    pub redundancy_factor: u32,
+    pub shards_manifest_cid: String,
+    pub uploaded_at: u64,
+    pub is_active: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageProvider {
+    pub provider: Address,
+    pub capacity: u64,
+    pub used_capacity: u64,
+    pub price_per_gb: i128,
+    pub is_active: bool,
 }
 
 #[contracttype]
