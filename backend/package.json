@@ -9,6 +9,7 @@
     "dev": "nodemon src/server.js",
     "test": "node --test"
   },
+    "lint": "eslint src tests"
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -19,5 +20,6 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
+    "eslint": "^9"
   }
 }
