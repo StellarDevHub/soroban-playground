@@ -41,6 +41,7 @@ import GovernancePortal, {
   type VoteChoice as GovVoteChoice,
 } from "@/components/GovernancePortal";
 import SupplyChainPanel, { type ProductData as SupplyChainProduct, type ProductStatus as SupplyChainStatus, type QualityResult as SupplyChainQuality } from "@/components/SupplyChainPanel";
+import LotteryDashboard from "@/components/LotteryDashboard";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
@@ -2466,6 +2467,10 @@ export default function Home() {
               onSubmitQualityReport={handleSubmitQualityReport}
               onRecallProduct={handleRecallProduct}
               onUpdateStatus={handleUpdateSupplyChainStatus}
+            />
+            <LotteryDashboard
+              contractId={contractId}
+              walletAddress={wallet.address ?? undefined}
             />
             <TransactionStatus transactions={transactions} onClear={clearTx} />
             <Console 

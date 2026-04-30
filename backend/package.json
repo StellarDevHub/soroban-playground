@@ -10,10 +10,10 @@
     "format:check": "echo \"No backend format check configured\"",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test": "jest",
     "init-db": "node src/database/init.js"
   },
-  "keywords": [],
+  "keywords": ["soroban", "stellar", "api"],
   "author": "",
   "license": "MIT",
   "dependencies": {

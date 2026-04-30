@@ -156,3 +156,88 @@ fn test_get_amount_out_preview() {
     let actual = client.swap(&provider, &ta, &1_000, &1);
     assert_eq!(preview, actual);
 }
+
+// ── NFT Collection Analytics ──────────────────────────────────────────────────
+
+#[test]
+fn test_initialize_nft_pool() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, AmmPool);
+    let client = AmmPoolClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    let token_a = Address::generate(&env);
+    let token_b = Address::generate(&env);
+    let nft_collection = Address::generate(&env);
+
+    client.initialize_nft(&admin, &token_a, &token_b, &nft_collection, &None);
+    
+    // Verify pool is initialized
+    assert_eq!(client.get_fee_bps(), 30);
+    
+    // Verify collection stats are initialized
+    let stats = client.get_collection_stats();
+    assert_eq!(stats.floor_price, 0);
+    assert_eq!(stats.ceiling_price, 0);
+    assert_eq!(stats.total_volume, 0);
+    assert_eq!(stats.trade_count, 0);
+}
+
+#[test]
+fn test_update_floor_price() {
+    let (env, _ta, _tb, admin, client) = setup();
+    let nft_collection = Address::generate(&env);
+    client.initialize_nft(&admin, &_ta, &_tb, &nft_collection, &None);
+    
+    // Update floor price
+    client.update_floor_price(&admin, &1_000);
+    
+    let floor = client.get_floor_price();
+    assert_eq!(floor, 1_000);
+    
+    // Verify stats updated
+    let stats = client.get_collection_stats();
+    assert_eq!(stats.floor_price, 1_000);
+}
+
+#[test]
+fn test_pool_metrics_track_volume() {
+    let (env, ta, _tb, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    client.add_liquidity(&provider, &100_000, &100_000, &1);
+    
+    // Perform swaps
+    client.swap(&provider, &ta, &1_000, &1);
+    client.swap(&provider, &ta, &2_000, &1);
+    
+    let (volume, fees) = client.get_pool_metrics();
+    assert_eq!(volume, 3_000); // Total input volume
+    assert!(fees > 0); // Fees collected
+}
+
+#[test]
+fn test_floor_price_negative_fails() {
+    let (env, _ta, _tb, admin, client) = setup();
+    let nft_collection = Address::generate(&env);
+    client.initialize_nft(&admin, &_ta, &_tb, &nft_collection, &None);
+    
+    let result = client.try_update_floor_price(&admin, &-1);
+    assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+}
+
+#[test]
+fn test_multiple_swaps_accumulate_metrics() {
+    let (env, ta, tb, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    client.add_liquidity(&provider, &1_000_000, &1_000_000, &1);
+    
+    // Multiple swaps in both directions
+    for _ in 0..5 {
+        client.swap(&provider, &ta, &10_000, &1);
+        client.swap(&provider, &tb, &10_000, &1);
+    }
+    
+    let (volume, fees) = client.get_pool_metrics();
+    assert_eq!(volume, 100_000); // 10 swaps * 10_000
+    assert!(fees > 0);
+}

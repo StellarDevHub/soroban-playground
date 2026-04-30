@@ -31,6 +31,8 @@ import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
+import lotteryRoute from './routes/lottery.js';
+import quadraticVotingRoute from './routes/quadraticVoting.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,7 +153,8 @@ app.use('/api', apiRouter);
 app.use('/api/oracle', oracleQueueRoute);
 app.use('/api/admin', adminRoute);
 app.use('/api/migrations', migrationRoute);
-app.use('/api/notary', (await import('./routes/notary.js')).default);
+app.use('/api/lottery', lotteryRoute);
+app.use('/api/quadratic-voting', quadraticVotingRoute);
 app.use('/metrics', metricsRoute);
 
 // GraphQL — mounted at /graphql (GraphiQL playground available at GET /graphql)
