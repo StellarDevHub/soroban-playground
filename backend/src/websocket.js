@@ -106,3 +106,13 @@ export function setupWebsocketServer(httpServer) {
 
   return wss;
 }
+
+export function broadcast(payload) {
+  const message = JSON.stringify(payload);
+  for (const socket of clients) {
+    if (socket.readyState === socket.OPEN) {
+      socket.send(message);
+    }
+  }
+}
+
