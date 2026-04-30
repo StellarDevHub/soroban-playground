@@ -1,6 +1,7 @@
 import express from 'express';
 import redisService from '../services/redisService.js';
 import oracleProofQueueService from '../services/oracleProofQueueService.js';
+import apiKeyService from '../services/apiKeyService.js';
 
 const router = express.Router();
 
@@ -76,6 +77,126 @@ router.post('/oracle-queue/dead-letter/:id/requeue', async (req, res) => {
     res.json({ success: true, task });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// API Key Management Endpoints
+
+// Generate new API key
+router.post('/api-keys', async (req, res) => {
+  try {
+    const { name, description, tier, userId, organizationId, expiresAt } = req.body;
+
+    if (!name || !tier) {
+      return res.status(400).json({ error: 'Name and tier are required' });
+    }
+
+    if (!['free', 'standard', 'premium', 'admin'].includes(tier)) {
+      return res.status(400).json({ error: 'Invalid tier. Must be one of: free, standard, premium, admin' });
+    }
+
+    const keyData = await apiKeyService.generateKey({
+      name,
+      description,
+      tier,
+      userId: userId || 1, // Default to first user for now
+      organizationId,
+      expiresAt: expiresAt ? new Date(expiresAt) : null
+    });
+
+    res.json(keyData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List API keys
+router.get('/api-keys', async (req, res) => {
+  try {
+    const { userId, status, limit, offset } = req.query;
+
+    const keys = await apiKeyService.listKeys(
+      userId || 1, // Default to first user
+      {
+        status,
+        limit: parseInt(limit) || 50,
+        offset: parseInt(offset) || 0
+      }
+    );
+
+    res.json({ keys, count: keys.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get API key details
+router.get('/api-keys/:id', async (req, res) => {
+  try {
+    const key = await apiKeyService.getKeyById(req.params.id);
+    if (!key) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+    res.json(key);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Revoke API key
+router.delete('/api-keys/:id', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    await apiKeyService.revokeKey(req.params.id, reason || 'revoked');
+    res.json({ success: true, message: 'API key revoked' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get API key usage statistics
+router.get('/api-keys/:id/usage', async (req, res) => {
+  try {
+    const { days } = req.query;
+    const stats = await apiKeyService.getUsageStats(
+      req.params.id,
+      { days: parseInt(days) || 30 }
+    );
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get global rate limit statistics
+router.get('/rate-limits/stats', async (req, res) => {
+  try {
+    // Get tier distribution
+    const tierStats = await redisService.client.hgetall('stats:tiers') || {};
+
+    // Get recent violations
+    const violations = await redisService.client.zrevrange(
+      'stats:violations',
+      0,
+      9,
+      'WITHSCORES'
+    );
+
+    const formattedViolations = [];
+    for (let i = 0; i < violations.length; i += 2) {
+      formattedViolations.push({
+        identifier: violations[i],
+        count: parseInt(violations[i + 1], 10)
+      });
+    }
+
+    res.json({
+      tierStats,
+      recentViolations: formattedViolations,
+      fallbackMode: redisService.isFallbackMode
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
