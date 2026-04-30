@@ -21,12 +21,34 @@ pub enum InstanceKey {
     LastTimestamp,
     /// Swap fee in basis points (default 30 = 0.30%)
     FeeBps,
+    /// NFT collection address (for NFT AMM pools)
+    NftCollection,
+    /// Total volume traded in the pool
+    TotalVolume,
+    /// Total fees collected
+    TotalFees,
 }
 
 #[contracttype]
 pub enum DataKey {
     /// LP balance for an address.
     Lp(Address),
+    /// NFT floor price tracking
+    NftFloorPrice,
+    /// Collection statistics
+    CollectionStats,
+}
+
+/// NFT Collection Analytics
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct CollectionStats {
+    pub floor_price: i128,
+    pub ceiling_price: i128,
+    pub total_volume: i128,
+    pub trade_count: u32,
+    pub unique_holders: u32,
+    pub last_update: u64,
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────

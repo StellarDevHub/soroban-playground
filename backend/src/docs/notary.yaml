@@ -1,0 +1,252 @@
+openapi: 3.0.3
+info:
+  title: File Notary API
+  description: Decentralized file notarization backed by a Soroban smart contract on Stellar.
+  version: 1.0.0
+
+tags:
+  - name: Notary
+    description: File notarization operations
+
+paths:
+  /api/notary/notarize:
+    post:
+      summary: Notarize a file
+      description: Store a notarization record on-chain and cache it in the database.
+      tags: [Notary]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileHash, metadata]
+              properties:
+                fileHash:
+                  type: string
+                  pattern: '^[0-9a-fA-F]{64}$'
+                  description: SHA-256 hash of the file (64-char hex).
+                  example: a3f1e2d4b5c6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
+                metadata:
+                  type: string
+                  maxLength: 500
+                  description: Arbitrary metadata describing the file.
+                  example: "Contract v1.0 - signed 2026-04-29"
+                callerAddress:
+                  type: string
+                  description: Stellar address of the notarizing party.
+                  example: GABC123XYZ
+      responses:
+        '201':
+          description: File notarized successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotarizeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: File already notarized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/notary/verify/{fileHash}:
+    get:
+      summary: Verify a file
+      description: Return the notarization record for a given file hash.
+      tags: [Notary]
+      parameters:
+        - name: fileHash
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{64}$'
+          description: SHA-256 hash of the file (64-char hex).
+          example: a3f1e2d4b5c6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
+      responses:
+        '200':
+          description: Notarization record found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: File not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notary/revoke/{fileHash}:
+    delete:
+      summary: Revoke a notarization
+      description: Mark a notarization as revoked. Only the original owner can revoke.
+      tags: [Notary]
+      parameters:
+        - name: fileHash
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{64}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [callerAddress]
+              properties:
+                callerAddress:
+                  type: string
+                  description: Stellar address of the caller (must be the record owner).
+                  example: GABC123XYZ
+      responses:
+        '200':
+          description: Notarization revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Caller is not the record owner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: File not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notary/history:
+    get:
+      summary: List notarizations
+      description: Return a paginated list of all notarization records.
+      tags: [Notary]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Paginated list of records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryResponse'
+
+components:
+  schemas:
+    NotaryRecord:
+      type: object
+      properties:
+        fileHash:
+          type: string
+        owner:
+          type: string
+        timestamp:
+          type: integer
+          description: Unix timestamp (seconds).
+        metadata:
+          type: string
+        verified:
+          type: boolean
+        recordId:
+          type: integer
+
+    NotarizeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            recordId:
+              type: integer
+              example: 1714384791
+            timestamp:
+              type: integer
+              example: 1714384791
+
+    VerifyResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/NotaryRecord'
+
+    HistoryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            records:
+              type: array
+              items:
+                $ref: '#/components/schemas/NotaryRecord'
+            total:
+              type: integer
+            page:
+              type: integer
+            limit:
+              type: integer
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        statusCode:
+          type: integer
+        details:
+          type: array
+          items:
+            type: string
+
+  responses:
+    BadRequest:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limit exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
