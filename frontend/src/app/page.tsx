@@ -1,3 +1,4 @@
+import WarrantyPanel from '@/components/WarrantyPanel';
 "use client";
 
 import {
