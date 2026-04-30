@@ -12,7 +12,7 @@ No setup required. Write Rust smart contracts directly in your browser.
 
 ## Project Structure
 This repository uses a monorepo setup:
-- `frontend/`: The Next.js React application containing the UI.
+- `frontend/`: The Next.js React application containing the UI
 - `backend/`: The Node.js Express application responsible for Soroban CLI interactions.
 
 ## Getting Started
