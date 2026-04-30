@@ -4,6 +4,7 @@ import compileRoute from "./routes/compile.js";
 import deployRoute from "./routes/deploy.js";
 import invokeRoute from "./routes/invoke.js";
 import optimizerRoute from "./routes/optimizer.js";
+import patentRegistryRoute from "./routes/patentRegistry.js";
 import logger from "./utils/logger.js";
 
 const app = express();
@@ -17,6 +18,7 @@ app.use("/api/compile", compileRoute);
 app.use("/api/deploy", deployRoute);
 app.use("/api/invoke", invokeRoute);
 app.use("/api/optimizer", optimizerRoute);
+app.use("/api/patents", patentRegistryRoute);
 
 app.get("/api/health", (req, res) => {
   res.json({

@@ -10,6 +10,7 @@ No setup required. Write Rust smart contracts directly in your browser.
 - **Contract Interaction**: Read and write functions easily via an auto-generated UI.
 - **Storage Viewer**: Explore contract storage keys and values.
 - **Yield Optimizer MVP**: Cross-protocol strategy simulation with deposits, withdrawals, auto-compounding, and deterministic backtesting.
+- **Patent Registry MVP**: Decentralized patent registration, verification, and licensing marketplace with smart contract validation.
 
 ## Project Structure
 This repository uses a monorepo setup:
@@ -48,6 +49,23 @@ This repository includes a smallest-complete implementation across contract, bac
 - Soroban contract example: `contracts/yield-optimizer`
 - Backend APIs: `backend/src/routes/optimizer.js`
 - Frontend dashboard: `frontend/src/app/yield-optimizer/page.tsx`
+
+## Patent Registry (Issue #350)
+
+Decentralized patent registry with invention verification and licensing marketplace:
+
+- Soroban contract example: `contracts/patent-registry`
+- Backend APIs: `backend/src/routes/patentRegistry.js`
+- Backend service: `backend/src/services/patentRegistryService.js`
+- Frontend service: `frontend/src/services/patentRegistryService.ts`
+- Frontend dashboard: `frontend/src/app/patent-registry/page.tsx`
+
+Features:
+- Register patents with metadata URIs and hashes
+- Verify patents through designated verifiers
+- Create and manage license offers
+- Accept licenses with payment references
+- View all patents, verified inventions, and active license offers
 
 ### Contract Summary
 
