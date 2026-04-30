@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app:cached
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - NEXT_PUBLIC_WS_URL=ws://localhost:3001/ws/events
+      - NEXT_PUBLIC_INDEXER_URL=http://localhost:3001
+    depends_on:
+      - backend
+      - indexer
+    networks:
+      - soroban-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app:cached
+    environment:
+      - NODE_ENV=development
+    networks:
+      - soroban-net
+
+  indexer:
+    build:
+      context: ./indexer
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./indexer:/app:cached
+      - indexer-db:/app/data
+    environment:
+      - RUST_LOG=info
+      - DB_TYPE=sqlite
+      - DATABASE_URL=sqlite:///app/data/indexer.db
+      - WS_PORT=3001
+      - MAX_WS_CONNECTIONS=200
+      # Optional dual-write to Postgres:
+      # - SECONDARY_DATABASE_URL=postgres://user:pass@postgres:5432/indexer
+    networks:
+      - soroban-net
+
+networks:
+  soroban-net:
+    driver: bridge
+
+volumes:
+  indexer-db:
+

@@ -2,7 +2,7 @@
 name = "soroban-patent-registry"
 version = "0.1.0"
 edition = "2021"
-description = "Decentralized patent registry with verification and licensing"
+description = "Patent registry with filing, licensing, transfer, and dispute resolution on Soroban"
 
 [lib]
 crate-type = ["cdylib"]

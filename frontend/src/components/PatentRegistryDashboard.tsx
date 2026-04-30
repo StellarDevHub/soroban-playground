@@ -1,502 +1,467 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from 'react';
+import {
+  FileText, ShieldCheck, Scale, AlertTriangle,
+  CheckCircle2, XCircle, RefreshCw, ChevronRight,
+} from 'lucide-react';
+import { usePatentRegistry, Patent, License, Dispute, Stats } from '../hooks/usePatentRegistry';
 
-import patentRegistryService, {
-  type Patent,
-  type LicenseOffer,
-  type PatentRegistryDashboard,
-} from "@/services/patentRegistryService";
+// ── Shared UI primitives ──────────────────────────────────────────────────────
 
-function formatDate(timestamp: number) {
-  const date = new Date(timestamp * 1000);
-  return date.toLocaleDateString() + " " + date.toLocaleTimeString();
-}
-
-function truncateAddress(addr: string) {
-  if (!addr || addr.length < 20) return addr;
-  return addr.slice(0, 6) + "..." + addr.slice(-6);
-}
-
-export default function PatentRegistryDashboard() {
-  const [dashboard, setDashboard] = useState<PatentRegistryDashboard | null>(null);
-  const [selectedPatentId, setSelectedPatentId] = useState<number | null>(null);
-  const [selectedLicenseId, setSelectedLicenseId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"patents" | "licenses">("patents");
-
-  const [patentForm, setPatentForm] = useState({
-    actor: "GPATENTOWNER0000000000000000000000000000000000",
-    title: "AI-Powered Agricultural Sensor",
-    metadata_uri: "ipfs://patent-metadata-v1",
-    metadata_hash: "0xabc123def456",
-  });
-
-  const [updateForm, setUpdateForm] = useState({
-    title: "",
-    metadata_uri: "",
-    metadata_hash: "",
-  });
-
-  const [licenseForm, setLicenseForm] = useState({
-    licensee: "GLICENSEE00000000000000000000000000000000000000",
-    terms: "Exclusive 24-month license",
-    payment_amount: "50000",
-    payment_currency: "XLM",
-  });
-
-  const [acceptForm, setAcceptForm] = useState({
-    payment_reference: "txn-001",
-  });
-
-  const selectedPatent =
-    dashboard?.patents.find((p) => p.id === selectedPatentId) ||
-    dashboard?.patents[0] ||
-    null;
-
-  const selectedLicense =
-    dashboard?.licenses.find((l) => l.id === selectedLicenseId) ||
-    dashboard?.licenses[0] ||
-    null;
-
-  const patentLicenses = selectedPatent
-    ? dashboard?.licenses.filter((l) => l.patent_id === selectedPatent.id) || []
-    : [];
-
-  async function refreshDashboard() {
-    const data = await patentRegistryService.getDashboard();
-    setDashboard(data);
-    const fallbackPatent = selectedPatentId ?? data.patents[0]?.id ?? null;
-    setSelectedPatentId(fallbackPatent);
-
-    const fallbackLicense = selectedLicenseId ?? data.licenses[0]?.id ?? null;
-    setSelectedLicenseId(fallbackLicense);
-
-    const selected = data.patents.find((p) => p.id === fallbackPatent);
-    if (selected) {
-      setUpdateForm({
-        title: selected.title,
-        metadata_uri: selected.metadata_uri,
-        metadata_hash: selected.metadata_hash,
-      });
-    }
-  }
-
-  useEffect(() => {
-    async function boot() {
-      try {
-        await patentRegistryService.getHealth();
-        await refreshDashboard();
-      } catch (error) {
-        setFeedback(error instanceof Error ? error.message : "Failed to connect to backend.");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    void boot();
-  }, []);
-
-  async function runAction(action: () => Promise<void>, successText: string) {
-    setBusy(true);
-    setFeedback("");
-
-    try {
-      await action();
-      await refreshDashboard();
-      setFeedback(successText);
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Action failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:px-6 lg:px-10">
-      <div className="mx-auto max-w-7xl space-y-6">
-        {/* Header */}
-        <header className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-purple-300">Patent Registry</p>
-              <h1 className="mt-2 text-3xl font-semibold text-white">Invention Verification & Licensing</h1>
-              <p className="mt-2 max-w-3xl text-sm text-slate-300">
-                Register patents, verify inventions, and manage decentralized licensing with smart contract validation.
-              </p>
-            </div>
-            <a
-              href="/"
-              className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-purple-400"
-            >
-              Back to IDE
-            </a>
-          </div>
-          {feedback ? (
-            <p
-              className={`mt-4 rounded-xl border px-3 py-2 text-sm ${
-                feedback.includes("Error") || feedback.includes("Failed")
-                  ? "border-red-500/25 bg-red-500/10 text-red-100"
-                  : "border-purple-500/25 bg-purple-500/10 text-purple-100"
-              }`}
-            >
-              {feedback}
-            </p>
-          ) : null}
-        </header>
-
-        {/* Metrics */}
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <Metric label="Patents" value={String(dashboard?.metrics.patentCount || 0)} />
-          <Metric label="Verified" value={String(dashboard?.metrics.verifiedCount || 0)} />
-          <Metric label="Licenses" value={String(dashboard?.metrics.licenseCount || 0)} />
-          <Metric label="Active Offers" value={String(dashboard?.metrics.activeOffers || 0)} />
-          <Metric label="Total Payments" value={`${dashboard?.metrics.totalPayments || 0} XLM`} />
-        </section>
-
-        {/* Tab Navigation */}
-        <div className="flex gap-2">
-          <button
-            onClick={() => setActiveTab("patents")}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-              activeTab === "patents"
-                ? "bg-purple-500 text-white"
-                : "border border-slate-700 text-slate-200 hover:border-purple-400"
-            }`}
-          >
-            Patents
-          </button>
-          <button
-            onClick={() => setActiveTab("licenses")}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-              activeTab === "licenses"
-                ? "bg-purple-500 text-white"
-                : "border border-slate-700 text-slate-200 hover:border-purple-400"
-            }`}
-          >
-            Licenses
-          </button>
-        </div>
-
-        {/* Patents Tab */}
-        {activeTab === "patents" && (
-          <section className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
-            <div className="space-y-6">
-              <Card title="Register New Patent">
-                <div className="grid gap-3">
-                  <Field
-                    label="Owner Address"
-                    value={patentForm.actor}
-                    onChange={(value) => setPatentForm((p) => ({ ...p, actor: value }))}
-                  />
-                  <Field
-                    label="Patent Title"
-                    value={patentForm.title}
-                    onChange={(value) => setPatentForm((p) => ({ ...p, title: value }))}
-                  />
-                  <Field
-                    label="Metadata URI"
-                    value={patentForm.metadata_uri}
-                    onChange={(value) => setPatentForm((p) => ({ ...p, metadata_uri: value }))}
-                  />
-                  <Field
-                    label="Metadata Hash"
-                    value={patentForm.metadata_hash}
-                    onChange={(value) => setPatentForm((p) => ({ ...p, metadata_hash: value }))}
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={busy || loading || !dashboard}
-                  className="mt-4 rounded-xl bg-purple-500 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  onClick={() =>
-                    void runAction(async () => {
-                      const patent = await patentRegistryService.registerPatent({
-                        actor: patentForm.actor.trim(),
-                        title: patentForm.title.trim(),
-                        metadata_uri: patentForm.metadata_uri.trim(),
-                        metadata_hash: patentForm.metadata_hash.trim(),
-                      });
-                      setSelectedPatentId(patent.id);
-                    }, "Patent registered successfully")
-                  }
-                >
-                  Register Patent
-                </button>
-              </Card>
-
-              {selectedPatent && (
-                <>
-                  <Card title="Update Patent">
-                    <div className="grid gap-3">
-                      <Field
-                        label="Title"
-                        value={updateForm.title}
-                        onChange={(value) => setUpdateForm((p) => ({ ...p, title: value }))}
-                      />
-                      <Field
-                        label="Metadata URI"
-                        value={updateForm.metadata_uri}
-                        onChange={(value) => setUpdateForm((p) => ({ ...p, metadata_uri: value }))}
-                      />
-                      <Field
-                        label="Metadata Hash"
-                        value={updateForm.metadata_hash}
-                        onChange={(value) => setUpdateForm((p) => ({ ...p, metadata_hash: value }))}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      disabled={busy || !selectedPatent || !dashboard}
-                      className="mt-4 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-                      onClick={() =>
-                        void runAction(async () => {
-                          if (!selectedPatent || !dashboard) return;
-                          await patentRegistryService.updatePatent(
-                            selectedPatent.id,
-                            selectedPatent.owner,
-                            {
-                              title: updateForm.title.trim(),
-                              metadata_uri: updateForm.metadata_uri.trim(),
-                              metadata_hash: updateForm.metadata_hash.trim(),
-                            }
-                          );
-                        }, "Patent updated successfully")
-                      }
-                    >
-                      Update Patent
-                    </button>
-                  </Card>
-
-                  <Card title="Verify Patent">
-                    <p className="text-sm text-slate-300">
-                      {selectedPatent.status === "Verified"
-                        ? "✓ Patent is verified"
-                        : "Patent pending verification"}
-                    </p>
-                    <button
-                      type="button"
-                      disabled={busy || selectedPatent.status === "Verified" || !dashboard}
-                      className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      onClick={() =>
-                        void runAction(async () => {
-                          if (!selectedPatent || !dashboard) return;
-                          await patentRegistryService.verifyPatent(
-                            selectedPatent.id,
-                            dashboard.config.verifierAddress
-                          );
-                        }, "Patent verified successfully")
-                      }
-                    >
-                      Verify Patent
-                    </button>
-                  </Card>
-                </>
-              )}
-            </div>
-
-            {/* Patents List */}
-            <Card title="Patents List">
-              {dashboard?.patents.length === 0 ? (
-                <p className="text-sm text-slate-400">No patents registered yet</p>
-              ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {dashboard?.patents.map((patent) => (
-                    <button
-                      key={patent.id}
-                      onClick={() => {
-                        setSelectedPatentId(patent.id);
-                        setUpdateForm({
-                          title: patent.title,
-                          metadata_uri: patent.metadata_uri,
-                          metadata_hash: patent.metadata_hash,
-                        });
-                      }}
-                      className={`w-full text-left rounded-lg border p-3 text-sm transition-colors ${
-                        selectedPatentId === patent.id
-                          ? "border-purple-500 bg-purple-500/10"
-                          : "border-slate-700 hover:border-purple-400"
-                      }`}
-                    >
-                      <div className="font-semibold">{patent.title}</div>
-                      <div className="text-xs text-slate-400 mt-1">
-                        ID: {patent.id} • {patent.status}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        Owner: {truncateAddress(patent.owner)}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </Card>
-          </section>
-        )}
-
-        {/* Licenses Tab */}
-        {activeTab === "licenses" && (
-          <section className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
-            <div className="space-y-6">
-              {selectedPatent && selectedPatent.status === "Verified" && (
-                <Card title="Create License Offer">
-                  <p className="text-sm text-slate-300 mb-3">
-                    Creating license for: <span className="font-semibold">{selectedPatent.title}</span>
-                  </p>
-                  <div className="grid gap-3">
-                    <Field
-                      label="Licensee Address"
-                      value={licenseForm.licensee}
-                      onChange={(value) => setLicenseForm((p) => ({ ...p, licensee: value }))}
-                    />
-                    <Field
-                      label="License Terms"
-                      value={licenseForm.terms}
-                      onChange={(value) => setLicenseForm((p) => ({ ...p, terms: value }))}
-                    />
-                    <Field
-                      label="Payment Amount"
-                      value={licenseForm.payment_amount}
-                      onChange={(value) => setLicenseForm((p) => ({ ...p, payment_amount: value }))}
-                    />
-                    <Field
-                      label="Payment Currency"
-                      value={licenseForm.payment_currency}
-                      onChange={(value) => setLicenseForm((p) => ({ ...p, payment_currency: value }))}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy || !selectedPatent || !dashboard}
-                    className="mt-4 rounded-xl bg-purple-500 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    onClick={() =>
-                      void runAction(async () => {
-                        if (!selectedPatent || !dashboard) return;
-                        const license = await patentRegistryService.createLicenseOffer(
-                          selectedPatent.id,
-                          selectedPatent.owner,
-                          {
-                            licensee: licenseForm.licensee.trim(),
-                            terms: licenseForm.terms.trim(),
-                            payment_amount: Number(licenseForm.payment_amount),
-                            payment_currency: licenseForm.payment_currency.trim(),
-                          }
-                        );
-                        setSelectedLicenseId(license.id);
-                      }, "License offer created successfully")
-                    }
-                  >
-                    Create License
-                  </button>
-                </Card>
-              )}
-
-              {selectedLicense && selectedLicense.status === "Open" && (
-                <Card title="Accept License">
-                  <p className="text-sm text-slate-300 mb-3">
-                    Accepting license from: <span className="font-semibold">{truncateAddress(selectedLicense.licensor)}</span>
-                  </p>
-                  <Field
-                    label="Payment Reference"
-                    value={acceptForm.payment_reference}
-                    onChange={(value) => setAcceptForm((p) => ({ ...p, payment_reference: value }))}
-                  />
-                  <button
-                    type="button"
-                    disabled={busy || !selectedLicense || !dashboard}
-                    className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    onClick={() =>
-                      void runAction(async () => {
-                        if (!selectedLicense || !dashboard) return;
-                        await patentRegistryService.acceptLicense(
-                          selectedLicense.patent_id,
-                          selectedLicense.id,
-                          selectedLicense.licensee,
-                          {
-                            payment_reference: acceptForm.payment_reference.trim(),
-                          }
-                        );
-                      }, "License accepted successfully")
-                    }
-                  >
-                    Accept License
-                  </button>
-                </Card>
-              )}
-            </div>
-
-            {/* Licenses List */}
-            <Card title="Licenses List">
-              {dashboard?.licenses.length === 0 ? (
-                <p className="text-sm text-slate-400">No licenses created yet</p>
-              ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {dashboard?.licenses.map((license) => (
-                    <button
-                      key={license.id}
-                      onClick={() => setSelectedLicenseId(license.id)}
-                      className={`w-full text-left rounded-lg border p-3 text-sm transition-colors ${
-                        selectedLicenseId === license.id
-                          ? "border-purple-500 bg-purple-500/10"
-                          : "border-slate-700 hover:border-purple-400"
-                      }`}
-                    >
-                      <div className="font-semibold">License #{license.id}</div>
-                      <div className="text-xs text-slate-400 mt-1">
-                        Patent #{license.patent_id} • {license.status}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        {license.payment_amount} {license.payment_currency}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </Card>
-          </section>
-        )}
-      </div>
+    <div className={`bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 ${className}`}>
+      {children}
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Input({ label, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-      <p className="text-xs uppercase tracking-wider text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-white">{value}</p>
-    </div>
-  );
-}
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-      <h2 className="text-lg font-semibold text-white">{title}</h2>
-      <div className="mt-4">{children}</div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="flex flex-col gap-2 text-sm">
-      <span className="text-slate-300">{label}</span>
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
       <input
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-100 placeholder-slate-500 focus:border-purple-400 focus:outline-none"
+        {...props}
+        className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </label>
+  );
+}
+
+function Btn({
+  children, onClick, variant = 'primary', disabled,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  variant?: 'primary' | 'danger' | 'ghost';
+  disabled?: boolean;
+}) {
+  const base = 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50';
+  const styles = {
+    primary: 'bg-blue-600 hover:bg-blue-700 text-white',
+    danger: 'bg-red-600 hover:bg-red-700 text-white',
+    ghost: 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300',
+  };
+  return (
+    <button className={`${base} ${styles[variant]}`} onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    Active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    Pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+    Revoked: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    Expired: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+    Open: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    Resolved: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${colors[status] ?? 'bg-slate-100 text-slate-600'}`}>
+      {status}
+    </span>
+  );
+}
+
+function ErrorBanner({ msg }: { msg: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+      <AlertTriangle className="w-4 h-4 shrink-0" />
+      {msg}
+    </div>
+  );
+}
+
+// ── Stats bar ─────────────────────────────────────────────────────────────────
+
+function StatsBar({ stats, onRefresh, loading }: { stats: Stats | null; onRefresh: () => void; loading: boolean }) {
+  const items = [
+    { label: 'Patents', value: stats?.patentCount ?? '—', icon: <FileText className="w-5 h-5 text-blue-500" /> },
+    { label: 'Licenses', value: stats?.licenseCount ?? '—', icon: <ShieldCheck className="w-5 h-5 text-green-500" /> },
+    { label: 'Disputes', value: stats?.disputeCount ?? '—', icon: <Scale className="w-5 h-5 text-orange-500" /> },
+  ];
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {items.map(({ label, value, icon }) => (
+        <Card key={label} className="flex items-center gap-3">
+          {icon}
+          <div>
+            <div className="text-2xl font-bold text-slate-900 dark:text-white">{value}</div>
+            <div className="text-xs text-slate-500">{label}</div>
+          </div>
+        </Card>
+      ))}
+      <Card className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {stats?.paused
+            ? <XCircle className="w-5 h-5 text-red-500" />
+            : <CheckCircle2 className="w-5 h-5 text-green-500" />}
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+            {stats?.paused ? 'Paused' : 'Active'}
+          </span>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          aria-label="Refresh stats"
+          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </Card>
+    </div>
+  );
+}
+
+// ── File patent form ──────────────────────────────────────────────────────────
+
+function FilePatentForm({ onSuccess }: { onSuccess: (id: number) => void }) {
+  const { filePatent, loading, error } = usePatentRegistry();
+  const [form, setForm] = useState({ inventor: '', title: '', description: '', expiryDate: '' });
+  const [result, setResult] = useState<number | null>(null);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    const id = await filePatent({
+      inventor: form.inventor,
+      title: form.title,
+      description: form.description,
+      expiryDate: Math.floor(new Date(form.expiryDate).getTime() / 1000),
+    });
+    if (id != null) { setResult(id); onSuccess(id); }
+  };
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+        <FileText className="w-4 h-4 text-blue-500" /> File New Patent
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Input label="Inventor address" value={form.inventor} onChange={set('inventor')} placeholder="G..." />
+        <Input label="Title" value={form.title} onChange={set('title')} placeholder="Patent title" />
+        <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+          <span className="text-slate-500 dark:text-slate-400">Description</span>
+          <textarea
+            value={form.description}
+            onChange={set('description')}
+            rows={2}
+            placeholder="Describe the invention"
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+        </label>
+        <Input label="Expiry date" type="date" value={form.expiryDate} onChange={set('expiryDate')} />
+      </div>
+      {error && <div className="mt-3"><ErrorBanner msg={error} /></div>}
+      {result != null && (
+        <div className="mt-3 flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+          <CheckCircle2 className="w-4 h-4" /> Patent filed — ID: <strong>{result}</strong>
+        </div>
+      )}
+      <div className="mt-4">
+        <Btn onClick={submit} disabled={loading || !form.inventor || !form.title || !form.description || !form.expiryDate}>
+          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+          File Patent
+        </Btn>
+      </div>
+    </Card>
+  );
+}
+
+// ── Patent lookup ─────────────────────────────────────────────────────────────
+
+function PatentLookup() {
+  const { getPatent, loading, error } = usePatentRegistry();
+  const [id, setId] = useState('');
+  const [patent, setPatent] = useState<Patent | null>(null);
+
+  const lookup = async () => {
+    const p = await getPatent(Number(id));
+    if (p) setPatent(p);
+  };
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+        <FileText className="w-4 h-4 text-slate-500" /> Look Up Patent
+      </h3>
+      <div className="flex gap-2">
+        <input
+          type="number" min={1} value={id} onChange={e => setId(e.target.value)}
+          placeholder="Patent ID"
+          className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <Btn onClick={lookup} disabled={loading || !id} variant="ghost">
+          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Fetch'}
+        </Btn>
+      </div>
+      {error && <div className="mt-3"><ErrorBanner msg={error} /></div>}
+      {patent && (
+        <div className="mt-4 space-y-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-slate-900 dark:text-white">{patent.title}</span>
+            <StatusBadge status={patent.status} />
+          </div>
+          <p className="text-slate-500 dark:text-slate-400">{patent.description}</p>
+          <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+            <span>Owner: <span className="font-mono">{patent.owner.slice(0, 12)}…</span></span>
+            <span>Licenses: {patent.license_count}</span>
+            <span>Filed: {new Date(patent.filing_date * 1000).toLocaleDateString()}</span>
+            <span>Expires: {new Date(patent.expiry_date * 1000).toLocaleDateString()}</span>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Admin actions ─────────────────────────────────────────────────────────────
+
+function AdminActions() {
+  const { activatePatent, revokePatent, loading, error } = usePatentRegistry();
+  const [admin, setAdmin] = useState('');
+  const [patentId, setPatentId] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const act = async (fn: () => Promise<unknown>) => {
+    setMsg('');
+    const r = await fn();
+    if (r !== null) setMsg('Done');
+  };
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+        <ShieldCheck className="w-4 h-4 text-purple-500" /> Admin Actions
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Input label="Admin address" value={admin} onChange={e => setAdmin(e.target.value)} placeholder="G..." />
+        <Input label="Patent ID" type="number" value={patentId} onChange={e => setPatentId(e.target.value)} placeholder="1" />
+      </div>
+      {error && <div className="mt-3"><ErrorBanner msg={error} /></div>}
+      {msg && <p className="mt-2 text-sm text-green-600 dark:text-green-400">{msg}</p>}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Btn onClick={() => act(() => activatePatent(Number(patentId), admin))} disabled={loading || !admin || !patentId}>
+          Activate
+        </Btn>
+        <Btn variant="danger" onClick={() => act(() => revokePatent(Number(patentId), admin))} disabled={loading || !admin || !patentId}>
+          Revoke
+        </Btn>
+      </div>
+    </Card>
+  );
+}
+
+// ── Grant license form ────────────────────────────────────────────────────────
+
+function GrantLicenseForm() {
+  const { grantLicense, loading, error } = usePatentRegistry();
+  const [form, setForm] = useState({ owner: '', patentId: '', licensee: '', licenseType: 'NonExclusive', fee: '', expiryDate: '' });
+  const [result, setResult] = useState<number | null>(null);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    const id = await grantLicense(Number(form.patentId), {
+      owner: form.owner,
+      licensee: form.licensee,
+      licenseType: form.licenseType,
+      fee: Number(form.fee),
+      expiryDate: Math.floor(new Date(form.expiryDate).getTime() / 1000),
+    });
+    if (id != null) setResult(id);
+  };
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+        <ShieldCheck className="w-4 h-4 text-green-500" /> Grant License
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Input label="Owner address" value={form.owner} onChange={set('owner')} placeholder="G..." />
+        <Input label="Patent ID" type="number" value={form.patentId} onChange={set('patentId')} placeholder="1" />
+        <Input label="Licensee address" value={form.licensee} onChange={set('licensee')} placeholder="G..." />
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-slate-500 dark:text-slate-400">License type</span>
+          <select value={form.licenseType} onChange={set('licenseType')}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="NonExclusive">Non-Exclusive</option>
+            <option value="Exclusive">Exclusive</option>
+          </select>
+        </label>
+        <Input label="Fee (stroops)" type="number" value={form.fee} onChange={set('fee')} placeholder="1000000" />
+        <Input label="Expiry date" type="date" value={form.expiryDate} onChange={set('expiryDate')} />
+      </div>
+      {error && <div className="mt-3"><ErrorBanner msg={error} /></div>}
+      {result != null && (
+        <p className="mt-3 text-sm text-green-600 dark:text-green-400">
+          <CheckCircle2 className="inline w-4 h-4 mr-1" />License granted — ID: <strong>{result}</strong>
+        </p>
+      )}
+      <div className="mt-4">
+        <Btn onClick={submit} disabled={loading || !form.owner || !form.patentId || !form.licensee || !form.fee || !form.expiryDate}>
+          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+          Grant License
+        </Btn>
+      </div>
+    </Card>
+  );
+}
+
+// ── Dispute panel ─────────────────────────────────────────────────────────────
+
+function DisputePanel() {
+  const { fileDispute, resolveDispute, getDispute, loading, error } = usePatentRegistry();
+  const [tab, setTab] = useState<'file' | 'resolve' | 'lookup'>('file');
+  const [msg, setMsg] = useState('');
+
+  // file
+  const [fForm, setFForm] = useState({ claimant: '', patentId: '', reason: '' });
+  // resolve
+  const [rForm, setRForm] = useState({ admin: '', disputeId: '', resolution: '' });
+  // lookup
+  const [lookupId, setLookupId] = useState('');
+  const [dispute, setDispute] = useState<Dispute | null>(null);
+
+  const submitFile = async () => {
+    setMsg('');
+    const id = await fileDispute({ claimant: fForm.claimant, patentId: Number(fForm.patentId), reason: fForm.reason });
+    if (id != null) setMsg(`Dispute filed — ID: ${id}`);
+  };
+
+  const submitResolve = async () => {
+    setMsg('');
+    const r = await resolveDispute(Number(rForm.disputeId), rForm.admin, rForm.resolution);
+    if (r !== null) setMsg('Dispute resolved');
+  };
+
+  const doLookup = async () => {
+    const d = await getDispute(Number(lookupId));
+    if (d) setDispute(d);
+  };
+
+  const tabs = [
+    { key: 'file', label: 'File' },
+    { key: 'resolve', label: 'Resolve' },
+    { key: 'lookup', label: 'Lookup' },
+  ] as const;
+
+  return (
+    <Card>
+      <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+        <Scale className="w-4 h-4 text-orange-500" /> Disputes
+      </h3>
+      <div className="flex gap-1 mb-4 bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => { setTab(t.key); setMsg(''); setDispute(null); }}
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === t.key ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'file' && (
+        <div className="space-y-3">
+          <Input label="Claimant address" value={fForm.claimant} onChange={e => setFForm(f => ({ ...f, claimant: e.target.value }))} placeholder="G..." />
+          <Input label="Patent ID" type="number" value={fForm.patentId} onChange={e => setFForm(f => ({ ...f, patentId: e.target.value }))} placeholder="1" />
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-slate-500 dark:text-slate-400">Reason</span>
+            <textarea value={fForm.reason} onChange={e => setFForm(f => ({ ...f, reason: e.target.value }))} rows={2}
+              className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          </label>
+          <Btn onClick={submitFile} disabled={loading || !fForm.claimant || !fForm.patentId || !fForm.reason}>
+            File Dispute
+          </Btn>
+        </div>
+      )}
+
+      {tab === 'resolve' && (
+        <div className="space-y-3">
+          <Input label="Admin address" value={rForm.admin} onChange={e => setRForm(f => ({ ...f, admin: e.target.value }))} placeholder="G..." />
+          <Input label="Dispute ID" type="number" value={rForm.disputeId} onChange={e => setRForm(f => ({ ...f, disputeId: e.target.value }))} placeholder="1" />
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-slate-500 dark:text-slate-400">Resolution</span>
+            <textarea value={rForm.resolution} onChange={e => setRForm(f => ({ ...f, resolution: e.target.value }))} rows={2}
+              className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          </label>
+          <Btn onClick={submitResolve} disabled={loading || !rForm.admin || !rForm.disputeId || !rForm.resolution}>
+            Resolve
+          </Btn>
+        </div>
+      )}
+
+      {tab === 'lookup' && (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input type="number" min={1} value={lookupId} onChange={e => setLookupId(e.target.value)} placeholder="Dispute ID"
+              className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <Btn onClick={doLookup} disabled={loading || !lookupId} variant="ghost">Fetch</Btn>
+          </div>
+          {dispute && (
+            <div className="text-sm space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-slate-900 dark:text-white">Dispute #{lookupId}</span>
+                <StatusBadge status={dispute.status} />
+              </div>
+              <p className="text-slate-500">{dispute.reason}</p>
+              {dispute.resolution && <p className="text-slate-400 italic">Resolution: {dispute.resolution}</p>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && <div className="mt-3"><ErrorBanner msg={error} /></div>}
+      {msg && <p className="mt-3 text-sm text-green-600 dark:text-green-400">{msg}</p>}
+    </Card>
+  );
+}
+
+// ── Main dashboard ────────────────────────────────────────────────────────────
+
+export default function PatentRegistryDashboard() {
+  const { getStats, loading } = usePatentRegistry();
+  const [stats, setStats] = useState<Stats | null>(null);
+
+  const refresh = async () => {
+    const s = await getStats();
+    if (s) setStats(s);
+  };
+
+  useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-8">
+      <div className="max-w-5xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
+            <FileText className="w-7 h-7 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Patent Registry</h1>
+            <p className="text-sm text-slate-500">Soroban-powered IP management on Stellar Testnet</p>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <StatsBar stats={stats} onRefresh={refresh} loading={loading} />
+
+        {/* Two-column grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <FilePatentForm onSuccess={refresh} />
+          <PatentLookup />
+          <AdminActions />
+          <GrantLicenseForm />
+        </div>
+
+        {/* Full-width dispute panel */}
+        <DisputePanel />
+      </div>
+    </div>
   );
 }

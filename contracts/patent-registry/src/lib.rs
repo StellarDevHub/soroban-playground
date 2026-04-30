@@ -1,343 +1,336 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
+//! # Patent Registry
+//!
+//! A Soroban smart contract providing:
+//! - Patent filing: inventors register patents with title, description, and expiry.
+//! - Patent management: admin can approve (activate), revoke, or expire patents.
+//! - Licensing: patent owners grant licenses (exclusive/non-exclusive) with fees.
+//! - Transfers: patent owners can transfer ownership to another address.
+//! - Disputes: anyone can file a dispute; admin resolves it.
+//! - Emergency pause: admin can pause/unpause all state-changing operations.
+
 #![no_std]
 
 mod storage;
-mod types;
-#[cfg(test)]
 mod test;
+mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 
 use crate::storage::{
-    get_admin, get_license, get_patent, get_verifier, has_license, has_patent, is_initialized,
-    is_paused, license_count, patent_count, set_admin, set_license, set_license_count, set_paused,
-    set_patent, set_patent_count, set_verifier,
+    get_admin, get_dispute, get_dispute_count, get_license, get_license_count, get_patent,
+    get_patent_count, is_initialized, is_paused, next_dispute_id, next_license_id, next_patent_id,
+    set_admin, set_dispute, set_license, set_patent, set_paused,
 };
-use crate::types::{Error, LicenseOffer, LicenseStatus, Patent, PatentStatus};
+use crate::types::{
+    Dispute, DisputeStatus, Error, License, LicenseType, Patent, PatentStatus,
+};
 
 #[contract]
-pub struct PatentRegistry;
+pub struct PatentRegistryContract;
 
 #[contractimpl]
-impl PatentRegistry {
-    pub fn initialize(env: Env, admin: Address, verifier: Address) -> Result<(), Error> {
+impl PatentRegistryContract {
+    // ── Initialisation ────────────────────────────────────────────────────────
+
+    /// Initialise the registry with an admin address. Can only be called once.
+    pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
         }
-
         admin.require_auth();
         set_admin(&env, &admin);
-        set_verifier(&env, &verifier);
-        set_patent_count(&env, 0);
-        set_license_count(&env, 0);
         set_paused(&env, false);
-
-        env.events()
-            .publish((symbol_short!("init"),), (admin, verifier));
-
         Ok(())
     }
 
-    pub fn register_patent(
-        env: Env,
-        owner: Address,
-        title: String,
-        metadata_uri: String,
-        metadata_hash: String,
-    ) -> Result<u32, Error> {
-        Self::assert_active(&env)?;
-        owner.require_auth();
-        Self::assert_text(&title)?;
-        Self::assert_text(&metadata_uri)?;
-        Self::assert_text(&metadata_hash)?;
+    // ── Admin helpers ─────────────────────────────────────────────────────────
 
-        let id = patent_count(&env) + 1;
-        let timestamp = env.ledger().timestamp();
-        let patent = Patent {
-            owner: owner.clone(),
-            title: title.clone(),
-            metadata_uri: metadata_uri.clone(),
-            metadata_hash: metadata_hash.clone(),
-            status: PatentStatus::Registered,
-            created_at: timestamp,
-            updated_at: timestamp,
-            verified_at: 0,
-        };
-
-        set_patent(&env, id, &patent);
-        set_patent_count(&env, id);
-
-        env.events().publish(
-            (symbol_short!("patent"), symbol_short!("register"), id),
-            (owner, title, metadata_hash),
-        );
-
-        Ok(id)
-    }
-
-    pub fn update_patent(
-        env: Env,
-        owner: Address,
-        patent_id: u32,
-        title: String,
-        metadata_uri: String,
-        metadata_hash: String,
-    ) -> Result<(), Error> {
-        Self::assert_active(&env)?;
-        owner.require_auth();
-        Self::assert_owner(&env, patent_id, &owner)?;
-        Self::assert_text(&title)?;
-        Self::assert_text(&metadata_uri)?;
-        Self::assert_text(&metadata_hash)?;
-
-        let mut patent = get_patent(&env, patent_id)?;
-        patent.title = title.clone();
-        patent.metadata_uri = metadata_uri.clone();
-        patent.metadata_hash = metadata_hash.clone();
-        patent.updated_at = env.ledger().timestamp();
-
-        set_patent(&env, patent_id, &patent);
-
-        env.events().publish(
-            (symbol_short!("patent"), symbol_short!("update"), patent_id),
-            (owner, title, metadata_hash),
-        );
-
-        Ok(())
-    }
-
-    pub fn verify_patent(env: Env, caller: Address, patent_id: u32) -> Result<(), Error> {
-        Self::assert_active(&env)?;
+    fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
         caller.require_auth();
-        Self::assert_verifier(&env, &caller)?;
-
-        let mut patent = get_patent(&env, patent_id)?;
-        if patent.status == PatentStatus::Verified {
-            return Err(Error::AlreadyVerified);
-        }
-
-        patent.status = PatentStatus::Verified;
-        patent.verified_at = env.ledger().timestamp();
-        patent.updated_at = patent.verified_at;
-        set_patent(&env, patent_id, &patent);
-
-        env.events().publish(
-            (symbol_short!("patent"), symbol_short!("verify"), patent_id),
-            (caller, patent.owner),
-        );
-
-        Ok(())
-    }
-
-    pub fn set_verifier(env: Env, admin: Address, verifier: Address) -> Result<(), Error> {
-        Self::assert_admin(&env, &admin)?;
-        verifier.require_auth();
-        set_verifier(&env, &verifier);
-
-        env.events()
-            .publish((symbol_short!("verifier"), symbol_short!("set")), verifier);
-
-        Ok(())
-    }
-
-    pub fn create_license_offer(
-        env: Env,
-        owner: Address,
-        patent_id: u32,
-        licensee: Address,
-        terms: String,
-        payment_amount: i128,
-        payment_currency: String,
-    ) -> Result<u32, Error> {
-        Self::assert_active(&env)?;
-        owner.require_auth();
-        licensee.require_auth();
-        Self::assert_owner(&env, patent_id, &owner)?;
-        Self::assert_text(&terms)?;
-        Self::assert_text(&payment_currency)?;
-        if payment_amount <= 0 {
-            return Err(Error::InvalidInput);
-        }
-
-        let patent = get_patent(&env, patent_id)?;
-        if patent.status != PatentStatus::Verified {
-            return Err(Error::NotVerifier);
-        }
-
-        let id = license_count(&env) + 1;
-        let timestamp = env.ledger().timestamp();
-        let offer = LicenseOffer {
-            patent_id,
-            licensor: owner.clone(),
-            licensee: licensee.clone(),
-            terms: terms.clone(),
-            payment_amount,
-            payment_currency: payment_currency.clone(),
-            status: LicenseStatus::Open,
-            created_at: timestamp,
-            accepted_at: 0,
-            payment_reference: String::from_str(&env, ""),
-        };
-
-        set_license(&env, id, &offer);
-        set_license_count(&env, id);
-
-        env.events().publish(
-            (symbol_short!("license"), symbol_short!("create"), id),
-            (patent_id, owner, licensee, payment_amount),
-        );
-
-        Ok(id)
-    }
-
-    pub fn accept_license(
-        env: Env,
-        licensee: Address,
-        patent_id: u32,
-        license_id: u32,
-        payment_reference: String,
-    ) -> Result<(), Error> {
-        Self::assert_active(&env)?;
-        licensee.require_auth();
-        Self::assert_text(&payment_reference)?;
-
-        let mut offer = get_license(&env, license_id)?;
-        if offer.patent_id != patent_id {
-            return Err(Error::LicenseNotFound);
-        }
-        if offer.status != LicenseStatus::Open {
-            return Err(Error::LicenseAlreadyAccepted);
-        }
-        if offer.licensee != licensee {
+        let admin = get_admin(env)?;
+        if *caller != admin {
             return Err(Error::Unauthorized);
         }
-
-        let patent = get_patent(&env, patent_id)?;
-        if patent.status != PatentStatus::Verified {
-            return Err(Error::NotVerifier);
-        }
-
-        offer.status = LicenseStatus::Accepted;
-        offer.accepted_at = env.ledger().timestamp();
-        offer.payment_reference = payment_reference.clone();
-        set_license(&env, license_id, &offer);
-
-        env.events().publish(
-            (symbol_short!("license"), symbol_short!("accept"), license_id),
-            (patent_id, licensee, payment_reference),
-        );
-
         Ok(())
     }
 
+    fn assert_not_paused(env: &Env) -> Result<(), Error> {
+        if is_paused(env) {
+            return Err(Error::Paused);
+        }
+        Ok(())
+    }
+
+    // ── Emergency pause ───────────────────────────────────────────────────────
+
+    /// Pause all state-changing operations (admin only).
     pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
         Self::assert_admin(&env, &admin)?;
         set_paused(&env, true);
-        env.events().publish((symbol_short!("pause"),), admin);
+        env.events().publish((symbol_short!("paused"),), true);
         Ok(())
     }
 
+    /// Resume operations (admin only).
     pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
         Self::assert_admin(&env, &admin)?;
         set_paused(&env, false);
-        env.events().publish((symbol_short!("unpause"),), admin);
+        env.events().publish((symbol_short!("paused"),), false);
         Ok(())
     }
 
-    pub fn paused(env: Env) -> bool {
-        is_paused(&env)
+    // ── Patent filing ─────────────────────────────────────────────────────────
+
+    /// File a new patent. Returns the patent ID.
+    /// Status starts as `Pending` until admin activates it.
+    pub fn file_patent(
+        env: Env,
+        inventor: Address,
+        title: String,
+        description: String,
+        expiry_date: u64,
+    ) -> Result<u32, Error> {
+        Self::assert_not_paused(&env)?;
+        inventor.require_auth();
+
+        if title.len() == 0 {
+            return Err(Error::EmptyField);
+        }
+        if description.len() == 0 {
+            return Err(Error::EmptyField);
+        }
+
+        let now = env.ledger().timestamp();
+        let id = next_patent_id(&env);
+        let patent = Patent {
+            title,
+            description,
+            owner: inventor.clone(),
+            filing_date: now,
+            expiry_date,
+            status: PatentStatus::Pending,
+            license_count: 0,
+        };
+        set_patent(&env, id, &patent);
+
+        env.events()
+            .publish((symbol_short!("filed"), inventor), id);
+
+        Ok(id)
     }
+
+    /// Activate a pending patent (admin only).
+    pub fn activate_patent(env: Env, admin: Address, patent_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        Self::assert_admin(&env, &admin)?;
+
+        let mut patent = get_patent(&env, patent_id)?;
+        if patent.status != PatentStatus::Pending {
+            return Err(Error::InvalidStatus);
+        }
+        patent.status = PatentStatus::Active;
+        set_patent(&env, patent_id, &patent);
+
+        env.events()
+            .publish((symbol_short!("activated"),), patent_id);
+
+        Ok(())
+    }
+
+    /// Revoke an active patent (admin only).
+    pub fn revoke_patent(env: Env, admin: Address, patent_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        Self::assert_admin(&env, &admin)?;
+
+        let mut patent = get_patent(&env, patent_id)?;
+        if patent.status != PatentStatus::Active {
+            return Err(Error::InvalidStatus);
+        }
+        patent.status = PatentStatus::Revoked;
+        set_patent(&env, patent_id, &patent);
+
+        env.events()
+            .publish((symbol_short!("revoked"),), patent_id);
+
+        Ok(())
+    }
+
+    // ── Ownership transfer ────────────────────────────────────────────────────
+
+    /// Transfer patent ownership to a new address (current owner only).
+    pub fn transfer_patent(
+        env: Env,
+        owner: Address,
+        patent_id: u32,
+        new_owner: Address,
+    ) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        owner.require_auth();
+
+        let mut patent = get_patent(&env, patent_id)?;
+        if patent.owner != owner {
+            return Err(Error::NotOwner);
+        }
+        if patent.status != PatentStatus::Active {
+            return Err(Error::InvalidStatus);
+        }
+
+        patent.owner = new_owner.clone();
+        set_patent(&env, patent_id, &patent);
+
+        env.events()
+            .publish((symbol_short!("transfer"), patent_id), new_owner);
+
+        Ok(())
+    }
+
+    // ── Licensing ─────────────────────────────────────────────────────────────
+
+    /// Grant a license on an active patent. Returns the license ID.
+    pub fn grant_license(
+        env: Env,
+        owner: Address,
+        patent_id: u32,
+        licensee: Address,
+        license_type: LicenseType,
+        fee: i128,
+        expiry_date: u64,
+    ) -> Result<u32, Error> {
+        Self::assert_not_paused(&env)?;
+        owner.require_auth();
+
+        if fee < 0 {
+            return Err(Error::InvalidFee);
+        }
+
+        let mut patent = get_patent(&env, patent_id)?;
+        if patent.owner != owner {
+            return Err(Error::NotOwner);
+        }
+        if patent.status != PatentStatus::Active {
+            return Err(Error::InvalidStatus);
+        }
+
+        let now = env.ledger().timestamp();
+        let license_id = next_license_id(&env);
+        let license = License {
+            patent_id,
+            licensee: licensee.clone(),
+            license_type,
+            fee,
+            expiry_date,
+            granted_date: now,
+        };
+        set_license(&env, license_id, &license);
+
+        patent.license_count += 1;
+        set_patent(&env, patent_id, &patent);
+
+        env.events()
+            .publish((symbol_short!("licensed"), patent_id), license_id);
+
+        Ok(license_id)
+    }
+
+    // ── Disputes ──────────────────────────────────────────────────────────────
+
+    /// File a dispute against a patent. Returns the dispute ID.
+    pub fn file_dispute(
+        env: Env,
+        claimant: Address,
+        patent_id: u32,
+        reason: String,
+    ) -> Result<u32, Error> {
+        Self::assert_not_paused(&env)?;
+        claimant.require_auth();
+
+        // Patent must exist
+        get_patent(&env, patent_id)?;
+
+        if reason.len() == 0 {
+            return Err(Error::EmptyField);
+        }
+
+        let now = env.ledger().timestamp();
+        let dispute_id = next_dispute_id(&env);
+        let dispute = Dispute {
+            patent_id,
+            claimant: claimant.clone(),
+            reason,
+            filed_date: now,
+            status: DisputeStatus::Open,
+            resolution: String::from_str(&env, ""),
+        };
+        set_dispute(&env, dispute_id, &dispute);
+
+        env.events()
+            .publish((symbol_short!("dispute"), patent_id), dispute_id);
+
+        Ok(dispute_id)
+    }
+
+    /// Resolve a dispute (admin only).
+    pub fn resolve_dispute(
+        env: Env,
+        admin: Address,
+        dispute_id: u32,
+        resolution: String,
+    ) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        Self::assert_admin(&env, &admin)?;
+
+        let mut dispute = get_dispute(&env, dispute_id)?;
+        if dispute.status == DisputeStatus::Resolved {
+            return Err(Error::DisputeAlreadyResolved);
+        }
+        if resolution.len() == 0 {
+            return Err(Error::EmptyField);
+        }
+
+        dispute.status = DisputeStatus::Resolved;
+        dispute.resolution = resolution;
+        set_dispute(&env, dispute_id, &dispute);
+
+        env.events()
+            .publish((symbol_short!("resolved"),), dispute_id);
+
+        Ok(())
+    }
+
+    // ── Read-only queries ─────────────────────────────────────────────────────
 
     pub fn get_patent(env: Env, patent_id: u32) -> Result<Patent, Error> {
         get_patent(&env, patent_id)
     }
 
-    pub fn get_license(env: Env, license_id: u32) -> Result<LicenseOffer, Error> {
+    pub fn get_license(env: Env, license_id: u32) -> Result<License, Error> {
         get_license(&env, license_id)
     }
 
-    pub fn patent_count(env: Env) -> u32 {
-        patent_count(&env)
-    }
-
-    pub fn license_count(env: Env) -> u32 {
-        license_count(&env)
-    }
-
-    pub fn list_patents(env: Env) -> Vec<u32> {
-        let mut ids = Vec::new(&env);
-        for patent_id in 1..=patent_count(&env) {
-            if has_patent(&env, patent_id) {
-                ids.push_back(patent_id);
-            }
-        }
-        ids
-    }
-
-    pub fn list_licenses(env: Env, patent_id: u32) -> Vec<u32> {
-        let mut ids = Vec::new(&env);
-        for license_id in 1..=license_count(&env) {
-            if has_license(&env, license_id) {
-                let offer = get_license(&env, license_id).unwrap();
-                if offer.patent_id == patent_id {
-                    ids.push_back(license_id);
-                }
-            }
-        }
-        ids
+    pub fn get_dispute(env: Env, dispute_id: u32) -> Result<Dispute, Error> {
+        get_dispute(&env, dispute_id)
     }
 
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         get_admin(&env)
     }
 
-    pub fn get_verifier(env: Env) -> Result<Address, Error> {
-        get_verifier(&env)
+    pub fn get_patent_count(env: Env) -> u32 {
+        get_patent_count(&env)
     }
 
-    fn assert_active(env: &Env) -> Result<(), Error> {
-        if !is_initialized(env) {
-            return Err(Error::NotInitialized);
-        }
-        if is_paused(env) {
-            return Err(Error::ContractPaused);
-        }
-        Ok(())
+    pub fn get_license_count(env: Env) -> u32 {
+        get_license_count(&env)
     }
 
-    fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
-        if !is_initialized(env) {
-            return Err(Error::NotInitialized);
-        }
-        if get_admin(env)? != *caller {
-            return Err(Error::Unauthorized);
-        }
-        Ok(())
+    pub fn get_dispute_count(env: Env) -> u32 {
+        get_dispute_count(&env)
     }
 
-    fn assert_verifier(env: &Env, caller: &Address) -> Result<(), Error> {
-        if !is_initialized(env) {
-            return Err(Error::NotInitialized);
-        }
-        let verifier = get_verifier(env)?;
-        let admin = get_admin(env)?;
-        if verifier != *caller && admin != *caller {
-            return Err(Error::NotVerifier);
-        }
-        Ok(())
-    }
-
-    fn assert_owner(env: &Env, patent_id: u32, caller: &Address) -> Result<(), Error> {
-        let patent = get_patent(env, patent_id)?;
-        if patent.owner != *caller {
-            return Err(Error::NotPatentOwner);
-        }
-        Ok(())
-    }
-
-    fn assert_text(value: &String) -> Result<(), Error> {
-        if value.len() == 0 {
-            return Err(Error::InvalidInput);
-        }
-        Ok(())
+    pub fn is_paused(env: Env) -> bool {
+        is_paused(&env)
     }
 }

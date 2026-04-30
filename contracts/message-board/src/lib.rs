@@ -1,3 +1,6 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec};
@@ -16,7 +19,7 @@ pub enum Error {
 
 /// A single message stored on-chain.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Message {
     /// Address that posted the message.
     pub author: Address,
@@ -184,7 +187,7 @@ impl MessageBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{string, Env};
+    use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, String};
 
     fn setup() -> (Env, Address, MessageBoardClient<'static>) {
         let env = Env::default();
@@ -201,8 +204,8 @@ mod tests {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
 
-        let id1 = client.post(&author, &string!(&env, "first"));
-        let id2 = client.post(&author, &string!(&env, "second"));
+        let id1 = client.post(&author, &String::from_str(&env, "first"));
+        let id2 = client.post(&author, &String::from_str(&env, "second"));
 
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
@@ -212,7 +215,7 @@ mod tests {
     fn test_post_stores_message_correctly() {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
-        let content = string!(&env, "hello board");
+        let content = String::from_str(&env, "hello board");
 
         let msg_id = client.post(&author, &content);
         let stored = client.get(&msg_id);
@@ -226,13 +229,8 @@ mod tests {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
 
-        let result = client.try_post(&author, &string!(&env, ""));
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::EmptyMessage as u32
-            )))
-        );
+        let result = client.try_post(&author, &String::from_str(&env, ""));
+        assert_eq!(result, Err(Ok(Error::EmptyMessage)));
     }
 
     #[test]
@@ -241,7 +239,7 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = 99_999);
         let author = Address::generate(&env);
 
-        let msg_id = client.post(&author, &string!(&env, "timed"));
+        let msg_id = client.post(&author, &String::from_str(&env, "timed"));
         let stored = client.get(&msg_id);
 
         assert_eq!(stored.timestamp, 99_999);
@@ -254,12 +252,7 @@ mod tests {
         let (env, _id, client) = setup();
 
         let result = client.try_get(&42);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::MessageNotFound as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::MessageNotFound)));
     }
 
     // ── edit ─────────────────────────────────────────────────────────────────
@@ -269,11 +262,11 @@ mod tests {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
 
-        let msg_id = client.post(&author, &string!(&env, "original"));
-        client.edit(&author, &msg_id, &string!(&env, "updated"));
+        let msg_id = client.post(&author, &String::from_str(&env, "original"));
+        client.edit(&author, &msg_id, &String::from_str(&env, "updated"));
 
         let stored = client.get(&msg_id);
-        assert_eq!(stored.content, string!(&env, "updated"));
+        assert_eq!(stored.content, String::from_str(&env, "updated"));
     }
 
     #[test]
@@ -282,15 +275,9 @@ mod tests {
         let author = Address::generate(&env);
         let stranger = Address::generate(&env);
 
-        let msg_id = client.post(&author, &string!(&env, "mine"));
-        let result = client.try_edit(&stranger, &msg_id, &string!(&env, "hacked"));
-
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::Unauthorized as u32
-            )))
-        );
+        let msg_id = client.post(&author, &String::from_str(&env, "mine"));
+        let result = client.try_edit(&stranger, &msg_id, &String::from_str(&env, "hacked"));
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 
     #[test]
@@ -298,15 +285,9 @@ mod tests {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
 
-        let msg_id = client.post(&author, &string!(&env, "content"));
-        let result = client.try_edit(&author, &msg_id, &string!(&env, ""));
-
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::EmptyMessage as u32
-            )))
-        );
+        let msg_id = client.post(&author, &String::from_str(&env, "content"));
+        let result = client.try_edit(&author, &msg_id, &String::from_str(&env, ""));
+        assert_eq!(result, Err(Ok(Error::EmptyMessage)));
     }
 
     #[test]
@@ -314,13 +295,8 @@ mod tests {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
 
-        let result = client.try_edit(&author, &99, &string!(&env, "ghost"));
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::MessageNotFound as u32
-            )))
-        );
+        let result = client.try_edit(&author, &99, &String::from_str(&env, "ghost"));
+        assert_eq!(result, Err(Ok(Error::MessageNotFound)));
     }
 
     // ── delete ───────────────────────────────────────────────────────────────
@@ -330,16 +306,11 @@ mod tests {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
 
-        let msg_id = client.post(&author, &string!(&env, "bye"));
+        let msg_id = client.post(&author, &String::from_str(&env, "bye"));
         client.delete(&author, &msg_id);
 
         let result = client.try_get(&msg_id);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::MessageNotFound as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::MessageNotFound)));
     }
 
     #[test]
@@ -348,15 +319,9 @@ mod tests {
         let author = Address::generate(&env);
         let stranger = Address::generate(&env);
 
-        let msg_id = client.post(&author, &string!(&env, "protected"));
+        let msg_id = client.post(&author, &String::from_str(&env, "protected"));
         let result = client.try_delete(&stranger, &msg_id);
-
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::Unauthorized as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 
     #[test]
@@ -365,12 +330,7 @@ mod tests {
         let author = Address::generate(&env);
 
         let result = client.try_delete(&author, &99);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::MessageNotFound as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::MessageNotFound)));
     }
 
     // ── count ────────────────────────────────────────────────────────────────
@@ -386,8 +346,8 @@ mod tests {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
 
-        client.post(&author, &string!(&env, "one"));
-        client.post(&author, &string!(&env, "two"));
+        client.post(&author, &String::from_str(&env, "one"));
+        client.post(&author, &String::from_str(&env, "two"));
 
         assert_eq!(client.count(), 2);
     }
@@ -397,7 +357,7 @@ mod tests {
         let (env, _id, client) = setup();
         let author = Address::generate(&env);
 
-        let msg_id = client.post(&author, &string!(&env, "temp"));
+        let msg_id = client.post(&author, &String::from_str(&env, "temp"));
         client.delete(&author, &msg_id);
 
         // Counter reflects total ever posted, not current active count
@@ -412,8 +372,8 @@ mod tests {
         let alice = Address::generate(&env);
         let bob = Address::generate(&env);
 
-        let alice_id = client.post(&alice, &string!(&env, "alice msg"));
-        let bob_id = client.post(&bob, &string!(&env, "bob msg"));
+        let alice_id = client.post(&alice, &String::from_str(&env, "alice msg"));
+        let bob_id = client.post(&bob, &String::from_str(&env, "bob msg"));
 
         assert_eq!(client.get(&alice_id).author, alice);
         assert_eq!(client.get(&bob_id).author, bob);
