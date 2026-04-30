@@ -53,4 +53,10 @@ router.use('/invoke', versionTransformer('v1'), rateLimitMiddleware('invoke'), v
 router.use('/events', eventsRouter);
 router.use('/token-burn', tokenBurnRouter);
 
+import bugBountyRoutes from './bugBountyRoutes.js';
+router.use('/bug-bounty', bugBountyRoutes);
+
+import musicLicensingRoutes from './musicLicensingRoutes.js';
+router.use('/music-licensing', musicLicensingRoutes);
+
 export default router;
