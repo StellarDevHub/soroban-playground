@@ -13,6 +13,9 @@ pub enum Error {
     Unauthorized = 7,
     InvalidReputation = 8,
     IdentityDeactivated = 9,
+    InvalidCredential = 10,
+    CredentialExpired = 11,
+    InsufficientReputation = 12,
 }
 
 #[contracttype]
@@ -32,6 +35,7 @@ pub struct Identity {
 pub enum CredentialStatus {
     Active,
     Revoked,
+    Expired,
 }
 
 #[contracttype]
@@ -45,4 +49,26 @@ pub struct Credential {
     pub status: CredentialStatus,
     pub issued_at: u64,
     pub expires_at: u64,      // 0 = no expiry
+}
+
+
+/// Verification record for tracking credential verifications
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct VerificationRecord {
+    pub credential_id: u32,
+    pub verifier: Address,
+    pub verified_at: u64,
+    pub valid: bool,
+}
+
+/// Reputation tier based on score
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReputationTier {
+    Unverified,  // < 0
+    Novice,      // 0-100
+    Trusted,     // 100-500
+    Verified,    // 500-1000
+    Expert,      // > 1000
 }

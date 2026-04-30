@@ -68,3 +68,24 @@ export const rateLimiter = (options = {}) => {
     }
   };
 };
+
+/**
+ * Factory function to create rate limit middleware with config
+ * @param {string} configKey - Key from config.rateLimit (e.g., 'global', 'compile')
+ * @returns {Function} Express middleware function
+ */
+export const rateLimitMiddleware = (configKey) => {
+  const config = require('../config/index.js').default;
+  const rateLimitConfig = config.rateLimit[configKey];
+  
+  if (!rateLimitConfig) {
+    throw new Error(`Rate limit config not found for key: ${configKey}`);
+  }
+
+  return rateLimiter({
+    limit: rateLimitConfig.max,
+    windowMs: rateLimitConfig.windowMs,
+    strategyName: 'SlidingWindowCounter',
+    identifier: 'ip'
+  });
+};
