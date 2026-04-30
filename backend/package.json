@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Production-grade search API for project funding platform",
+  "description": "Soroban Playground backend API",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
@@ -10,19 +10,11 @@
     "format:check": "echo \"No backend format check configured\"",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest",
     "init-db": "node src/database/init.js"
-    "test": "echo \"No backend tests configured\""
   },
-  "keywords": ["search", "fts", "fuzzy", "api"],
+  "keywords": ["soroban", "stellar", "api"],
   "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.6",
-    "ioredis": "^5.3.2"
   "license": "MIT",
   "dependencies": {
     "@opentelemetry/api": "^1.8.0",

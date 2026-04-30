@@ -69,3 +69,28 @@ pub fn get_lp(env: &Env, addr: &Address) -> i128 {
 pub fn set_lp(env: &Env, addr: &Address, amount: i128) {
     env.storage().persistent().set(&DataKey::Lp(addr.clone()), &amount);
 }
+
+// ── NFT Collection Analytics ──────────────────────────────────────────────────
+
+instance_get!(get_nft_collection, NftCollection, Option<Address>, None);
+instance_set!(set_nft_collection, NftCollection, Address);
+instance_get!(get_total_volume, TotalVolume, i128, 0);
+instance_set!(set_total_volume, TotalVolume, i128);
+instance_get!(get_total_fees, TotalFees, i128, 0);
+instance_set!(set_total_fees, TotalFees, i128);
+
+pub fn get_collection_stats(env: &Env) -> Option<crate::types::CollectionStats> {
+    env.storage().persistent().get(&DataKey::CollectionStats)
+}
+
+pub fn set_collection_stats(env: &Env, stats: &crate::types::CollectionStats) {
+    env.storage().persistent().set(&DataKey::CollectionStats, stats);
+}
+
+pub fn get_floor_price(env: &Env) -> i128 {
+    env.storage().persistent().get(&DataKey::NftFloorPrice).unwrap_or(0)
+}
+
+pub fn set_floor_price(env: &Env, price: i128) {
+    env.storage().persistent().set(&DataKey::NftFloorPrice, &price);
+}

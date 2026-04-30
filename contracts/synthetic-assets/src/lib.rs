@@ -189,7 +189,7 @@ impl SyntheticAssetsContract {
         Ok(())
     }
 
-    /// Update asset price (can be called by oracle or admin)
+    /// Update asset price (oracle-signed)
     pub fn update_price(
         env: Env,
         asset_symbol: Symbol,
@@ -197,7 +197,13 @@ impl SyntheticAssetsContract {
         confidence: u32,
     ) -> Result<(), Error> {
         let admin = get_admin(&env)?;
-        admin.require_auth();
+        let oracle = get_oracle_address(&env)?;
+
+        if admin == oracle {
+            admin.require_auth();
+        } else {
+            oracle.require_auth();
+        }
 
         if !has_synthetic_asset(&env, &asset_symbol) {
             return Err(Error::AssetNotRegistered);
