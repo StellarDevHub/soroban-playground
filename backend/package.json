@@ -19,7 +19,7 @@
   "dependencies": {
     "@opentelemetry/api": "^1.8.0",
     "@opentelemetry/auto-instrumentations-node": "^0.52.1",
-    "@opentelemetry/exporter-jaeger": "^1.28.0",
+    "@opentelemetry/exporter-jaeger": "^2.7.1",
     "@opentelemetry/exporter-zipkin": "^1.28.0",
     "@opentelemetry/instrumentation-express": "^0.42.0",
     "@opentelemetry/instrumentation-ioredis": "^0.43.0",
