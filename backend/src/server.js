@@ -31,6 +31,8 @@ import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
+import sportsPredictionMarketRoute from './routes/sportsPredictionMarket.js';
+import tokenizedReitRoute from './routes/tokenizedReit.js';
 import treasuryRoute from './routes/treasury.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -152,6 +154,8 @@ app.use('/api', apiRouter);
 app.use('/api/oracle', oracleQueueRoute);
 app.use('/api/admin', adminRoute);
 app.use('/api/migrations', migrationRoute);
+app.use('/api/sports-markets', sportsPredictionMarketRoute);
+app.use('/api/reit', tokenizedReitRoute);
 app.use('/api/treasury', treasuryRoute);
 app.use('/metrics', metricsRoute);
 
