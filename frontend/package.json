@@ -13,7 +13,7 @@
     "@apollo/client": "^4.1.9",
     "@monaco-editor/react": "^4.7.0",
     "@stellar/freighter-api": "file:./vendor/freighter-api",
-    "@types/react-window": "^1.8.8",
+    "@types/react-window": "^2.0.0",
     "chart.js": "^4.5.1",
     "graphql": "^16.13.2",
     "lucide-react": "^0.577.0",
