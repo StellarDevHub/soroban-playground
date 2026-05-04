@@ -1,11 +1,7 @@
 # Gitleaks ignore file
-# These are generated/log files that may contain false-positive patterns
-# but do not contain actual secrets.
+# Format: <commit>:<file>:<rule>:<line>
+# These are confirmed false positives — documentation examples, not real secrets.
 
-# Generated GitHub issue data (no tokens, only issue metadata)
-data/created_issues.json
-data/issue_creation.log
-data/complex_issues_list.md
-
-# npm install log (contains build error output, no secrets)
-backend/npm-install.log
+# SYNTHETIC_ASSETS_DOCS.md line 419: COLLATERAL_TOKEN is a placeholder Stellar address
+# in an env variable documentation example, not a real credential.
+3a5ad99ce2b0a36e6e4a40ea98a9b5f41aaaeb3a:SYNTHETIC_ASSETS_DOCS.md:generic-api-key:419
