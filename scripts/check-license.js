@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const rootDir = __dirname;
+const rootDir = path.join(__dirname, '..');
 const licenseFile = path.join(rootDir, 'LICENSE');
 const packageFiles = [
   path.join(rootDir, 'package.json'),

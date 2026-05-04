@@ -4,13 +4,13 @@ on:
   pull_request:
     paths:
       - 'backend/**'
-      - 'check-license.js'
+      - 'scripts/check-license.js'
   push:
     branches:
       - main
     paths:
       - 'backend/**'
-      - 'check-license.js'
+      - 'scripts/check-license.js'
 
 jobs:
   lint-and-check:
@@ -25,7 +25,7 @@ jobs:
           node-version: '22'
 
       - name: Run License Check
-        run: node check-license.js
+        run: node scripts/check-license.js
 
       - name: Run linting and formatting check
         working-directory: backend
