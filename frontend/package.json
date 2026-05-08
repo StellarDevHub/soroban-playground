@@ -29,7 +29,7 @@
     "optimism": "^0.18.1",
     "react": "19.2.3",
     "react-chartjs-2": "^5.3.1",
-    "react-dom": "19.2.3",
+    "react-dom": "19.2.6",
     "react-window": "^2.2.7",
     "reactflow": "^11.11.4",
     "rxjs": "^7.8.2",
