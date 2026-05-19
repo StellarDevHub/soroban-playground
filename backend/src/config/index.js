@@ -92,13 +92,26 @@ const config = {
   },
   tracing: {
     enabled: process.env.TRACING_ENABLED !== 'false', // Default true
-    serviceName: process.env.TRACING_SERVICE_NAME || DEFAULTS.TRACING_SERVICE_NAME,
-    serviceVersion: process.env.TRACING_SERVICE_VERSION || DEFAULTS.TRACING_SERVICE_VERSION,
-    jaegerEndpoint: process.env.TRACING_JAEGER_ENDPOINT || DEFAULTS.TRACING_JAEGER_ENDPOINT,
-    zipkinEndpoint: process.env.TRACING_ZIPKIN_ENDPOINT || DEFAULTS.TRACING_ZIPKIN_ENDPOINT,
-    sampleRateSuccess: parseFloat(process.env.TRACING_SAMPLE_RATE_SUCCESS || DEFAULTS.TRACING_SAMPLE_RATE_SUCCESS),
-    sampleRateErrors: parseFloat(process.env.TRACING_SAMPLE_RATE_ERRORS || DEFAULTS.TRACING_SAMPLE_RATE_ERRORS),
-    slowRequestThresholdMs: toInt(process.env.TRACING_SLOW_REQUEST_THRESHOLD_MS, DEFAULTS.TRACING_SLOW_REQUEST_THRESHOLD_MS),
+    serviceName:
+      process.env.TRACING_SERVICE_NAME || DEFAULTS.TRACING_SERVICE_NAME,
+    serviceVersion:
+      process.env.TRACING_SERVICE_VERSION || DEFAULTS.TRACING_SERVICE_VERSION,
+    jaegerEndpoint:
+      process.env.TRACING_JAEGER_ENDPOINT || DEFAULTS.TRACING_JAEGER_ENDPOINT,
+    zipkinEndpoint:
+      process.env.TRACING_ZIPKIN_ENDPOINT || DEFAULTS.TRACING_ZIPKIN_ENDPOINT,
+    sampleRateSuccess: parseFloat(
+      process.env.TRACING_SAMPLE_RATE_SUCCESS ||
+        DEFAULTS.TRACING_SAMPLE_RATE_SUCCESS
+    ),
+    sampleRateErrors: parseFloat(
+      process.env.TRACING_SAMPLE_RATE_ERRORS ||
+        DEFAULTS.TRACING_SAMPLE_RATE_ERRORS
+    ),
+    slowRequestThresholdMs: toInt(
+      process.env.TRACING_SLOW_REQUEST_THRESHOLD_MS,
+      DEFAULTS.TRACING_SLOW_REQUEST_THRESHOLD_MS
+    ),
   },
 };
 

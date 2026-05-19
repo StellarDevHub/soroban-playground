@@ -1,9 +1,20 @@
 // GraphQL Resolvers
 // Delegates to the same services used by the REST API — no duplication.
 
-import { compileQueued, compileBatch, getCompileSnapshot, compileProgressBus } from '../services/compileService.js';
-import { deployBatchContracts, deployProgressBus } from '../services/deployService.js';
-import { invokeSorobanContract, invokeProgressBus } from '../services/invokeService.js';
+import {
+  compileQueued,
+  compileBatch,
+  getCompileSnapshot,
+  compileProgressBus,
+} from '../services/compileService.js';
+import {
+  deployBatchContracts,
+  deployProgressBus,
+} from '../services/deployService.js';
+import {
+  invokeSorobanContract,
+  invokeProgressBus,
+} from '../services/invokeService.js';
 import { getCached, setCached, invalidateCache } from './cache.js';
 
 // ── JSON scalar ───────────────────────────────────────────────────────────────
@@ -29,13 +40,20 @@ function parseObject(ast) {
 
 function parseLiteralValue(ast) {
   switch (ast.kind) {
-    case 'StringValue': return ast.value;
-    case 'BooleanValue': return ast.value;
-    case 'IntValue': return parseInt(ast.value, 10);
-    case 'FloatValue': return parseFloat(ast.value);
-    case 'ListValue': return ast.values.map(parseLiteralValue);
-    case 'ObjectValue': return parseObject(ast);
-    default: return null;
+    case 'StringValue':
+      return ast.value;
+    case 'BooleanValue':
+      return ast.value;
+    case 'IntValue':
+      return parseInt(ast.value, 10);
+    case 'FloatValue':
+      return parseFloat(ast.value);
+    case 'ListValue':
+      return ast.values.map(parseLiteralValue);
+    case 'ObjectValue':
+      return parseObject(ast);
+    default:
+      return null;
   }
 }
 
@@ -64,7 +82,9 @@ function paginate(items, first = 20, after) {
       hasNextPage: startIndex + limit < items.length,
       hasPreviousPage: startIndex > 0,
       startCursor: slice.length ? encodeCursor(startIndex) : null,
-      endCursor: slice.length ? encodeCursor(startIndex + slice.length - 1) : null,
+      endCursor: slice.length
+        ? encodeCursor(startIndex + slice.length - 1)
+        : null,
     },
     totalCount: items.length,
   };
@@ -97,7 +117,10 @@ export const resolvers = {
         maxWorkers: 8,
         queueLength: snapshot?.stats?.queueLength ?? 0,
         estimatedWaitTimeMs: (snapshot?.stats?.queueLength ?? 0) * 1500,
-        cacheHitRate: totalCompiles > 0 ? parseFloat((cacheHits / totalCompiles).toFixed(2)) : 0.0,
+        cacheHitRate:
+          totalCompiles > 0
+            ? parseFloat((cacheHits / totalCompiles).toFixed(2))
+            : 0.0,
         totalCompiles,
         cacheHits,
         slowCompiles: snapshot?.stats?.slowCompiles ?? 0,
@@ -177,7 +200,9 @@ export const resolvers = {
           sizeBytes: result.artifact.sizeBytes,
           path: result.artifact.path,
         },
-        message: result.cached ? 'Compiled from cache' : 'Compiled successfully',
+        message: result.cached
+          ? 'Compiled from cache'
+          : 'Compiled successfully',
       };
     },
 
@@ -205,7 +230,8 @@ export const resolvers = {
     deploy: async (_parent, { input }, context) => {
       await invalidateCache();
       // Mirrors the REST deploy endpoint behaviour
-      const contractId = 'C' + Math.random().toString(36).substring(2, 54).toUpperCase();
+      const contractId =
+        'C' + Math.random().toString(36).substring(2, 54).toUpperCase();
       const deployedAt = new Date().toISOString();
       return {
         success: true,
@@ -250,12 +276,18 @@ export const resolvers = {
       subscribe: async function* (_parent, { requestId }) {
         const queue = [];
         let resolve;
-        const next = () => new Promise((r) => { resolve = r; });
+        const next = () =>
+          new Promise((r) => {
+            resolve = r;
+          });
 
         const handler = (event) => {
           if (!requestId || event.requestId === requestId) {
             queue.push(event);
-            if (resolve) { resolve(); resolve = null; }
+            if (resolve) {
+              resolve();
+              resolve = null;
+            }
           }
         };
 
@@ -264,7 +296,12 @@ export const resolvers = {
           while (true) {
             if (queue.length === 0) await next();
             const event = queue.shift();
-            yield { compileProgress: { ...event, timestamp: event.timestamp ?? new Date().toISOString() } };
+            yield {
+              compileProgress: {
+                ...event,
+                timestamp: event.timestamp ?? new Date().toISOString(),
+              },
+            };
           }
         } finally {
           compileProgressBus.off('progress', handler);
@@ -276,12 +313,18 @@ export const resolvers = {
       subscribe: async function* (_parent, { requestId }) {
         const queue = [];
         let resolve;
-        const next = () => new Promise((r) => { resolve = r; });
+        const next = () =>
+          new Promise((r) => {
+            resolve = r;
+          });
 
         const handler = (event) => {
           if (!requestId || event.requestId === requestId) {
             queue.push(event);
-            if (resolve) { resolve(); resolve = null; }
+            if (resolve) {
+              resolve();
+              resolve = null;
+            }
           }
         };
 
@@ -290,7 +333,12 @@ export const resolvers = {
           while (true) {
             if (queue.length === 0) await next();
             const event = queue.shift();
-            yield { deployProgress: { ...event, timestamp: event.timestamp ?? new Date().toISOString() } };
+            yield {
+              deployProgress: {
+                ...event,
+                timestamp: event.timestamp ?? new Date().toISOString(),
+              },
+            };
           }
         } finally {
           deployProgressBus.off('progress', handler);
@@ -302,12 +350,18 @@ export const resolvers = {
       subscribe: async function* (_parent, { requestId }) {
         const queue = [];
         let resolve;
-        const next = () => new Promise((r) => { resolve = r; });
+        const next = () =>
+          new Promise((r) => {
+            resolve = r;
+          });
 
         const handler = (event) => {
           if (!requestId || event.requestId === requestId) {
             queue.push(event);
-            if (resolve) { resolve(); resolve = null; }
+            if (resolve) {
+              resolve();
+              resolve = null;
+            }
           }
         };
 
@@ -316,7 +370,12 @@ export const resolvers = {
           while (true) {
             if (queue.length === 0) await next();
             const event = queue.shift();
-            yield { invokeProgress: { ...event, timestamp: event.timestamp ?? new Date().toISOString() } };
+            yield {
+              invokeProgress: {
+                ...event,
+                timestamp: event.timestamp ?? new Date().toISOString(),
+              },
+            };
           }
         } finally {
           invokeProgressBus.off('progress', handler);

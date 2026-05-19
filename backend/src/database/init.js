@@ -3,7 +3,7 @@ import { initializeDatabase } from './connection.js';
 async function initDatabase() {
   try {
     console.log('Initializing database...');
-    const db = await initializeDatabase();
+    await initializeDatabase();
     console.log('Database initialized successfully!');
     console.log('Sample data inserted. Ready for search operations.');
     process.exit(0);
