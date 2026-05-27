@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, vec, Address, Env};
+use soroban_sdk::{testutils::Address as _, vec, Address, Env, Vec};
 use crate::{FreelancerEscrow, FreelancerEscrowClient};
 use crate::types::{EscrowStatus, MilestoneStatus};
 
@@ -14,6 +14,14 @@ fn setup() -> (Env, Address, FreelancerEscrowClient<'static>) {
 
 fn make_address(env: &Env) -> Address {
     Address::generate(env)
+}
+
+fn make_amounts(env: &Env, count: u32, amount: i128) -> Vec<i128> {
+    let mut amounts = Vec::new(env);
+    for _ in 0..count {
+        amounts.push_back(amount);
+    }
+    amounts
 }
 
 // ── Initialization ─────────────────────────────────────────────────────────
@@ -446,6 +454,141 @@ fn test_cancel_active_escrow_fails() {
     );
     client.deposit(&id, &client_addr);
     client.cancel_escrow(&id, &client_addr);
+}
+
+#[test]
+#[should_panic]
+fn test_create_escrow_too_many_milestones_fails() {
+    let (env, _, client) = setup();
+    let admin = make_address(&env);
+    client.initialize(&admin, &200);
+
+    let client_addr = make_address(&env);
+    let freelancer = make_address(&env);
+    let arbiter = make_address(&env);
+
+    let amounts = make_amounts(&env, 21, 1_i128);
+    client.create_escrow(&client_addr, &freelancer, &arbiter, &2100, &amounts);
+}
+
+#[test]
+#[should_panic]
+fn test_release_payment_without_approval_fails() {
+    let (env, _, client) = setup();
+    let admin = make_address(&env);
+    client.initialize(&admin, &200);
+
+    let client_addr = make_address(&env);
+    let freelancer = make_address(&env);
+    let arbiter = make_address(&env);
+
+    let id = client.create_escrow(
+        &client_addr, &freelancer, &arbiter, &1000,
+        &vec![&env, 1000_i128],
+    );
+    client.deposit(&id, &client_addr);
+    client.release_payment(&id, &client_addr, &1);
+}
+
+#[test]
+#[should_panic]
+fn test_approve_milestone_wrong_client_fails() {
+    let (env, _, client) = setup();
+    let admin = make_address(&env);
+    client.initialize(&admin, &200);
+
+    let client_addr = make_address(&env);
+    let freelancer = make_address(&env);
+    let impostor = make_address(&env);
+    let arbiter = make_address(&env);
+
+    let id = client.create_escrow(
+        &client_addr, &freelancer, &arbiter, &1000,
+        &vec![&env, 1000_i128],
+    );
+    client.deposit(&id, &client_addr);
+    client.submit_milestone(&id, &freelancer, &1);
+    client.approve_milestone(&id, &impostor, &1);
+}
+
+#[test]
+#[should_panic]
+fn test_resolve_dispute_invalid_ruling_fails() {
+    let (env, _, client) = setup();
+    let admin = make_address(&env);
+    client.initialize(&admin, &200);
+
+    let client_addr = make_address(&env);
+    let freelancer = make_address(&env);
+    let arbiter = make_address(&env);
+
+    let id = client.create_escrow(
+        &client_addr, &freelancer, &arbiter, &1000,
+        &vec![&env, 1000_i128],
+    );
+    client.deposit(&id, &client_addr);
+    client.raise_dispute(&id, &client_addr);
+    client.resolve_dispute(&id, &arbiter, &3);
+}
+
+#[test]
+#[should_panic]
+fn test_raise_dispute_unauthorized_fails() {
+    let (env, _, client) = setup();
+    let admin = make_address(&env);
+    client.initialize(&admin, &200);
+
+    let client_addr = make_address(&env);
+    let freelancer = make_address(&env);
+    let arbiter = make_address(&env);
+    let impostor = make_address(&env);
+
+    let id = client.create_escrow(
+        &client_addr, &freelancer, &arbiter, &1000,
+        &vec![&env, 1000_i128],
+    );
+    client.deposit(&id, &client_addr);
+    client.raise_dispute(&id, &impostor);
+}
+
+#[test]
+#[should_panic]
+fn test_cancel_pending_escrow_wrong_client_fails() {
+    let (env, _, client) = setup();
+    let admin = make_address(&env);
+    client.initialize(&admin, &200);
+
+    let client_addr = make_address(&env);
+    let impostor = make_address(&env);
+    let freelancer = make_address(&env);
+    let arbiter = make_address(&env);
+
+    let id = client.create_escrow(
+        &client_addr, &freelancer, &arbiter, &1000,
+        &vec![&env, 1000_i128],
+    );
+    client.cancel_escrow(&id, &impostor);
+}
+
+#[test]
+fn test_escrow_count_and_is_initialized() {
+    let (env, _, client) = setup();
+    let admin = make_address(&env);
+
+    assert!(!client.is_initialized());
+    client.initialize(&admin, &200);
+    assert!(client.is_initialized());
+    assert_eq!(client.get_escrow_count(), 0);
+
+    let client_addr = make_address(&env);
+    let freelancer = make_address(&env);
+    let arbiter = make_address(&env);
+
+    client.create_escrow(
+        &client_addr, &freelancer, &arbiter, &1000,
+        &vec![&env, 500_i128, 500_i128],
+    );
+    assert_eq!(client.get_escrow_count(), 1);
 }
 
 // ── Analytics ─────────────────────────────────────────────────────────────
