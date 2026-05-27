@@ -1,3 +1,19 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
+//! # DAO Treasury Contract
+//!
+//! A multi-signature treasury with role-based access control, a 24-hour
+//! timelock on queued transactions, and an emergency pause mechanism.
+//!
+//! ## Role hierarchy
+//! `Owner > Admin > Operator > Viewer`
+//!
+//! ## Transaction lifecycle
+//! `Pending → Queued → Executed`
+//! Any pending or queued transaction may be `Cancelled` by an Admin/Owner.
+//! Transactions that are not executed before `expires_at` become `Expired`.
+
 #![no_std]
 
 mod storage;
@@ -13,8 +29,10 @@ use crate::storage::{
 };
 use crate::types::{Error, Role, Signer, Transaction, TxStatus};
 
-const TIMELOCK_SECS: u64 = 86_400; // 24 hours
-const EXPIRY_SECS: u64 = 604_800; // 7 days
+/// 24-hour timelock in seconds.
+const TIMELOCK_SECS: u64 = 86_400;
+/// Proposal expiry: 7 days.
+const EXPIRY_SECS: u64 = 604_800;
 
 #[contract]
 pub struct DaoTreasury;
@@ -23,6 +41,11 @@ pub struct DaoTreasury;
 impl DaoTreasury {
     // ── Initialisation ────────────────────────────────────────────────────────
 
+    /// Initialise the treasury with an owner and an approval threshold.
+    ///
+    /// # Errors
+    /// - [`Error::AlreadyInitialized`] if called more than once.
+    /// - [`Error::InvalidThreshold`] if `threshold` is zero.
     pub fn initialize(env: Env, owner: Address, threshold: u32) -> Result<(), Error> {
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
@@ -33,43 +56,37 @@ impl DaoTreasury {
         }
         set_admin(&env, &owner);
         set_threshold(&env, threshold);
-
-        set_signer(
-            &env,
-            &Signer {
-                address: owner.clone(),
-                role: Role::Owner,
-            },
-        );
+        set_signer(&env, &Signer { address: owner, role: Role::Owner });
         set_signer_count(&env, 1);
         Ok(())
     }
 
     // ── Pause / Unpause ───────────────────────────────────────────────────────
 
+    /// Pause the contract, blocking proposals, approvals, and executions.
+    /// Requires at least Admin role.
     pub fn pause(env: Env, caller: Address) -> Result<(), Error> {
         ensure_initialized(&env)?;
         caller.require_auth();
         require_min_role(&env, &caller, Role::Admin)?;
         set_paused(&env, true);
-        env.events()
-            .publish((soroban_sdk::symbol_short!("paused"),), caller);
+        env.events().publish((soroban_sdk::symbol_short!("paused"),), caller);
         Ok(())
     }
 
+    /// Resume normal operation. Requires at least Admin role.
     pub fn unpause(env: Env, caller: Address) -> Result<(), Error> {
         ensure_initialized(&env)?;
         caller.require_auth();
         require_min_role(&env, &caller, Role::Admin)?;
         set_paused(&env, false);
-        env.events()
-            .publish((soroban_sdk::symbol_short!("unpaused"),), caller);
+        env.events().publish((soroban_sdk::symbol_short!("unpaused"),), caller);
         Ok(())
     }
 
     // ── Deposits ──────────────────────────────────────────────────────────────
 
-    /// Deposit tokens into the treasury. Anyone can deposit.
+    /// Deposit tokens into the treasury. Anyone may deposit while unpaused.
     pub fn deposit(env: Env, from: Address, token: Address, amount: i128) -> Result<(), Error> {
         ensure_initialized(&env)?;
         ensure_not_paused(&env)?;
@@ -87,6 +104,8 @@ impl DaoTreasury {
 
     // ── Signer management ─────────────────────────────────────────────────────
 
+    /// Add a new signer. Requires Admin or Owner role.
+    /// A caller may not assign a role higher than their own.
     pub fn add_signer(
         env: Env,
         caller: Address,
@@ -103,20 +122,15 @@ impl DaoTreasury {
         if role > role_of(&env, &caller)? {
             return Err(Error::Unauthorized);
         }
-        set_signer(
-            &env,
-            &Signer {
-                address: new_signer.clone(),
-                role: role.clone(),
-            },
-        );
+        set_signer(&env, &Signer { address: new_signer.clone(), role });
         set_signer_count(&env, get_signer_count(&env) + 1);
 
-        env.events()
-            .publish((soroban_sdk::symbol_short!("add_sgn"),), new_signer);
+        env.events().publish((soroban_sdk::symbol_short!("add_sgn"),), new_signer);
         Ok(())
     }
 
+    /// Remove a signer. Requires Owner role.
+    /// Removal is rejected if it would make the threshold unsatisfiable.
     pub fn remove_signer(env: Env, caller: Address, target: Address) -> Result<(), Error> {
         ensure_initialized(&env)?;
         caller.require_auth();
@@ -132,11 +146,11 @@ impl DaoTreasury {
         remove_signer(&env, &target);
         set_signer_count(&env, count - 1);
 
-        env.events()
-            .publish((soroban_sdk::symbol_short!("rm_sgn"),), target);
+        env.events().publish((soroban_sdk::symbol_short!("rm_sgn"),), target);
         Ok(())
     }
 
+    /// Update the approval threshold. Requires Owner role.
     pub fn change_threshold(env: Env, caller: Address, new_threshold: u32) -> Result<(), Error> {
         ensure_initialized(&env)?;
         caller.require_auth();
@@ -151,6 +165,8 @@ impl DaoTreasury {
 
     // ── Transaction lifecycle ─────────────────────────────────────────────────
 
+    /// Propose a new treasury transaction. Requires at least Operator role.
+    /// Returns the new transaction ID.
     pub fn propose(
         env: Env,
         proposer: Address,
@@ -171,7 +187,7 @@ impl DaoTreasury {
         let id = get_tx_count(&env);
         let tx = Transaction {
             id,
-            proposer: proposer.clone(),
+            proposer,
             description,
             amount,
             recipient,
@@ -184,11 +200,12 @@ impl DaoTreasury {
         set_tx(&env, &tx);
         set_tx_count(&env, id + 1);
 
-        env.events()
-            .publish((soroban_sdk::symbol_short!("proposed"),), id);
+        env.events().publish((soroban_sdk::symbol_short!("proposed"),), id);
         Ok(id)
     }
 
+    /// Approve a pending transaction. Requires at least Operator role.
+    /// Once approvals reach the threshold the transaction moves to `Queued`.
     pub fn approve(env: Env, signer: Address, tx_id: u32) -> Result<(), Error> {
         ensure_initialized(&env)?;
         ensure_not_paused(&env)?;
@@ -215,13 +232,16 @@ impl DaoTreasury {
 
         if tx.approvals >= get_threshold(&env) {
             tx.status = TxStatus::Queued;
-            env.events()
-                .publish((soroban_sdk::symbol_short!("queued"),), tx_id);
+            env.events().publish((soroban_sdk::symbol_short!("queued"),), tx_id);
         }
         set_tx(&env, &tx);
         Ok(())
     }
 
+    /// Execute a queued transaction after the timelock has elapsed.
+    /// Requires at least Admin role.
+    /// If `token` is provided and the transaction has a recipient, the
+    /// specified token amount is transferred from the treasury to the recipient.
     pub fn execute(
         env: Env,
         caller: Address,
@@ -248,25 +268,24 @@ impl DaoTreasury {
             return Err(Error::TransactionExpired);
         }
 
-        if let Some(recipient) = &tx.recipient {
-            if let Some(token_addr) = token {
-                let client = token::Client::new(&env, &token_addr);
-                let balance = client.balance(&env.current_contract_address());
-                if balance < tx.amount {
-                    return Err(Error::InsufficientBalance);
-                }
-                client.transfer(&env.current_contract_address(), recipient, &tx.amount);
+        // Perform the token transfer when a recipient and token are provided.
+        if let (Some(recipient), Some(token_addr)) = (&tx.recipient, token) {
+            let client = token::Client::new(&env, &token_addr);
+            let balance = client.balance(&env.current_contract_address());
+            if balance < tx.amount {
+                return Err(Error::InsufficientBalance);
             }
+            client.transfer(&env.current_contract_address(), recipient, &tx.amount);
         }
 
         tx.status = TxStatus::Executed;
         set_tx(&env, &tx);
 
-        env.events()
-            .publish((soroban_sdk::symbol_short!("executed"),), tx_id);
+        env.events().publish((soroban_sdk::symbol_short!("executed"),), tx_id);
         Ok(())
     }
 
+    /// Cancel a pending or queued transaction. Requires at least Admin role.
     pub fn cancel(env: Env, caller: Address, tx_id: u32) -> Result<(), Error> {
         ensure_initialized(&env)?;
         caller.require_auth();
@@ -279,9 +298,48 @@ impl DaoTreasury {
         tx.status = TxStatus::Cancelled;
         set_tx(&env, &tx);
 
-        env.events()
-            .publish((soroban_sdk::symbol_short!("cancelled"),), tx_id);
+        env.events().publish((soroban_sdk::symbol_short!("cancelled"),), tx_id);
         Ok(())
+    }
+
+    // ── Read-only queries ─────────────────────────────────────────────────────
+
+    pub fn get_transaction(env: Env, tx_id: u32) -> Result<Transaction, Error> {
+        ensure_initialized(&env)?;
+        get_tx(&env, tx_id)
+    }
+
+    pub fn get_tx_count(env: Env) -> Result<u32, Error> {
+        ensure_initialized(&env)?;
+        Ok(get_tx_count(&env))
+    }
+
+    pub fn get_threshold(env: Env) -> Result<u32, Error> {
+        ensure_initialized(&env)?;
+        Ok(get_threshold(&env))
+    }
+
+    pub fn get_signer_count(env: Env) -> Result<u32, Error> {
+        ensure_initialized(&env)?;
+        Ok(get_signer_count(&env))
+    }
+
+    pub fn get_signer(env: Env, addr: Address) -> Result<Signer, Error> {
+        ensure_initialized(&env)?;
+        get_signer(&env, &addr)
+    }
+
+    pub fn has_approved(env: Env, tx_id: u32, signer: Address) -> Result<bool, Error> {
+        ensure_initialized(&env)?;
+        Ok(has_approved(&env, tx_id, &signer))
+    }
+
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        get_admin(&env)
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        is_paused(&env)
     }
 }
 

@@ -1,5 +1,10 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 use soroban_sdk::{contracttype, Address, Env};
-use crate::types::{UserPosition, PoolStats};
+use crate::types::UserPosition;
+
+// ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone)]
@@ -11,6 +16,8 @@ pub enum DataKey {
     TotalBorrowed,
 }
 
+// ── Initialization ────────────────────────────────────────────────────────────
+
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&DataKey::Initialized)
 }
@@ -19,6 +26,9 @@ pub fn set_initialized(env: &Env) {
     env.storage().instance().set(&DataKey::Initialized, &true);
 }
 
+// ── Admin ─────────────────────────────────────────────────────────────────────
+
+#[allow(dead_code)]
 pub fn get_admin(env: &Env) -> Address {
     env.storage().instance().get(&DataKey::Admin).unwrap()
 }
@@ -26,6 +36,8 @@ pub fn get_admin(env: &Env) -> Address {
 pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
 }
+
+// ── User positions ────────────────────────────────────────────────────────────
 
 pub fn get_position(env: &Env, user: &Address) -> UserPosition {
     env.storage()
@@ -35,6 +47,7 @@ pub fn get_position(env: &Env, user: &Address) -> UserPosition {
             deposited: 0,
             borrowed: 0,
             last_updated: env.ledger().timestamp(),
+            credit_score: 0,
         })
 }
 
@@ -43,6 +56,8 @@ pub fn set_position(env: &Env, user: &Address, position: &UserPosition) {
         .persistent()
         .set(&DataKey::Position(user.clone()), position);
 }
+
+// ── Pool totals ───────────────────────────────────────────────────────────────
 
 pub fn get_total_deposited(env: &Env) -> i128 {
     env.storage().instance().get(&DataKey::TotalDeposited).unwrap_or(0)
