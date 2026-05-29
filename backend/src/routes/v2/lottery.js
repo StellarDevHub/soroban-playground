@@ -8,8 +8,8 @@ router.get('/status', (req, res) => {
     success: true,
     data: {
       status: 'inactive',
-      message: 'Lottery functionality not yet implemented'
-    }
+      message: 'Lottery functionality not yet implemented',
+    },
   });
 });
 
@@ -30,8 +30,8 @@ router.get('/rounds', (req, res) => {
       winnerTicketId: null,
       winner: null,
       committedSeed: '',
-      claimed: false
-    }))
+      claimed: false,
+    })),
   });
 });
 
@@ -45,8 +45,8 @@ router.get('/analytics', (req, res) => {
       totalTicketsSold: 0,
       totalPrizePool: 0,
       totalPrizesClaimed: 0,
-      totalPrizePoolXlm: '0.0'
-    }
+      totalPrizePoolXlm: '0.0',
+    },
   });
 });
 
