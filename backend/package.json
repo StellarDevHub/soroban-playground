@@ -18,7 +18,10 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:unit": "jest tests/*.test.js",
-    "test:integration": "node tests/integration.runner.js"
+    "test:integration": "jest tests/syntheticAssets.integration.test.js",
+    "test:e2e": "jest tests/syntheticAssets.e2e.test.js",
+    "test:synthetic": "jest tests/syntheticAssets.*.test.js",
+    "test:all": "npm run test:unit && npm run test:synthetic"
   },
   "keywords": [
     "search",
