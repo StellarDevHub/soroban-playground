@@ -9,6 +9,9 @@ pub enum Error {
     EmptyOptions = 3,
     DuplicateOption = 4,
     UnknownOption = 5,
+    VoteCountUnderflow = 6,
+    VoteCountOverflow = 7,
+    VoterCountOverflow = 8,
 }
 
 #[contracttype]
