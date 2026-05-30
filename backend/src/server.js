@@ -10,6 +10,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import './config/index.js';
+import { corsOptions } from './config/cors.js';
 import apiRouter from './routes/api.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
@@ -53,7 +55,7 @@ try {
 
 // Basic middleware
 app.use(morgan('combined'));
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
 
 // Latency tracking middleware
