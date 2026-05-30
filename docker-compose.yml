@@ -27,8 +27,15 @@ services:
       - "5000:5000"
     volumes:
       - ./backend:/app:cached
+      - /app/node_modules
     environment:
       - NODE_ENV=development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - soroban-net
 
