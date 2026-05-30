@@ -8,8 +8,8 @@ use soroban_sdk::{
     Address, Env, String,
 };
 
-use crate::{YieldOptimizer, YieldOptimizerClient};
 use crate::types::Error;
+use crate::{YieldOptimizer, YieldOptimizerClient};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -30,8 +30,8 @@ fn add_strategy(env: &Env, client: &YieldOptimizerClient, admin: &Address) -> u3
         admin,
         &String::from_str(env, "Delta Neutral Vault"),
         &String::from_str(env, "Blend Capital + Wave AMM"),
-        &1200, // 12 % APY
-        &300,  // 3 % fee
+        &1200,   // 12 % APY
+        &300,    // 3 % fee
         &86_400, // compound every 24 h
     )
 }
@@ -58,6 +58,39 @@ fn test_double_initialize_fails() {
 }
 
 // ── Strategy management ───────────────────────────────────────────────────────
+
+#[test]
+fn test_methods_fail_before_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, YieldOptimizer);
+    let client = YieldOptimizerClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let executor = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    assert_eq!(client.try_get_admin(), Err(Ok(Error::NotInitialized)));
+    assert_eq!(client.try_get_executor(), Err(Ok(Error::NotInitialized)));
+    assert_eq!(
+        client.try_create_strategy(
+            &admin,
+            &String::from_str(&env, "Vault"),
+            &String::from_str(&env, "Protocol"),
+            &1000,
+            &200,
+            &86_400,
+        ),
+        Err(Ok(Error::NotInitialized))
+    );
+    assert_eq!(
+        client.try_deposit(&user, &1, &1_000),
+        Err(Ok(Error::NotInitialized))
+    );
+    assert_eq!(
+        client.try_compound(&executor, &1),
+        Err(Ok(Error::NotInitialized))
+    );
+}
 
 #[test]
 fn test_create_strategy_stores_data() {
@@ -157,6 +190,20 @@ fn test_create_strategy_empty_name_fails() {
 }
 
 #[test]
+fn test_create_strategy_empty_protocol_fails() {
+    let (env, admin, _executor, client) = setup();
+    let result = client.try_create_strategy(
+        &admin,
+        &String::from_str(&env, "Vault"),
+        &String::from_str(&env, ""),
+        &1000,
+        &200,
+        &86_400,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidProtocol)));
+}
+
+#[test]
 fn test_update_strategy() {
     let (env, admin, _executor, client) = setup();
     let id = add_strategy(&env, &client, &admin);
@@ -166,6 +213,35 @@ fn test_update_strategy() {
     assert_eq!(s.apy_bps, 800);
     assert_eq!(s.fee_bps, 100);
     assert_eq!(s.compound_interval, 3_600);
+}
+
+#[test]
+fn test_update_strategy_non_admin_fails() {
+    let (env, admin, _executor, client) = setup();
+    let id = add_strategy(&env, &client, &admin);
+    let stranger = Address::generate(&env);
+
+    let result = client.try_update_strategy(&stranger, &id, &900, &100, &3_600, &true);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_update_strategy_invalid_params_fail() {
+    let (env, admin, _executor, client) = setup();
+    let id = add_strategy(&env, &client, &admin);
+
+    assert_eq!(
+        client.try_update_strategy(&admin, &id, &20_001, &100, &3_600, &true),
+        Err(Ok(Error::InvalidApy))
+    );
+    assert_eq!(
+        client.try_update_strategy(&admin, &id, &900, &2_501, &3_600, &true),
+        Err(Ok(Error::InvalidFee))
+    );
+    assert_eq!(
+        client.try_update_strategy(&admin, &id, &900, &100, &0, &true),
+        Err(Ok(Error::InvalidInterval))
+    );
 }
 
 #[test]
@@ -327,6 +403,25 @@ fn test_withdraw_no_position_fails() {
     assert_eq!(result, Err(Ok(Error::NoPosition)));
 }
 
+// ── Withdrawal edge cases ─────────────────────────────────────────────────────
+
+#[test]
+fn test_withdraw_from_inactive_strategy_still_allows_exit() {
+    let (env, admin, _executor, client) = setup();
+    let strategy_id = add_strategy(&env, &client, &admin);
+    let user = Address::generate(&env);
+
+    client.deposit(&user, &strategy_id, &1_000_000);
+    client.update_strategy(&admin, &strategy_id, &1200, &300, &86_400, &false);
+
+    let withdrawn = client.withdraw(&user, &strategy_id, &400_000);
+    assert_eq!(withdrawn, 400_000);
+    assert_eq!(
+        client.get_position(&user, &strategy_id).current_balance,
+        600_000
+    );
+}
+
 // ── Compound ──────────────────────────────────────────────────────────────────
 
 #[test]
@@ -356,6 +451,20 @@ fn test_compound_by_admin_ok() {
 }
 
 #[test]
+fn test_compound_empty_strategy_keeps_zero_tvl() {
+    let (env, admin, executor, client) = setup();
+    let strategy_id = add_strategy(&env, &client, &admin);
+
+    advance(&env, 172_800);
+
+    let new_tvl = client.compound(&executor, &strategy_id);
+    let strategy = client.get_strategy(&strategy_id);
+    assert_eq!(new_tvl, 0);
+    assert_eq!(strategy.total_deposited, 0);
+    assert_eq!(strategy.total_shares, 0);
+}
+
+#[test]
 fn test_compound_too_soon_fails() {
     let (env, admin, executor, client) = setup();
     let strategy_id = add_strategy(&env, &client, &admin);
@@ -381,15 +490,18 @@ fn test_compound_unauthorized_fails() {
 #[test]
 fn test_compound_respects_fee() {
     let (env, admin, executor, client) = setup();
-    // 10 % APY, 50 % fee → net APY ≈ 5 %.
-    let id = client.create_strategy(
-        &admin,
-        &String::from_str(&env, "High Fee Vault"),
-        &String::from_str(&env, "Protocol"),
-        &1000,  // 10 % APY
-        &5000,  // 50 % fee — exceeds MAX_FEE_BPS (2500), so use 2500.
-        &86_400,
+    assert_eq!(
+        client.try_create_strategy(
+            &admin,
+            &String::from_str(&env, "High Fee Vault"),
+            &String::from_str(&env, "Protocol"),
+            &1000,
+            &5000,
+            &86_400,
+        ),
+        Err(Ok(Error::InvalidFee))
     );
+
     // MAX_FEE_BPS is 2500, so use a valid fee.
     let id2 = client.create_strategy(
         &admin,
