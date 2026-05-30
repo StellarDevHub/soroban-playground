@@ -66,6 +66,7 @@ export default function IdentityPortal({
 }: IdentityPortalProps) {
   const [tab, setTab] = useState<"identities" | "register" | "credential">("identities");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
   // Register form
   const [regDid, setRegDid] = useState("");
@@ -81,26 +82,74 @@ export default function IdentityPortal({
   // Reputation delta
   const [repDeltas, setRepDeltas] = useState<Record<string, string>>({});
 
+  const parseInteger = (raw: string, label: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      throw new Error(`${label} is required.`);
+    }
+
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new Error(`${label} must be a whole number.`);
+    }
+
+    return parsed;
+  };
+
+  const showSuccess = (message: string) => {
+    setFeedback({ kind: "success", message });
+  };
+
+  const showError = (error: unknown) => {
+    setFeedback({
+      kind: "error",
+      message: error instanceof Error ? error.message : "Something unexpected happened.",
+    });
+  };
+
   const handleRegister = async () => {
-    if (!regDid) return;
-    await onRegister(regDid, parseInt(regHash) || 0);
-    setRegDid("");
-    setRegHash("");
+    const did = regDid.trim();
+    if (!did) {
+      showError(new Error("DID String is required."));
+      return;
+    }
+
+    try {
+      const metadataHash = parseInteger(regHash, "Metadata Hash");
+      await onRegister(did, metadataHash);
+      setRegDid("");
+      setRegHash("");
+      showSuccess("Identity registered successfully.");
+    } catch (error) {
+      showError(error);
+    }
   };
 
   const handleIssueCredential = async () => {
-    if (!credIssuer || !credSubject) return;
-    await onIssueCredential({
-      issuer: credIssuer,
-      subject: credSubject,
-      schemaHash: parseInt(credSchema) || 0,
-      dataHash: parseInt(credData) || 0,
-      expiresAt: parseInt(credExpiry) || 0,
-    });
-    setCredIssuer("");
-    setCredSubject("");
-    setCredSchema("");
-    setCredData("");
+    const issuer = credIssuer.trim();
+    const subject = credSubject.trim();
+    if (!issuer || !subject) {
+      showError(new Error("Issuer and subject addresses are required."));
+      return;
+    }
+
+    try {
+      await onIssueCredential({
+        issuer,
+        subject,
+        schemaHash: parseInteger(credSchema, "Schema Hash"),
+        dataHash: parseInteger(credData, "Data Hash"),
+        expiresAt: parseInteger(credExpiry, "Expires At"),
+      });
+      setCredIssuer("");
+      setCredSubject("");
+      setCredSchema("");
+      setCredData("");
+      setCredExpiry("0");
+      showSuccess("Credential issued successfully.");
+    } catch (error) {
+      showError(error);
+    }
   };
 
   if (!contractId) {
@@ -117,6 +166,42 @@ export default function IdentityPortal({
     );
   }
 
+  const handleRevokeCredential = async (credentialId: number) => {
+    try {
+      await onRevokeCredential(credentialId);
+      showSuccess(`Credential #${credentialId} revoked.`);
+    } catch (error) {
+      showError(error);
+    }
+  };
+
+  const handleAdjustReputation = async (owner: string) => {
+    const raw = repDeltas[owner] ?? "";
+    const parsed = Number(raw.trim());
+
+    if (!Number.isInteger(parsed) || parsed === 0) {
+      showError(new Error("Reputation delta must be a non-zero whole number."));
+      return;
+    }
+
+    try {
+      await onAdjustReputation(owner, parsed);
+      setRepDeltas((current) => ({ ...current, [owner]: "" }));
+      showSuccess("Reputation updated.");
+    } catch (error) {
+      showError(error);
+    }
+  };
+
+  const handleDeactivateIdentity = async (owner: string) => {
+    try {
+      await onDeactivate(owner);
+      showSuccess("Identity deactivated.");
+    } catch (error) {
+      showError(error);
+    }
+  };
+
   return (
     <div className="flex flex-col space-y-4 p-5 bg-gray-900 border border-gray-800 rounded-xl shadow-lg">
       <div className="flex items-center justify-between">
@@ -130,6 +215,20 @@ export default function IdentityPortal({
           </span>
         )}
       </div>
+
+      {feedback && (
+        <p
+          role={feedback.kind === "error" ? "alert" : "status"}
+          aria-live="polite"
+          className={`rounded-lg border px-3 py-2 text-xs ${
+            feedback.kind === "error"
+              ? "border-rose-800/60 bg-rose-950/40 text-rose-200"
+              : "border-emerald-800/60 bg-emerald-950/40 text-emerald-200"
+          }`}
+        >
+          {feedback.message}
+        </p>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-gray-800 pb-2">
@@ -238,7 +337,7 @@ export default function IdentityPortal({
                             </div>
                             {cred.status === "Active" && (
                               <button
-                                onClick={() => onRevokeCredential(cred.id)}
+                                onClick={() => void handleRevokeCredential(cred.id)}
                                 disabled={isLoading}
                                 className="text-[10px] px-2 py-0.5 bg-rose-900/30 hover:bg-rose-900/50 border border-rose-800/50 text-rose-400 rounded transition-colors"
                               >
@@ -266,14 +365,12 @@ export default function IdentityPortal({
                                 [identity.owner]: e.target.value,
                               }))
                             }
+                            aria-label={`Reputation delta for ${identity.did}`}
                             placeholder="±delta"
                             className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-emerald-500"
                           />
                           <button
-                            onClick={() => {
-                              const d = parseInt(repDeltas[identity.owner] ?? "0");
-                              if (d !== 0) onAdjustReputation(identity.owner, d);
-                            }}
+                            onClick={() => void handleAdjustReputation(identity.owner)}
                             disabled={isLoading}
                             className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-xs rounded transition-colors flex items-center gap-1"
                           >
@@ -287,7 +384,7 @@ export default function IdentityPortal({
                     {/* Deactivate */}
                     {identity.active && (
                       <button
-                        onClick={() => onDeactivate(identity.owner)}
+                        onClick={() => void handleDeactivateIdentity(identity.owner)}
                         disabled={isLoading}
                         className="w-full py-1.5 bg-rose-900/20 hover:bg-rose-900/40 border border-rose-800/40 text-rose-400 text-xs rounded transition-colors flex items-center justify-center gap-1"
                       >
@@ -306,16 +403,18 @@ export default function IdentityPortal({
       {/* Register tab */}
       {tab === "register" && (
         <div className="space-y-3">
-          <Field label="DID String">
+          <Field label="DID String" htmlFor="identity-register-did">
             <input
+              id="identity-register-did"
               value={regDid}
               onChange={(e) => setRegDid(e.target.value)}
               placeholder={`did:soroban:${walletAddress ?? "G..."}`}
               className={inputCls}
             />
           </Field>
-          <Field label="Metadata Hash (u64)">
+          <Field label="Metadata Hash (u64)" htmlFor="identity-register-metadata-hash">
             <input
+              id="identity-register-metadata-hash"
               type="number"
               value={regHash}
               onChange={(e) => setRegHash(e.target.value)}
@@ -341,16 +440,18 @@ export default function IdentityPortal({
       {/* Issue credential tab */}
       {tab === "credential" && (
         <div className="space-y-3">
-          <Field label="Issuer Address">
+          <Field label="Issuer Address" htmlFor="identity-issuer-address">
             <input
+              id="identity-issuer-address"
               value={credIssuer}
               onChange={(e) => setCredIssuer(e.target.value)}
               placeholder="G..."
               className={inputCls}
             />
           </Field>
-          <Field label="Subject Address">
+          <Field label="Subject Address" htmlFor="identity-subject-address">
             <input
+              id="identity-subject-address"
               value={credSubject}
               onChange={(e) => setCredSubject(e.target.value)}
               placeholder="G..."
@@ -358,8 +459,9 @@ export default function IdentityPortal({
             />
           </Field>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Schema Hash">
+            <Field label="Schema Hash" htmlFor="identity-schema-hash">
               <input
+                id="identity-schema-hash"
                 type="number"
                 value={credSchema}
                 onChange={(e) => setCredSchema(e.target.value)}
@@ -367,8 +469,9 @@ export default function IdentityPortal({
                 className={inputCls}
               />
             </Field>
-            <Field label="Data Hash">
+            <Field label="Data Hash" htmlFor="identity-data-hash">
               <input
+                id="identity-data-hash"
                 type="number"
                 value={credData}
                 onChange={(e) => setCredData(e.target.value)}
@@ -377,8 +480,9 @@ export default function IdentityPortal({
               />
             </Field>
           </div>
-          <Field label="Expires At (unix ts, 0 = never)">
+          <Field label="Expires At (unix ts, 0 = never)" htmlFor="identity-expires-at">
             <input
+              id="identity-expires-at"
               type="number"
               value={credExpiry}
               onChange={(e) => setCredExpiry(e.target.value)}
@@ -408,10 +512,21 @@ export default function IdentityPortal({
 const inputCls =
   "w-full bg-gray-950 border border-gray-800 rounded-md py-1.5 px-2 text-xs text-gray-200 focus:outline-none focus:border-emerald-500 font-mono";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="block text-[10px] text-gray-500 mb-1 uppercase tracking-wider">
+      <label
+        htmlFor={htmlFor}
+        className="block text-[10px] text-gray-500 mb-1 uppercase tracking-wider"
+      >
         {label}
       </label>
       {children}
