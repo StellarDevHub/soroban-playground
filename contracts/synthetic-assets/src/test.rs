@@ -976,3 +976,378 @@ fn test_excessive_leverage() {
     // Try 11x leverage (> 10x max) with 100 margin
     client.open_trade(&user, &symbol, &TradeDirection::Long, &1000000i128, &110000u32);
 }
+
+// Additional edge case tests for comprehensive coverage
+
+#[test]
+fn test_partial_liquidation() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let liquidator = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    mint_collateral_tokens(&env, &collateral_token, &liquidator, 5000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    // Move price down to make position liquidatable
+    client.update_price(&symbol, &90000000i128, &95u32);
+    
+    let position_id = 1u64;
+    
+    // Partial liquidation - repay only half
+    client.liquidate(&liquidator, &position_id, &1000000i128);
+    
+    let position = client.get_position(&position_id);
+    assert_eq!(position.minted_amount, 1000000i128);
+}
+
+#[test]
+fn test_liquidation_full_repay() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let liquidator = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    mint_collateral_tokens(&env, &collateral_token, &liquidator, 5000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    client.update_price(&symbol, &90000000i128, &95u32);
+    
+    let position_id = 1u64;
+    
+    // Full liquidation - repay entire amount
+    client.liquidate(&liquidator, &position_id, &2000000i128);
+    
+    // Position should be closed
+    let result = client.try_get_position(&position_id);
+    assert_eq!(result, Err(Ok(Error::PositionNotFound)));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #15)")]
+fn test_liquidation_excessive_repay() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let liquidator = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    mint_collateral_tokens(&env, &collateral_token, &liquidator, 5000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    client.update_price(&symbol, &90000000i128, &95u32);
+    
+    let position_id = 1u64;
+    
+    // Try to repay more than minted amount
+    client.liquidate(&liquidator, &position_id, &3000000i128);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_liquidation_not_liquidatable() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let liquidator = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    mint_collateral_tokens(&env, &collateral_token, &liquidator, 5000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    // Position is healthy - not liquidatable
+    let position_id = 1u64;
+    client.liquidate(&liquidator, &position_id, &1000000i128);
+}
+
+#[test]
+fn test_multiple_positions_same_user() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 20000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &10000000i128, &1000u32);
+    
+    // Create first position
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    // Create second position
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    let position1 = client.get_position(&1u64);
+    let position2 = client.get_position(&2u64);
+    
+    assert_eq!(position1.position_id, 1);
+    assert_eq!(position2.position_id, 2);
+    assert_eq!(position1.user, user);
+    assert_eq!(position2.user, user);
+}
+
+#[test]
+fn test_price_update_with_confidence() {
+    let (env, client, _admin, _, _) = setup_contract();
+    
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    // Update with high confidence
+    client.update_price(&symbol, &105000000i128, &95u32);
+    
+    let price_data = client.get_asset_price(&symbol);
+    assert_eq!(price_data.price, 105000000i128);
+    assert_eq!(price_data.confidence, 95u32);
+}
+
+#[test]
+fn test_collateral_ratio_edge_cases() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    // Mint at exactly minimum ratio
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    let position_id = 1u64;
+    let ratio = client.get_collateral_ratio(&position_id);
+    assert_eq!(ratio, 15000i128);
+}
+
+#[test]
+fn test_trading_position_liquidation() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    let position_id = client.open_trade(
+        &user,
+        &symbol,
+        &TradeDirection::Long,
+        &1000000i128,
+        &20000u32,
+    );
+    
+    // Move price down significantly to trigger liquidation
+    client.update_price(&symbol, &70000000i128, &95u32);
+    
+    // Position should be liquidated
+    let is_safe = client.is_trade_position_safe(&position_id);
+    assert_eq!(is_safe, false);
+}
+
+#[test]
+fn test_short_position_liquidation() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    let position_id = client.open_trade(
+        &user,
+        &symbol,
+        &TradeDirection::Short,
+        &1000000i128,
+        &20000u32,
+    );
+    
+    // Move price up significantly to trigger liquidation for short
+    client.update_price(&symbol, &130000000i128, &95u32);
+    
+    let is_safe = client.is_trade_position_safe(&position_id);
+    assert_eq!(is_safe, false);
+}
+
+#[test]
+fn test_burn_full_position() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    let position_id = 1u64;
+    
+    // Burn entire position
+    client.burn_synthetic(&user, &position_id, &2000000i128);
+    
+    // Position should be closed
+    let result = client.try_get_position(&position_id);
+    assert_eq!(result, Err(Ok(Error::PositionNotFound)));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn test_burn_exceeds_balance() {
+    let (env, client, _admin, _, collateral_token) = setup_contract();
+    
+    let user = Address::generate(&env);
+    let symbol = Symbol::new(&env, "sUSD");
+    
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic USD"),
+        &8u32,
+        &100000000i128,
+    );
+    
+    mint_collateral_tokens(&env, &collateral_token, &user, 10000000i128);
+    
+    let token_client = token::Client::new(&env, &collateral_token);
+    token_client.approve(&user, &client.address, &5000000i128, &1000u32);
+    
+    client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    
+    let position_id = 1u64;
+    
+    // Try to burn more than minted
+    client.burn_synthetic(&user, &position_id, &3000000i128);
+}
+
+#[test]
+fn test_protocol_parameter_bounds() {
+    let (_env, client, _admin, _, _) = setup_contract();
+    
+    // Test maximum valid values
+    client.update_protocol_params(&50000u32, &49999u32, &2000u32, &1000u32);
+    
+    let params = client.get_protocol_params();
+    assert_eq!(params.min_collateral_ratio, 50000u32);
+    assert_eq!(params.liquidation_threshold, 49999u32);
+    assert_eq!(params.liquidation_bonus, 2000u32);
+    assert_eq!(params.fee_percentage, 1000u32);
+}
+
+#[test]
+fn test_asset_registration_bounds() {
+    let (env, client, _admin, _, _) = setup_contract();
+    
+    let symbol = Symbol::new(&env, "sBTC");
+    
+    // Register with high price
+    client.register_synthetic_asset(
+        &symbol,
+        &String::from_str(&env, "Synthetic BTC"),
+        &8u32,
+        &50000000000i128, // $50,000
+    );
+    
+    let asset = client.get_asset(&symbol);
+    assert_eq!(asset.decimals, 8u32);
+}
