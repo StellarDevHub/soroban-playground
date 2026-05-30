@@ -2,7 +2,7 @@ const path = require('path');
 
 module.exports = {
   testEnvironment: 'node',
-  testMatch: ['**/tests/**/*.test.js', '**/tests/syntheticAssets.*.test.js'],
+  testMatch: ['**/tests/**/*.test.js'],
   modulePaths: [path.resolve(__dirname, '../node_modules')],
   transform: {
     '^.+\\.js$': [
