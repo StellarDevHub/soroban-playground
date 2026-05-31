@@ -1,22 +1,20 @@
-# Use an official Node runtime as a parent image
-FROM node:20-alpine AS base
-
-# Set working directory
+# Stage 1: Dependencies
+FROM node:20-alpine AS deps
 WORKDIR /app
 
-# Install dependencies (only package.json needed for caching)
-COPY package.json .
-COPY package-lock.json .
+# Install build dependencies if needed
+RUN apk add --no-cache libc6-compat
+
+COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy the rest of the source code
+# Stage 2: Development (default)
+FROM node:20-alpine AS dev
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Expose Next.js default port
+ENV CHOKIDAR_USEPOLLING=true
 EXPOSE 3000
 
-# Enable polling for file changes inside Docker (required for hot‑reload)
-ENV CHOKIDAR_USEPOLLING=true
-
-# Start the development server with hot‑reloading
 CMD ["npm", "run", "dev"]

@@ -103,3 +103,64 @@ contracts/*/Cargo.lock
 *.log
 npm-install.log
 backend/npm-install.log
+# Dependencies
+node_modules
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Next.js
+/.next/
+/out/
+build
+
+# Soroban / Rust Backend
+target/
+.soroban/
+*.wasm
+
+# Soroban test snapshots (auto-generated, not committed)
+test_snapshots/
+**/test_snapshots/
+
+# Rust build artifacts
+Cargo.lock
+**/*.lock
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env
+
+# Vercel
+.vercel
+
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Ignore test rate limit script (local/test-only)
+backend/test_rate_limit.js
+
+# Indexer & Databases
+indexer/target/
+*.db
+*.sqlite
+
+# Cache and Data
+backend/cache/
+backend/data/

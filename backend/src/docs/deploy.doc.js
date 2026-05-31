@@ -2,10 +2,12 @@
  * @openapi
  * /api/deploy:
  *   post:
- *     summary: Deploy a Soroban smart contract
- *     description: Deploys a compiled WASM contract to a specified network (simulated for MVP).
+ *     summary: Deploy Smart Contract
+ *     description: |
+ *       Deploys a compiled WASM contract artifact to the specified Stellar network.
+ *       The deployment process includes uploading the WASM and instantiating the contract.
  *     tags:
- *       - Deploy
+ *       - Smart Contracts
  *     requestBody:
  *       required: true
  *       content:
@@ -13,22 +15,28 @@
  *           schema:
  *             type: object
  *             required:
- *               - wasmPath
- *               - contractName
+ *               - wasmHash
+ *               - alias
  *             properties:
- *               wasmPath:
+ *               wasmHash:
  *                 type: string
- *                 description: Path or identifier of the compiled WASM file.
- *               contractName:
+ *                 description: The unique hash of the compiled WASM artifact.
+ *                 example: "sha256:..."
+ *               alias:
  *                 type: string
- *                 description: Name for the contract.
+ *                 description: A human-readable alias for the deployed contract.
+ *                 example: "my_token"
  *               network:
  *                 type: string
+ *                 enum: [testnet, futurenet, local]
  *                 default: testnet
- *                 enum: [testnet, futurenet, standalone]
+ *               sourceAccount:
+ *                 type: string
+ *                 description: The Stellar account address used for deployment.
+ *                 example: "G..."
  *     responses:
  *       200:
- *         description: Successfully deployed contract
+ *         description: Contract deployed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -36,24 +44,27 @@
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
  *                 status:
  *                   type: string
+ *                   example: deployed
  *                 contractId:
  *                   type: string
- *                 contractName:
+ *                   example: "C..."
+ *                 alias:
  *                   type: string
  *                 network:
  *                   type: string
- *                 wasmPath:
- *                   type: string
  *                 deployedAt:
  *                   type: string
- *                 message:
+ *                   format: date-time
+ *                 transactionHash:
  *                   type: string
+ *                   example: "0x..."
  *       400:
- *         description: Validation failed
+ *         description: Invalid WASM hash or missing required fields
  *       500:
- *         description: Deployment failed
+ *         description: Deployment failed on network
  */
 const deployDocs = {};
 export default deployDocs;

@@ -1,32 +1,45 @@
-FROM node:20-alpine AS base
+# Stage 1: Build dependencies
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Install system dependencies for Rust and compilation
+# Install build tools for node-gyp
 RUN apk add --no-cache \
-    curl \
-    build-base \
-    gcc \
-    musl-dev \
-    libffi-dev \
-    openssl-dev \
-    pkgconfig \
-    rust \
-    cargo
+    python3 \
+    make \
+    g++
 
-# Ensure the WASM target is available. 
-# In Alpine, we typically use the rust-src and then target add if rustup is used,
-# but since we are using apk packages, we check the target.
-RUN rustc --version && cargo --version
-
-# Install backend dependencies
-COPY package.json .
-COPY package-lock.json .
+COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy source files
+# Stage 2: Runtime image
+FROM node:20-alpine
+WORKDIR /app
+
+# Install runtime dependencies: Rust/Cargo for contract compilation, 
+# and other libraries needed for Soroban CLI and Node.js addons.
+RUN apk add --no-cache \
+    rust \
+    cargo \
+    openssl \
+    libgcc \
+    libstdc++ \
+    ca-certificates \
+    curl
+
+# Copy node_modules from builder
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy application source
 COPY . .
+
+# Create logs directory and set permissions
+RUN mkdir -p logs && chown -R node:node /app
+
+USER node
 
 EXPOSE 5000
 
-# Use nodemon for hot‑reloading of server code
+ENV NODE_ENV=development
+
+# Use development command as default
 CMD ["npm", "run", "dev"]

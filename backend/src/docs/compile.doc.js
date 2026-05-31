@@ -2,10 +2,12 @@
  * @openapi
  * /api/compile:
  *   post:
- *     summary: Compile a Soroban smart contract
- *     description: Takes Rust code, scaffolds a temporary project, and compiles it into a WASM binary.
+ *     summary: Compile Soroban Rust Code
+ *     description: |
+ *       Compiles provided Rust smart contract code into a WASM binary.
+ *       The service handles project scaffolding, compilation using Cargo, and artifact management.
  *     tags:
- *       - Compile
+ *       - Smart Contracts
  *     requestBody:
  *       required: true
  *       content:
@@ -17,10 +19,18 @@
  *             properties:
  *               code:
  *                 type: string
- *                 description: The Rust code of the smart contract to compile.
+ *                 description: The Rust source code to compile.
+ *                 example: "pub fn add(a: u32, b: u32) -> u32 { a + b }"
+ *               options:
+ *                 type: object
+ *                 properties:
+ *                   optimization:
+ *                     type: string
+ *                     enum: [size, speed]
+ *                     default: size
  *     responses:
  *       200:
- *         description: Successfully compiled contract
+ *         description: Compilation completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -28,8 +38,10 @@
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
  *                 status:
  *                   type: string
+ *                   example: completed
  *                 message:
  *                   type: string
  *                 logs:
@@ -41,14 +53,20 @@
  *                   properties:
  *                     name:
  *                       type: string
+ *                       example: "contract.wasm"
  *                     sizeBytes:
  *                       type: integer
+ *                       example: 45230
+ *                     hash:
+ *                       type: string
+ *                       example: "sha256:..."
  *                     createdAt:
  *                       type: string
+ *                       format: date-time
  *       400:
- *         description: Bad request (no code provided)
+ *         description: Invalid request parameters or source code
  *       500:
- *         description: Compilation failed or internal server error
+ *         description: Internal compilation error or timeout
  */
 const compileDocs = {};
 export default compileDocs;
