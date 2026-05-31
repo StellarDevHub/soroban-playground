@@ -21,6 +21,16 @@ The test suite is organized into three main categories:
 - Validates integration between different service methods
 - Includes performance and edge case testing
 
+## Test Infrastructure Requirements
+
+The test suite requires the following infrastructure components:
+
+- `babel-plugin-transform-import-meta`: Required for proper Jest execution with import.meta usage
+- `@babel/plugin-syntax-import-meta`: Required for parsing import.meta syntax
+- `@babel/plugin-transform-modules-commonjs`: Required for module transformation
+
+These plugins are configured in `babel.config.cjs` and installed as dev dependencies in `package.json`.
+
 ## Running Tests
 
 ### Run all synthetic assets tests:
