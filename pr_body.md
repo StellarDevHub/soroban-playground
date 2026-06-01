@@ -1,29 +1,69 @@
-## Description
+## Summary
 
-This pull request consolidates multiple enhancements, optimizations, and test suite implementations to improve the reliability, performance, and maintainability of various core services.
+This PR implements four new Soroban smart-contract modules as requested in the linked issues.
 
-### Implemented Features & Enhancements:
+---
 
-* **Cache Manager Optimization:** Refactored to optimize and clean up the Cache Manager.
-* **User Profile API Optimization:** Refactored to optimize and clean up the User Profile API.
-* **Metrics Exporter Testing:** Implemented a comprehensive test suite for the Metrics Exporter to ensure production readiness and reliability.
-* **ABI Parser Optimization:** Refactored to optimize and clean up the ABI Parser.
+### Contracts Added
 
-## Related Issues
+| Contract | Location | Issue |
+|---|---|---|
+| **Upgradeable** | `contracts/upgradeable/` | #587 |
+| **Versioned** | `contracts/versioned/` | #588 |
+| **Access Control** | `contracts/access-control/` | #594 |
+| **Analysis Utils** | `contracts/analysis-utils/` | #595 |
 
-Closes #484
-Closes #490
-Closes #489
-Closes #487
-This PR consolidates several backend enhancements to improve error handling and refactor critical components within the Soroban Playground infrastructure.
+---
 
-### Features Implemented
-- **Email Notifications Refactor (#493):** Refactored the email notifications system to improve maintainability and ensure backwards compatibility with existing project conventions.
-- **Contract Verifier Error Handling (#488):** Enhanced error handling and edge-case management in the Contract Verifier to provide better user feedback and increase overall system stability.
-- **Project Management API Error Handling (#491):** Improved error handling and edge-case management within the Project Management API, ensuring a more stable and robust experience for developers.
+### contracts/upgradeable (#587)
 
-## Related Issues
+Upgradeable contract pattern with admin-gated code-hash upgrades and an optional ledger timelock.
 
-Closes #493
-Closes #488
-Closes #491
+**Key functions:** `initialize`, `propose_upgrade`, `execute_upgrade`, `upgrade_to`, `pause`/`unpause`
+
+**Security:** double-init guard, admin-only upgrade gate, configurable timelock, pause guard.
+
+---
+
+### contracts/versioned (#588)
+
+Versioned contract pattern that tracks semantic versions on-chain, supports forward migrations and rollbacks, and persists an immutable migration audit log.
+
+**Key functions:** `initialize`, `register_version`, `migrate_to_version`, `rollback_to_version`, `get_version`, `get_migration`
+
+---
+
+### contracts/access-control (#594)
+
+Flexible role-based access control with five built-in roles (`Admin`, `Minter`, `Burner`, `Pauser`, `Upgrader`), arbitrary custom `u32` roles, ownership transfer, and an emergency pause.
+
+**Key functions:** `initialize`, `grant_role`, `revoke_role`, `transfer_ownership`, `pause`/`unpause`, `has_role`
+
+---
+
+### contracts/analysis-utils (#595)
+
+On-chain audit ledger for off-chain contract analysis tooling: security vulnerability scans, gas-usage analyses, code-quality checks, and formal-property verification results.
+
+**Key functions:** `record_security`, `record_gas`, `record_quality`, `record_verification`, and corresponding `get_*_report` / `get_*_count` readers.
+
+---
+
+### Testing
+
+Each contract ships with a dedicated `src/test.rs` (15-25 test cases per contract) covering:
+- Happy-path flows
+- Double-initialisation guard
+- Unauthorized callers
+- Contract-paused guards
+- Invalid / out-of-range inputs
+- Not-found / empty state conditions
+
+---
+
+### Closes
+
+Closes #587
+Closes #588
+Closes #594
+Closes #595
