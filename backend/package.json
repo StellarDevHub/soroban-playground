@@ -20,6 +20,14 @@
     "test:unit": "jest tests/syntheticAssets.unit.test.js",
     "test:integration": "jest tests/syntheticAssets.integration.test.js",
     "test:e2e": "jest tests/syntheticAssets.e2e.test.js"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest tests/*.test.js",
+    "test:integration": "jest tests/syntheticAssets.integration.test.js",
+    "test:e2e": "jest tests/syntheticAssets.e2e.test.js",
+    "test:synthetic": "jest tests/syntheticAssets.*.test.js",
+    "test:all": "npm run test:unit && npm run test:synthetic"
   },
   "keywords": [
     "search",
@@ -56,10 +64,13 @@
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
+    "@babel/plugin-syntax-import-meta": "^7.10.4",
+    "@babel/plugin-transform-modules-commonjs": "^7.29.7",
     "@babel/preset-env": "^7.24.0",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
     "babel-jest": "^29.7.0",
+    "babel-plugin-transform-import-meta": "^2.3.3",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",

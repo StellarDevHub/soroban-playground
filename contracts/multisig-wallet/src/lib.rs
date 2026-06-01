@@ -30,6 +30,10 @@ use crate::types::{Error, Role, Signer, Transaction, TxStatus};
 const TIMELOCK_SECS: u64 = 86_400;
 /// Proposal expiry: 7 days.
 const EXPIRY_SECS: u64 = 604_800;
+/// Daily limit reset period in seconds.
+const DAY_SECS: u64 = 86_400;
+/// Maximum description length to prevent storage bloat.
+const MAX_DESCRIPTION_LENGTH: u32 = 500;
 
 #[contract]
 pub struct MultisigWallet;
@@ -49,9 +53,19 @@ impl MultisigWallet {
             return Err(Error::AlreadyInitialized);
         }
         owner.require_auth();
+        
+        // Validate threshold
         if threshold == 0 {
             return Err(Error::InvalidThreshold);
         }
+        
+        // Validate daily limit if provided
+        if let Some(limit) = daily_limit {
+            if limit <= 0 {
+                return Err(Error::InvalidThreshold);
+            }
+        }
+        
         set_admin(&env, &owner);
         set_threshold(&env, threshold);
         // Register the owner as the first signer.
@@ -149,8 +163,19 @@ impl MultisigWallet {
         proposer.require_auth();
         require_min_role(&env, &proposer, Role::Operator)?;
 
+        // Validate description
         if description.is_empty() {
             return Err(Error::EmptyDescription);
+        }
+        
+        // Validate description length to prevent storage bloat
+        if description.len() > MAX_DESCRIPTION_LENGTH {
+            return Err(Error::EmptyDescription);
+        }
+        
+        // Validate amount
+        if amount < 0 {
+            return Err(Error::InvalidThreshold);
         }
 
         let now = env.ledger().timestamp();
@@ -187,14 +212,19 @@ impl MultisigWallet {
         let mut tx = get_tx(&env, tx_id)?;
         let now = env.ledger().timestamp();
 
+        // Check transaction status
         if tx.status != TxStatus::Pending {
             return Err(Error::TransactionNotPending);
         }
-        if now > tx.expires_at {
+        
+        // Check if transaction has expired
+        if is_transaction_expired(now, tx.expires_at) {
             tx.status = TxStatus::Expired;
             set_tx(&env, &tx);
             return Err(Error::TransactionExpired);
         }
+        
+        // Check for duplicate approval
         if has_approved(&env, tx_id, &signer) {
             return Err(Error::AlreadyApproved);
         }
@@ -202,6 +232,7 @@ impl MultisigWallet {
         record_approval(&env, tx_id, &signer);
         tx.approvals += 1;
 
+        // Move to queued if threshold reached
         if tx.approvals >= get_threshold(&env) {
             tx.status = TxStatus::Queued;
             env.events().publish(
@@ -223,19 +254,24 @@ impl MultisigWallet {
         let mut tx = get_tx(&env, tx_id)?;
         let now = env.ledger().timestamp();
 
+        // Check transaction status
         if tx.status != TxStatus::Queued {
             return Err(Error::TransactionNotQueued);
         }
-        if now < tx.execute_after {
+        
+        // Check if timelock has passed
+        if !is_timelock_passed(now, tx.execute_after) {
             return Err(Error::TimelockActive);
         }
-        if now > tx.expires_at {
+        
+        // Check if transaction has expired
+        if is_transaction_expired(now, tx.expires_at) {
             tx.status = TxStatus::Expired;
             set_tx(&env, &tx);
             return Err(Error::TransactionExpired);
         }
 
-        // Enforce daily withdrawal limit for XLM transfers.
+        // Enforce daily withdrawal limit for XLM transfers
         if tx.amount > 0 {
             check_and_update_daily_limit(&env, tx.amount)?;
         }
@@ -330,20 +366,33 @@ fn require_min_role(env: &Env, addr: &Address, min: Role) -> Result<(), Error> {
 
 /// Resets the daily counter if a new day has started, then checks the limit.
 fn check_and_update_daily_limit(env: &Env, amount: i128) -> Result<(), Error> {
-    const DAY_SECS: u64 = 86_400;
     let now = env.ledger().timestamp();
     let (mut withdrawn, day_start) = get_daily_state(env);
 
+    // Reset counter if new day has started
     if now >= day_start + DAY_SECS {
         withdrawn = 0;
     }
 
     let limit = get_daily_limit(env);
+    
+    // Check if amount would exceed daily limit
     if withdrawn + amount > limit {
         return Err(Error::DailyLimitExceeded);
     }
 
+    // Update daily state
     let new_day_start = if now >= day_start + DAY_SECS { now } else { day_start };
     set_daily_state(env, withdrawn + amount, new_day_start);
     Ok(())
+}
+
+/// Check if a transaction has expired based on current time
+fn is_transaction_expired(now: u64, expires_at: u64) -> bool {
+    now > expires_at
+}
+
+/// Check if timelock has passed for a transaction
+fn is_timelock_passed(now: u64, execute_after: u64) -> bool {
+    now >= execute_after
 }

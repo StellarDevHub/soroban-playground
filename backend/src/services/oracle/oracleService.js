@@ -23,7 +23,6 @@ import crypto from 'crypto';
 
 import { ConsensusCoordinator } from './consensus.js';
 import { LockManager } from './lockManager.js';
-import { LockScope } from './hierarchy.js';
 import { MemoryBackend } from './backends.js';
 import { MemoryVoteStore } from './voteStore.js';
 import { VoteSigner } from './voteSigner.js';
@@ -37,6 +36,39 @@ const DEFAULT_PROOF_TTL_MS = 5 * 60_000;
 
 function newProofId() {
   return crypto.randomBytes(8).toString('hex');
+}
+
+function buildNodeIds(nodeCount, nodeIds) {
+  if (nodeIds) {
+    return nodeIds;
+  }
+
+  return Array.from({ length: nodeCount }, (_, i) => `oracle-${i + 1}`);
+}
+
+function createProofRecord({ proofId, payload, metadata }) {
+  return {
+    id: proofId,
+    payload,
+    metadata: metadata || null,
+    status: 'voting',
+    submittedAt: Date.now(),
+    votes: [],
+    consensus: null,
+    leader: null,
+    result: null,
+    error: null,
+  };
+}
+
+function mapProofVotes(nodeResults, nodes) {
+  return nodeResults.map((result, index) => ({
+    nodeId: nodes[index].id,
+    ok: result.status === 'fulfilled',
+    phase: result.status === 'fulfilled' ? result.value.phase : 'rejected',
+    error:
+      result.status === 'rejected' ? result.reason?.message : result.value?.error,
+  }));
 }
 
 export class OracleService {
@@ -69,8 +101,7 @@ export class OracleService {
     this.proofs = new Map(); // proofId -> proof state
     this.proofOrder = []; // FIFO of proofIds for retention pruning
 
-    const ids =
-      nodeIds || Array.from({ length: nodeCount }, (_, i) => `oracle-${i + 1}`);
+    const ids = buildNodeIds(nodeCount, nodeIds);
     this.voteSigner =
       voteSigner ||
       new VoteSigner({
@@ -125,18 +156,7 @@ export class OracleService {
   // events on the bus.
   async submitProof(payload, { metadata } = {}) {
     const proofId = newProofId();
-    const proof = {
-      id: proofId,
-      payload,
-      metadata: metadata || null,
-      status: 'voting',
-      submittedAt: Date.now(),
-      votes: [],
-      consensus: null,
-      leader: null,
-      result: null,
-      error: null,
-    };
+    const proof = createProofRecord({ proofId, payload, metadata });
     this._trackProof(proof);
     this.eventBus.publish(OracleEvent.PROOF_RECEIVED, {
       proofId,
@@ -170,12 +190,7 @@ export class OracleService {
       this.nodes.map((n) => n.processProof(proof.id, proof.payload))
     );
 
-    proof.votes = nodeResults.map((r, i) => ({
-      nodeId: this.nodes[i].id,
-      ok: r.status === 'fulfilled',
-      phase: r.status === 'fulfilled' ? r.value.phase : 'rejected',
-      error: r.status === 'rejected' ? r.reason?.message : r.value?.error,
-    }));
+    proof.votes = mapProofVotes(nodeResults, this.nodes);
 
     const leaderResult = nodeResults.find(
       (r) => r.status === 'fulfilled' && r.value.phase === 'leader'
@@ -230,15 +245,17 @@ export class OracleService {
   }
 
   health() {
+    const activeProofs = this.listProofs({ limit: this.proofRetention }).filter(
+      (p) => p.status === 'voting'
+    ).length;
+
     return {
       backend: this.backend.name,
       voteStore: this.voteStore.name,
       nodes: this.nodes.length,
       threshold: this.threshold,
       processedProofs: this.proofOrder.length,
-      activeProofs: this.listProofs({ limit: this.proofRetention }).filter(
-        (p) => ['voting'].includes(p.status)
-      ).length,
+      activeProofs,
     };
   }
 }

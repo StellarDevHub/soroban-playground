@@ -22,6 +22,15 @@ export default function DeployPanel({
   compileError,
   contractId,
 }: DeployPanelProps) {
+  const compileDisabledClasses = isCompiling
+    ? "bg-gray-800 text-gray-500 cursor-not-allowed"
+    : "bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-500/20 hover:border-blue-500/40";
+  const deployDisabledClasses = !hasCompiled
+    ? "bg-gray-800 text-gray-600 cursor-not-allowed opacity-50"
+    : isDeploying
+      ? "bg-gray-800 text-gray-500 cursor-not-allowed"
+      : "bg-green-600 hover:bg-green-500 text-white shadow-[0_0_15px_rgba(22,163,74,0.3)] hover:shadow-[0_0_20px_rgba(22,163,74,0.5)]";
+
   return (
     <div className="flex flex-col space-y-4 p-5 bg-gray-900 border border-gray-800 rounded-xl shadow-lg">
       <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-widest flex items-center mb-2">
@@ -33,11 +42,7 @@ export default function DeployPanel({
         <button
           onClick={onCompile}
           disabled={isCompiling}
-          className={`flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-            isCompiling
-              ? "bg-gray-800 text-gray-500 cursor-not-allowed"
-              : "bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-500/20 hover:border-blue-500/40"
-          }`}
+          className={`flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${compileDisabledClasses}`}
         >
           {isCompiling ? (
             <div className="animate-spin rounded-full h-4 w-4 border-2 border-b-transparent border-gray-500 mr-2" />
@@ -50,13 +55,7 @@ export default function DeployPanel({
         <button
           onClick={onDeploy}
           disabled={!hasCompiled || isDeploying}
-          className={`flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-            !hasCompiled
-              ? "bg-gray-800 text-gray-600 cursor-not-allowed opacity-50"
-              : isDeploying
-                ? "bg-gray-800 text-gray-500 cursor-not-allowed"
-                : "bg-green-600 hover:bg-green-500 text-white shadow-[0_0_15px_rgba(22,163,74,0.3)] hover:shadow-[0_0_20px_rgba(22,163,74,0.5)]"
-          }`}
+          className={`flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${deployDisabledClasses}`}
         >
           {isDeploying ? (
             <div className="animate-spin rounded-full h-4 w-4 border-2 border-b-transparent border-white mr-2" />

@@ -41,9 +41,13 @@ pub fn get_total_voters(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-pub fn increment_total_voters(env: &Env) {
+pub fn increment_total_voters(env: &Env) -> Result<(), Error> {
     let total_voters = get_total_voters(env);
-    set_total_voters(env, total_voters + 1);
+    let next_total = total_voters
+        .checked_add(1)
+        .ok_or(Error::VoterCountOverflow)?;
+    set_total_voters(env, next_total);
+    Ok(())
 }
 
 pub fn set_vote(env: &Env, voter: &Address, option: &Symbol) {

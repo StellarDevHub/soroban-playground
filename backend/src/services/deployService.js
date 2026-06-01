@@ -31,7 +31,22 @@ function ensureDir(filePath) {
 function readState() {
   try {
     return JSON.parse(fs.readFileSync(DEFAULT_STATE_FILE, 'utf8'));
-  } catch {
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      try {
+        appendLog({
+          status: 'state-read-failed',
+          file: DEFAULT_STATE_FILE,
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (logError) {
+        console.error(
+          'Failed to record deployment state read error:',
+          logError
+        );
+      }
+    }
     return { activeDeployments: [], history: [] };
   }
 }
@@ -53,6 +68,21 @@ function emitProgress(event) {
   });
 }
 
+export function validateDeployContract(contract) {
+  const errors = [];
+  if (!contract.sourceAccount) {
+    errors.push(
+      `sourceAccount is required for ${contract.contractName}; set SOROBAN_SOURCE_ACCOUNT or pass sourceAccount`
+    );
+  }
+  if (!fs.existsSync(contract.wasmPath)) {
+    errors.push(`WASM file does not exist: ${contract.wasmPath}`);
+  }
+  if (errors.length > 0) {
+    throw new Error(errors.join('; '));
+  }
+}
+
 export function validateBatchContracts(contracts) {
   validateBatchContractsInput(contracts);
   const normalized = contracts.map((contract, index) =>
@@ -69,7 +99,9 @@ export function validateBatchContracts(contracts) {
   return normalized;
 }
 
-function deployContract(contract, { signal, onProgress } = {}) {
+export function deployContract(contract, { signal, onProgress } = {}) {
+  validateDeployContract(contract);
+
   const span = createSpan('soroban.deploy', {
     'deploy.contract_name': contract.contractName,
     'deploy.contract_id': contract.id,
@@ -106,8 +138,7 @@ function deployContract(contract, { signal, onProgress } = {}) {
       () => {
         addSpanEvent(span, 'deploy.timeout');
         child.kill('SIGKILL');
-        done = true;
-        reject(new Error(`Deployment timed out for ${contract.contractName}`));
+        finish(new Error(`Deployment timed out for ${contract.contractName}`));
       },
       Number.parseInt(
         process.env.DEPLOY_TIMEOUT_MS || `${DEFAULT_TIMEOUT_MS}`,

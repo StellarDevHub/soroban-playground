@@ -87,4 +87,19 @@ describe('OracleService end-to-end', () => {
     expect(h.nodes).toBe(4);
     expect(h.threshold).toBe(3);
   });
+
+  it('retains only the configured number of proofs', async () => {
+    const svc = new OracleService({
+      nodeCount: 3,
+      threshold: 2,
+      proofRetention: 1,
+    });
+
+    const first = await svc.submitProofAndWait({ round: 1 });
+    const second = await svc.submitProofAndWait({ round: 2 });
+
+    expect(svc.getProof(first.id)).toBeNull();
+    expect(svc.getProof(second.id)).toBeTruthy();
+    expect(svc.listProofs({ limit: 10 })).toHaveLength(1);
+  });
 });

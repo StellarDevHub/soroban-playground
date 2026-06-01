@@ -1,4 +1,7 @@
-use soroban_sdk::{contracterror, contracttype, Address};
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
+use soroban_sdk::{contracterror, contracttype};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -7,7 +10,8 @@ pub enum Error {
     AlreadyInitialized = 1,
     NotInitialized = 2,
     InsufficientBalance = 3,
-    FlashLoanFailed = 4,
+    Unauthorized = 4,
+    InvalidAmount = 5,
 }
 
 #[contracttype]

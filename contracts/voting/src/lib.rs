@@ -45,19 +45,30 @@ impl VotingContract {
 
         let previous_vote = get_vote(&env, &voter);
 
-        if let Some(current_option) = previous_vote {
+        let decremented_previous = if let Some(current_option) = previous_vote {
             if current_option == option {
                 return Ok(());
             }
 
             let current_count = get_count(&env, &current_option);
-            set_count(&env, &current_option, current_count - 1);
+            let next_count = current_count
+                .checked_sub(1)
+                .ok_or(Error::VoteCountUnderflow)?;
+            Some((current_option, next_count))
         } else {
-            increment_total_voters(&env);
-        }
+            None
+        };
 
         let new_count = get_count(&env, &option);
-        set_count(&env, &option, new_count + 1);
+        let incremented_count = new_count.checked_add(1).ok_or(Error::VoteCountOverflow)?;
+
+        if let Some((current_option, next_count)) = decremented_previous {
+            set_count(&env, &current_option, next_count);
+        } else {
+            increment_total_voters(&env)?;
+        }
+
+        set_count(&env, &option, incremented_count);
         set_vote(&env, &voter, &option);
 
         Ok(())
