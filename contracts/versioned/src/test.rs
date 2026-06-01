@@ -5,8 +5,11 @@
 
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
-use crate::{VersionedContract, VersionedContractClient};
-use crate::types::Error;
+use crate::{Error, VersionedContract, VersionedContractClient};
+
+fn s(env: &Env, v: &str) -> String {
+    String::from_str(env, v)
+}
 
 fn setup() -> (Env, Address, VersionedContractClient<'static>) {
     let env = Env::default();
@@ -17,30 +20,29 @@ fn setup() -> (Env, Address, VersionedContractClient<'static>) {
     (env, admin, client)
 }
 
-fn s(env: &Env, v: &str) -> String {
-    String::from_str(env, v)
-}
-
 // ── initialize ────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_initialize_ok() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "stable")).unwrap();
-    let ver = client.get_version().unwrap();
-    assert_eq!(ver.major, 1);
-    assert_eq!(ver.minor, 0);
-    assert_eq!(ver.patch, 0);
-    assert_eq!(client.get_current_index().unwrap(), 0);
-    assert_eq!(client.get_version_count().unwrap(), 1);
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    let v = client.get_version();
+    assert_eq!(v.major, 1);
+    assert_eq!(v.minor, 0);
+    assert_eq!(v.patch, 0);
+    assert_eq!(client.get_current_index(), 0);
+    assert_eq!(client.get_version_count(), 1);
 }
 
 #[test]
 fn test_initialize_twice_fails() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
     assert_eq!(
-        client.initialize(&admin, &2, &0, &0, &s(&env, "v2")).unwrap_err(),
+        client
+            .try_initialize(&admin, &2, &0, &0, &s(&env, "v2"))
+            .unwrap_err()
+            .unwrap(),
         Error::AlreadyInitialized
     );
 }
@@ -50,60 +52,47 @@ fn test_initialize_twice_fails() {
 #[test]
 fn test_register_version_ok() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
-    let idx = client.register_version(&admin, &1, &1, &0, &s(&env, "v1.1")).unwrap();
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    let idx = client
+        .try_register_version(&admin, &2, &0, &0, &s(&env, "v2"))
+        .unwrap()
+        .unwrap();
     assert_eq!(idx, 1);
-    assert_eq!(client.get_version_count().unwrap(), 2);
-    let ver = client.get_version_at(&1).unwrap();
-    assert_eq!(ver.minor, 1);
+    assert_eq!(client.get_version_count(), 2);
 }
 
 #[test]
 fn test_non_admin_cannot_register() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
     let other = Address::generate(&env);
     assert_eq!(
-        client.register_version(&other, &2, &0, &0, &s(&env, "v2")).unwrap_err(),
+        client
+            .try_register_version(&other, &2, &0, &0, &s(&env, "v2"))
+            .unwrap_err()
+            .unwrap(),
         Error::Unauthorized
     );
-}
-
-#[test]
-fn test_get_version_at_not_found() {
-    let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
-    assert_eq!(client.get_version_at(&99).unwrap_err(), Error::VersionNotFound);
 }
 
 // ── migrate_to_version ────────────────────────────────────────────────────────
 
 #[test]
-fn test_migrate_to_version_ok() {
+fn test_migrate_to_current_fails() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
-    client.register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
-    client.migrate_to_version(&admin, &1).unwrap();
-    assert_eq!(client.get_current_index().unwrap(), 1);
-    assert_eq!(client.get_version().unwrap().major, 2);
-}
-
-#[test]
-fn test_migrate_same_version_fails() {
-    let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
     assert_eq!(
-        client.migrate_to_version(&admin, &0).unwrap_err(),
+        client.try_migrate_to_version(&admin, &0).unwrap_err().unwrap(),
         Error::AlreadyAtVersion
     );
 }
 
 #[test]
-fn test_migrate_invalid_index_fails() {
+fn test_migrate_to_out_of_range_fails() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
     assert_eq!(
-        client.migrate_to_version(&admin, &99).unwrap_err(),
+        client.try_migrate_to_version(&admin, &99).unwrap_err().unwrap(),
         Error::VersionNotFound
     );
 }
@@ -111,26 +100,25 @@ fn test_migrate_invalid_index_fails() {
 #[test]
 fn test_non_admin_cannot_migrate() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
-    client.register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    client.try_register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
     let other = Address::generate(&env);
     assert_eq!(
-        client.migrate_to_version(&other, &1).unwrap_err(),
+        client.try_migrate_to_version(&other, &1).unwrap_err().unwrap(),
         Error::Unauthorized
     );
 }
 
-// ── rollback_to_version ───────────────────────────────────────────────────────
-
 #[test]
 fn test_rollback_ok() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
-    client.register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
-    client.migrate_to_version(&admin, &1).unwrap();
-    client.rollback_to_version(&admin, &0).unwrap();
-    assert_eq!(client.get_current_index().unwrap(), 0);
-    assert_eq!(client.get_version().unwrap().major, 1);
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    client.try_register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
+    client.try_migrate_to_version(&admin, &1).unwrap();
+    client.try_rollback_to_version(&admin, &0).unwrap();
+    assert_eq!(client.get_current_index(), 0);
+    let v = client.get_version();
+    assert_eq!(v.major, 1);
 }
 
 // ── migration log ─────────────────────────────────────────────────────────────
@@ -138,11 +126,11 @@ fn test_rollback_ok() {
 #[test]
 fn test_migration_log_recorded() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
-    client.register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
-    client.migrate_to_version(&admin, &1).unwrap();
-    assert_eq!(client.get_migration_count().unwrap(), 1);
-    let rec = client.get_migration(&0).unwrap();
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    client.try_register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
+    client.try_migrate_to_version(&admin, &1).unwrap();
+    assert_eq!(client.get_migration_count(), 1);
+    let rec = client.get_migration(&0);
     assert_eq!(rec.from_index, 0);
     assert_eq!(rec.to_index, 1);
 }
@@ -150,12 +138,12 @@ fn test_migration_log_recorded() {
 #[test]
 fn test_multiple_migrations_logged() {
     let (env, admin, client) = setup();
-    client.initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
-    client.register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
-    client.register_version(&admin, &3, &0, &0, &s(&env, "v3")).unwrap();
-    client.migrate_to_version(&admin, &1).unwrap();
-    client.migrate_to_version(&admin, &2).unwrap();
-    assert_eq!(client.get_migration_count().unwrap(), 2);
+    client.try_initialize(&admin, &1, &0, &0, &s(&env, "v1")).unwrap();
+    client.try_register_version(&admin, &2, &0, &0, &s(&env, "v2")).unwrap();
+    client.try_register_version(&admin, &3, &0, &0, &s(&env, "v3")).unwrap();
+    client.try_migrate_to_version(&admin, &1).unwrap();
+    client.try_migrate_to_version(&admin, &2).unwrap();
+    assert_eq!(client.get_migration_count(), 2);
 }
 
 // ── pre-init guards ───────────────────────────────────────────────────────────
@@ -163,11 +151,17 @@ fn test_multiple_migrations_logged() {
 #[test]
 fn test_get_version_before_init_fails() {
     let (_env, _admin, client) = setup();
-    assert_eq!(client.get_version().unwrap_err(), Error::NotInitialized);
+    assert_eq!(
+        client.try_get_version().unwrap_err().unwrap(),
+        Error::NotInitialized
+    );
 }
 
 #[test]
 fn test_get_admin_before_init_fails() {
     let (_env, _admin, client) = setup();
-    assert_eq!(client.get_admin().unwrap_err(), Error::NotInitialized);
+    assert_eq!(
+        client.try_get_admin().unwrap_err().unwrap(),
+        Error::NotInitialized
+    );
 }

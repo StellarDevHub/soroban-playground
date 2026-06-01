@@ -20,7 +20,7 @@ mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, BytesN, Env, String};
+use soroban_sdk::{contract, contracterror, contractimpl, symbol_short, Address, BytesN, Env, String};
 
 use crate::storage::{
     get_admin, get_gas_count, get_quality_count, get_security_count, get_verify_count,
@@ -29,8 +29,20 @@ use crate::storage::{
     store_security, store_verify,
 };
 use crate::types::{
-    Error, GasReport, QualityReport, SecurityReport, SeverityLevel, VerificationResult,
+    GasReport, QualityReport, SecurityReport, SeverityLevel, VerificationResult,
 };
+
+/// Errors returned by the analysis-utils contract.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    ReportNotFound = 4,
+    InvalidInput = 5,
+}
 
 #[contract]
 pub struct AnalysisUtils;

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, String};
+use soroban_sdk::{contracttype, String};
 
 /// Semantic version stored on-chain.
 #[contracttype]
@@ -42,16 +42,4 @@ pub enum DataKey {
     VersionAt(u32),
     /// Migration record at position `n`.
     MigrationAt(u32),
-}
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    VersionNotFound = 4,
-    AlreadyAtVersion = 5,
-    EmptyLabel = 6,
 }

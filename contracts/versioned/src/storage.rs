@@ -3,7 +3,8 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey, MigrationRecord, Version};
+use crate::types::{DataKey, InstanceKey, MigrationRecord, Version};
+use crate::Error;
 
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&InstanceKey::Admin)

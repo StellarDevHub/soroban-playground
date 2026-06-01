@@ -24,12 +24,25 @@ mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, symbol_short, Address, Env};
 
 use crate::storage::{
     get_owner, has_role, is_initialized, is_paused, set_owner, set_paused, set_role,
 };
-use crate::types::{Error, Role};
+use crate::types::Role;
+
+/// Errors returned by the access-control contract.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    ContractPaused = 4,
+    RoleAlreadyGranted = 5,
+    RoleNotHeld = 6,
+}
 
 #[contract]
 pub struct AccessControl;

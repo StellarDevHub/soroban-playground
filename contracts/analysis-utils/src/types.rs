@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, BytesN, String};
+use soroban_sdk::{contracttype, BytesN, String};
 
 /// Severity level for a security finding.
 #[contracttype]
@@ -92,13 +92,3 @@ pub enum DataKey {
     Verify(u32),
 }
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    ReportNotFound = 4,
-    InvalidInput = 5,
-}

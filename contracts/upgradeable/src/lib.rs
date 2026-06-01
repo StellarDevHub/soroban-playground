@@ -21,13 +21,25 @@ mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, BytesN, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, symbol_short, Address, BytesN, Env};
 
 use crate::storage::{
     clear_pending_upgrade, get_admin, get_pending_upgrade, get_timelock, is_initialized, is_paused,
     set_admin, set_paused, set_pending_upgrade, set_timelock,
 };
-use crate::types::Error;
+
+/// Errors returned by the upgradeable contract.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    TimelockNotElapsed = 4,
+    NoPendingUpgrade = 5,
+    ContractPaused = 6,
+}
 
 #[contract]
 pub struct UpgradeableContract;
@@ -85,7 +97,6 @@ impl UpgradeableContract {
 
         let timelock = get_timelock(&env);
         if timelock == 0 {
-            // Immediate upgrade — no pending state needed.
             env.deployer().update_current_contract_wasm(new_hash.clone());
             env.events()
                 .publish((symbol_short!("upgraded"),), new_hash);

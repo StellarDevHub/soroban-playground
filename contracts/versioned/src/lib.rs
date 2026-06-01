@@ -20,14 +20,27 @@ mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
+use soroban_sdk::{contract, contracterror, contractimpl, symbol_short, Address, Env, String};
 
 use crate::storage::{
     get_admin, get_current_index, get_migration_count, get_version_count, is_initialized,
     load_migration, load_version, set_admin, set_current_index, set_migration_count,
     set_version_count, store_migration, store_version,
 };
-use crate::types::{Error, MigrationRecord, Version};
+use crate::types::{MigrationRecord, Version};
+
+/// Errors returned by the versioned contract.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    VersionNotFound = 4,
+    AlreadyAtVersion = 5,
+    MigrationNotFound = 6,
+}
 
 #[contract]
 pub struct VersionedContract;

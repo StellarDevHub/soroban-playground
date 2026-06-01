@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, Address, Symbol};
+use soroban_sdk::{contracttype, Address};
 
 /// Built-in role identifiers (stored as u32 discriminants for gas efficiency).
 /// Callers may treat the `u32` as an opaque role token for custom roles.
@@ -28,16 +28,4 @@ pub enum InstanceKey {
 pub enum DataKey {
     /// Whether `address` holds `role` (role stored as u32).
     HasRole(Address, u32),
-}
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    ContractPaused = 4,
-    RoleAlreadyGranted = 5,
-    RoleNotHeld = 6,
 }
