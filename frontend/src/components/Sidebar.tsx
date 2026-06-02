@@ -69,6 +69,7 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
         { name: "Compile Dashboard", href: "/compile-dashboard", icon: Zap },
         { name: "Docs & Reference", href: "/docs", icon: BookOpen },
         { name: "Audit Explorer", href: "/audit", icon: Shield },
+        { name: "Storage Browser", href: "/storage-browser", icon: Database },
         { name: "Search Utility", href: "/search", icon: Search },
         { name: "Ledger Migration", href: "/migration", icon: Send },
         { name: "Rate Limits", href: "/rate-limits", icon: Sliders }
