@@ -28,4 +28,5 @@ members = [
     "contracts/versioned",
     "contracts/access-control",
     "contracts/analysis-utils",
+    "contracts/property-testing",
 ]

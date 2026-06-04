@@ -237,7 +237,7 @@ export default function RateLimitsPage() {
                 <Copy className="w-5 h-5 text-gray-400" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-gray-400">Name:</p>
                 <p className="text-white font-mono">{generatedKey.name}</p>
@@ -395,7 +395,7 @@ export default function RateLimitsPage() {
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs text-gray-400 uppercase tracking-wide">Key Prefix</p>
                       <div className="flex items-center gap-2 mt-2">
@@ -433,7 +433,7 @@ export default function RateLimitsPage() {
                     <ActivitySquare className="w-5 h-5 text-green-400" />
                     Rate Limits
                   </h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="bg-slate-700/50 rounded p-4">
                       <p className="text-gray-400 text-xs uppercase tracking-wide">Per Minute</p>
                       <p className="text-2xl font-bold text-white mt-2">{selectedKey.limits.requestsPerMinute}</p>
