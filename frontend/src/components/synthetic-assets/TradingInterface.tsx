@@ -171,8 +171,8 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
           <strong>⚠️ Risk Warning:</strong>
           <p>
             {direction === 'Long'
-              ? `Your position will be liquidated if ${assetSymbol} falls below $${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : '—'}`
-              : `Your position will be liquidated if ${assetSymbol} rises above $${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : '—'}`}
+              ? `Your position will be liquidated if ${assetSymbol} falls below $${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : '&apos;&mdash;&apos;'}`
+              : `Your position will be liquidated if ${assetSymbol} rises above $${liquidationPrice ? (liquidationPrice / 100000000).toFixed(8) : '&apos;&mdash;&apos;'}`}
           </p>
         </div>
 
@@ -199,7 +199,7 @@ const TradingInterface: React.FC<TradingInterfaceProps> = ({
         <div className="info-item">
           <strong>Liquidation</strong>
           <p>
-            If your position's losses exceed your margin, it will be automatically liquidated
+            If your positions losses exceed your margin, it will be automatically liquidated
             to prevent further losses.
           </p>
         </div>

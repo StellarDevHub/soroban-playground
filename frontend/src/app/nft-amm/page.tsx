@@ -692,18 +692,31 @@ export default function NftAmmPage() {
   }, [fetchStats, fetchPools, pagination.page]);
 
   useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 15_000);
+    const runRefresh = async () => {
+      await refresh();
+    };
+    
+    runRefresh();
+    
+    const interval = setInterval(runRefresh, 15_000);
     return () => clearInterval(interval);
   }, [refresh]);
 
   useEffect(() => {
-    fetchPools(1);
+    const runFetchPools = async () => {
+      await fetchPools(1);
+    };
+    
+    runFetchPools();
   }, [filterType, filterCurve, filterActive, collectionSearch, fetchPools]);
 
   useEffect(() => {
-    if (collectionSearch.length === 56) fetchAnalytics(collectionSearch);
-    else setAnalytics(null);
+    const runFetchAnalytics = async () => {
+      if (collectionSearch.length === 56) await fetchAnalytics(collectionSearch);
+      else setAnalytics(null);
+    };
+    
+    runFetchAnalytics();
   }, [collectionSearch, fetchAnalytics]);
 
   const handleCreatePool = async (data: Parameters<typeof apiFetch>[1] extends undefined ? never : {

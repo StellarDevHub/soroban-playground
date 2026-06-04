@@ -66,7 +66,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const address = requireAddress(req.body?.address, 'address');
     const name = requireString(req.body?.name, 'name', { max: 64 });
-    const bio = req.body?.bio == null ? '' : requireString(req.body.bio, 'bio', { max: 512 });
+    const bio =
+      req.body?.bio == null
+        ? ''
+        : requireString(req.body.bio, 'bio', { max: 512 });
     const subscriptionPrice = req.body?.subscriptionPrice ?? 0;
     const periodSeconds = req.body?.periodSeconds;
     const profile = contentPublishingService.registerAuthor({
@@ -85,10 +88,14 @@ router.patch(
   asyncHandler(async (req, res) => {
     const address = requireAddress(req.params.address, 'address');
     const updates = {};
-    if (req.body?.name !== undefined) updates.name = requireString(req.body.name, 'name', { max: 64 });
-    if (req.body?.bio !== undefined) updates.bio = requireString(req.body.bio, 'bio', { max: 512 });
-    if (req.body?.subscriptionPrice !== undefined) updates.subscriptionPrice = req.body.subscriptionPrice;
-    if (req.body?.periodSeconds !== undefined) updates.periodSeconds = req.body.periodSeconds;
+    if (req.body?.name !== undefined)
+      updates.name = requireString(req.body.name, 'name', { max: 64 });
+    if (req.body?.bio !== undefined)
+      updates.bio = requireString(req.body.bio, 'bio', { max: 512 });
+    if (req.body?.subscriptionPrice !== undefined)
+      updates.subscriptionPrice = req.body.subscriptionPrice;
+    if (req.body?.periodSeconds !== undefined)
+      updates.periodSeconds = req.body.periodSeconds;
     const profile = contentPublishingService.updateAuthor(address, updates);
     res.json({ success: true, data: profile });
   })
@@ -109,7 +116,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const address = requireAddress(req.params.address, 'address');
     const { limit, offset } = paginate(req.query);
-    const articles = contentPublishingService.getArticlesByAuthor(address, { limit, offset });
+    const articles = contentPublishingService.getArticlesByAuthor(address, {
+      limit,
+      offset,
+    });
     res.json({ success: true, data: articles, pagination: { limit, offset } });
   })
 );
@@ -119,8 +129,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const address = requireAddress(req.params.address, 'address');
     const { limit, offset } = paginate(req.query);
-    const subscribers = contentPublishingService.getSubscribers(address, { limit, offset });
-    res.json({ success: true, data: subscribers, pagination: { limit, offset } });
+    const subscribers = contentPublishingService.getSubscribers(address, {
+      limit,
+      offset,
+    });
+    res.json({
+      success: true,
+      data: subscribers,
+      pagination: { limit, offset },
+    });
   })
 );
 
@@ -142,7 +159,12 @@ router.post(
     const title = requireString(req.body?.title, 'title', { max: 200 });
     const contentHash = requireHash(req.body?.contentHash, 'contentHash');
     const premium = Boolean(req.body?.premium);
-    const article = contentPublishingService.publish({ author, title, contentHash, premium });
+    const article = contentPublishingService.publish({
+      author,
+      title,
+      contentHash,
+      premium,
+    });
     res.status(201).json({ success: true, data: article });
   })
 );
@@ -173,7 +195,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const reader = requireAddress(req.body?.reader, 'reader');
-    const article = contentPublishingService.recordView({ articleId: id, reader });
+    const article = contentPublishingService.recordView({
+      articleId: id,
+      reader,
+    });
     res.json({ success: true, data: article });
   })
 );
@@ -210,7 +235,11 @@ router.post(
     const author = requireAddress(req.body?.author, 'author');
     const subscriber = requireAddress(req.body?.subscriber, 'subscriber');
     const periods = req.body?.periods ?? 1;
-    const sub = contentPublishingService.subscribe({ author, subscriber, periods });
+    const sub = contentPublishingService.subscribe({
+      author,
+      subscriber,
+      periods,
+    });
     res.status(201).json({ success: true, data: sub });
   })
 );
@@ -224,7 +253,13 @@ router.get(
     if (!sub) throw createHttpError(404, 'Subscription not found');
     res.json({
       success: true,
-      data: { ...sub, active: contentPublishingService.hasActiveSubscription(author, subscriber) },
+      data: {
+        ...sub,
+        active: contentPublishingService.hasActiveSubscription(
+          author,
+          subscriber
+        ),
+      },
     });
   })
 );
@@ -234,7 +269,10 @@ router.get(
 router.get(
   '/analytics/platform',
   asyncHandler(async (_req, res) => {
-    res.json({ success: true, data: contentPublishingService.getPlatformAnalytics() });
+    res.json({
+      success: true,
+      data: contentPublishingService.getPlatformAnalytics(),
+    });
   })
 );
 

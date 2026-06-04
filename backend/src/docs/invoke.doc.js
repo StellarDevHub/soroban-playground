@@ -2,10 +2,12 @@
  * @openapi
  * /api/invoke:
  *   post:
- *     summary: Invoke a function on a Soroban contract
- *     description: Executes a specific function on a deployed Soroban contract with given arguments (simulated for MVP).
+ *     summary: Invoke Contract Function
+ *     description: |
+ *       Executes a specific function on a deployed Soroban contract.
+ *       Supports both read-only (get) and state-changing (set) functions on Stellar Testnet.
  *     tags:
- *       - Invoke
+ *       - Smart Contracts
  *     requestBody:
  *       required: true
  *       content:
@@ -18,16 +20,23 @@
  *             properties:
  *               contractId:
  *                 type: string
- *                 description: ID of the deployed contract to invoke.
+ *                 description: The unique identifier of the deployed contract.
+ *                 example: "C..."
  *               functionName:
  *                 type: string
- *                 description: Name of the function to call.
+ *                 description: The name of the function to be invoked.
+ *                 example: "hello"
  *               args:
  *                 type: object
- *                 description: Arguments to pass to the function.
+ *                 description: JSON object representing the function arguments.
+ *                 example: { "name": "Stellar" }
+ *               network:
+ *                 type: string
+ *                 enum: [testnet, futurenet, local]
+ *                 default: testnet
  *     responses:
  *       200:
- *         description: Successfully invoked contract function
+ *         description: Invocation successful
  *         content:
  *           application/json:
  *             schema:
@@ -35,14 +44,21 @@
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
  *                 output:
+ *                   type: object
+ *                   description: The parsed output from the contract function.
+ *                 stdout:
  *                   type: string
+ *                   description: Raw CLI output.
  *                 message:
  *                   type: string
  *       400:
- *         description: Bad request (missing contractId or functionName)
- *       500:
- *         description: Invocation failed
+ *         description: Validation failed (invalid contract ID or function name)
+ *       502:
+ *         description: Contract invocation failed (CLI error)
+ *       504:
+ *         description: Invocation timed out
  */
 const invokeDocs = {};
 export default invokeDocs;

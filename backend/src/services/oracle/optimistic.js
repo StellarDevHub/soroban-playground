@@ -38,9 +38,12 @@ export class OptimisticStore {
       const { version, value } = this.read(key);
       const next = await mutator(value);
       const result = this.compareAndSet(key, version, next);
-      if (result.ok) return { value: next, version: result.version, attempts: attempt };
+      if (result.ok)
+        return { value: next, version: result.version, attempts: attempt };
     }
-    const err = new Error(`Optimistic CAS failed after ${maxAttempts} attempts on key ${key}`);
+    const err = new Error(
+      `Optimistic CAS failed after ${maxAttempts} attempts on key ${key}`
+    );
     err.code = 'CAS_EXHAUSTED';
     throw err;
   }

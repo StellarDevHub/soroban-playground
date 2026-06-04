@@ -26,7 +26,10 @@ describe('POST /api/notary/notarize', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('returns 201 with recordId on success', async () => {
-    notarizeFile.mockResolvedValue({ recordId: 1234567890, timestamp: 1234567890 });
+    notarizeFile.mockResolvedValue({
+      recordId: 1234567890,
+      timestamp: 1234567890,
+    });
 
     const res = await request(app)
       .post('/api/notary/notarize')
@@ -35,7 +38,11 @@ describe('POST /api/notary/notarize', () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.recordId).toBe(1234567890);
-    expect(notarizeFile).toHaveBeenCalledWith(VALID_HASH, 'my document', 'anonymous');
+    expect(notarizeFile).toHaveBeenCalledWith(
+      VALID_HASH,
+      'my document',
+      'anonymous'
+    );
   });
 
   it('returns 400 when fileHash is missing', async () => {
@@ -53,7 +60,9 @@ describe('POST /api/notary/notarize', () => {
       .send({ fileHash: 'not-a-hash', metadata: 'doc' });
 
     expect(res.status).toBe(400);
-    expect(res.body.details).toContain('fileHash must be a 64-character hex string');
+    expect(res.body.details).toContain(
+      'fileHash must be a 64-character hex string'
+    );
   });
 
   it('returns 400 when metadata is missing', async () => {
@@ -62,7 +71,9 @@ describe('POST /api/notary/notarize', () => {
       .send({ fileHash: VALID_HASH });
 
     expect(res.status).toBe(400);
-    expect(res.body.details).toContain('metadata is required and must be a string');
+    expect(res.body.details).toContain(
+      'metadata is required and must be a string'
+    );
   });
 
   it('returns 400 when metadata exceeds 500 chars', async () => {
@@ -71,7 +82,9 @@ describe('POST /api/notary/notarize', () => {
       .send({ fileHash: VALID_HASH, metadata: 'x'.repeat(501) });
 
     expect(res.status).toBe(400);
-    expect(res.body.details).toContain('metadata must not exceed 500 characters');
+    expect(res.body.details).toContain(
+      'metadata must not exceed 500 characters'
+    );
   });
 
   it('propagates service errors', async () => {
@@ -163,7 +176,16 @@ describe('GET /api/notary/history', () => {
 
   it('returns paginated list', async () => {
     listNotarizations.mockResolvedValue({
-      records: [{ fileHash: VALID_HASH, owner: 'G1', timestamp: 1, metadata: 'm', verified: true, recordId: 1 }],
+      records: [
+        {
+          fileHash: VALID_HASH,
+          owner: 'G1',
+          timestamp: 1,
+          metadata: 'm',
+          verified: true,
+          recordId: 1,
+        },
+      ],
       total: 1,
       page: 1,
       limit: 20,
@@ -177,7 +199,12 @@ describe('GET /api/notary/history', () => {
   });
 
   it('passes page and limit query params', async () => {
-    listNotarizations.mockResolvedValue({ records: [], total: 0, page: 2, limit: 5 });
+    listNotarizations.mockResolvedValue({
+      records: [],
+      total: 0,
+      page: 2,
+      limit: 5,
+    });
 
     await request(app).get('/api/notary/history?page=2&limit=5');
 

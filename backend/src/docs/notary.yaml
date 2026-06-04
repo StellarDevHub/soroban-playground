@@ -31,7 +31,7 @@ paths:
                   type: string
                   maxLength: 500
                   description: Arbitrary metadata describing the file.
-                  example: "Contract v1.0 - signed 2026-04-29"
+                  example: 'Contract v1.0 - signed 2026-04-29'
                 callerAddress:
                   type: string
                   description: Stellar address of the notarizing party.

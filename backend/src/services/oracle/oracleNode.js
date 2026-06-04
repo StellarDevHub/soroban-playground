@@ -35,7 +35,8 @@ export class OracleNode {
   }) {
     if (!id) throw new Error('OracleNode requires an id');
     if (!backend) throw new Error('OracleNode requires a lock backend');
-    if (!consensusCoordinator) throw new Error('OracleNode requires a ConsensusCoordinator');
+    if (!consensusCoordinator)
+      throw new Error('OracleNode requires a ConsensusCoordinator');
     this.id = id;
     this.lockManager = new LockManager({
       backend,
@@ -71,10 +72,16 @@ export class OracleNode {
         reason: 'validation_failed',
         error: err.message,
       });
-      return { phase: 'rejected', reason: 'validation_failed', error: err.message };
+      return {
+        phase: 'rejected',
+        reason: 'validation_failed',
+        error: err.message,
+      };
     }
 
-    const signature = this.voteSigner ? this.voteSigner.sign({ proofId, nodeId: this.id, vote }) : null;
+    const signature = this.voteSigner
+      ? this.voteSigner.sign({ proofId, nodeId: this.id, vote })
+      : null;
 
     let result;
     try {
@@ -93,7 +100,11 @@ export class OracleNode {
         reason: err.code || 'register_failed',
         error: err.message,
       });
-      return { phase: 'rejected', reason: err.code || 'register_failed', error: err.message };
+      return {
+        phase: 'rejected',
+        reason: err.code || 'register_failed',
+        error: err.message,
+      };
     }
 
     this.processed += 1;
@@ -132,7 +143,12 @@ export class OracleNode {
     });
     try {
       const submission = this.submitter
-        ? await this.submitter({ proofId, vote: result.vote, payload, nodeId: this.id })
+        ? await this.submitter({
+            proofId,
+            vote: result.vote,
+            payload,
+            nodeId: this.id,
+          })
         : { simulated: true };
       this.eventBus?.publish('proof.submitted', {
         proofId,

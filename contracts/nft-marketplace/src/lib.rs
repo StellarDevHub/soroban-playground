@@ -1,4 +1,8 @@
 #![no_std]
+
+#[cfg(test)]
+mod test;
+
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, token};
 
 #[contracttype]
@@ -150,7 +154,7 @@ impl NftMarketplace {
 
         let nft_client = token::Client::new(&env, &listing.nft_contract);
 
-        if let Some(winner) = listing.highest_bidder {
+        if let Some(winner) = &listing.highest_bidder {
             let token_client = token::Client::new(&env, &payment_token);
             let fee_recipient: Address = env.storage().instance().get(&DataKey::FeeRecipient).unwrap();
             let marketplace_fee = listing.highest_bid * 25 / 1000;
@@ -163,7 +167,7 @@ impl NftMarketplace {
             }
             token_client.transfer(&env.current_contract_address(), &listing.seller, &seller_revenue);
 
-            nft_client.transfer(&env.current_contract_address(), &winner, &1);
+            nft_client.transfer(&env.current_contract_address(), winner, &1);
         } else {
             // No bids, return to seller
             nft_client.transfer(&env.current_contract_address(), &listing.seller, &1);

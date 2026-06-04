@@ -26,9 +26,21 @@ const createTempEnvironment = async () => {
   return { root, migrationsDir, dbPath };
 };
 
-const writeMigrationPair = async (migrationsDir, version, name, upSql, downSql) => {
-  const upFile = path.join(migrationsDir, `V${String(version).padStart(3, '0')}__${name}.up.sql`);
-  const downFile = path.join(migrationsDir, `V${String(version).padStart(3, '0')}__${name}.down.sql`);
+const writeMigrationPair = async (
+  migrationsDir,
+  version,
+  name,
+  upSql,
+  downSql
+) => {
+  const upFile = path.join(
+    migrationsDir,
+    `V${String(version).padStart(3, '0')}__${name}.up.sql`
+  );
+  const downFile = path.join(
+    migrationsDir,
+    `V${String(version).padStart(3, '0')}__${name}.down.sql`
+  );
   await fs.writeFile(upFile, upSql, 'utf8');
   await fs.writeFile(downFile, downSql, 'utf8');
 };
@@ -75,13 +87,21 @@ describe('Migration Service', () => {
     expect(applyResults[0].status).toBe('applied');
 
     const db = await getDatabase();
-    const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users';").get();
+    const row = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users';"
+      )
+      .get();
     expect(row).toBeTruthy();
 
     const rollbackResult = await rollbackMigration(1, { dryRun: false });
     expect(rollbackResult.status).toBe('rolled_back');
 
-    const afterRow = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users';").get();
+    const afterRow = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users';"
+      )
+      .get();
     expect(afterRow).toBeUndefined();
   });
 
@@ -99,7 +119,11 @@ describe('Migration Service', () => {
     expect(result.status).toBe('dry_run_success');
 
     const db = await getDatabase();
-    const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users';").get();
+    const row = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users';"
+      )
+      .get();
     expect(row).toBeUndefined();
 
     const applied = await getAppliedMigrations();
@@ -125,6 +149,8 @@ describe('Migration Service', () => {
       'utf8'
     );
 
-    await expect(applyMigration(1, { dryRun: false })).rejects.toThrow(/Checksum mismatch/);
+    await expect(applyMigration(1, { dryRun: false })).rejects.toThrow(
+      /Checksum mismatch/
+    );
   });
 });

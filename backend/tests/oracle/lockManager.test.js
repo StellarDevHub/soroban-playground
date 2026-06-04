@@ -15,7 +15,10 @@ describe('LockManager', () => {
   });
 
   it('acquires and releases a lock', async () => {
-    const handle = await manager.acquire({ scope: LockScope.PROJECT, id: 'p1' });
+    const handle = await manager.acquire({
+      scope: LockScope.PROJECT,
+      id: 'p1',
+    });
     expect(handle.key).toBe('oracle:lock:project:p1');
     expect(handle.owner.startsWith('test-node:')).toBe(true);
     const released = await handle.release();
@@ -50,7 +53,10 @@ describe('LockManager', () => {
   });
 
   it('rejects release when owner token does not match', async () => {
-    const handle = await manager.acquire({ scope: LockScope.PROJECT, id: 'p1' });
+    const handle = await manager.acquire({
+      scope: LockScope.PROJECT,
+      id: 'p1',
+    });
     // Tamper: ask backend to release with a wrong owner.
     const ok = await backend.release(handle.key, 'not-the-owner');
     expect(ok).toBe(false);
@@ -93,7 +99,10 @@ describe('LockManager', () => {
   });
 
   it('recoverStaleHolds forgets locks that no longer exist', async () => {
-    const handle = await manager.acquire({ scope: LockScope.PROJECT, id: 'p1' });
+    const handle = await manager.acquire({
+      scope: LockScope.PROJECT,
+      id: 'p1',
+    });
     backend._clear();
     const recovered = await manager.recoverStaleHolds();
     expect(recovered).toHaveLength(1);

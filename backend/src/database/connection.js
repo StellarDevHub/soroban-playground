@@ -8,26 +8,64 @@ const __dirname = path.dirname(__filename);
 
 let db = null;
 
-export async function initializeDatabase() {
+function stripSeedData(schema) {
+  return schema.replace(
+    /-- Sample data for testing[\s\S]*?;\n\n-- DAO Treasury Tables/,
+    '-- Sample data for testing skipped\n\n-- DAO Treasury Tables'
+  );
+}
+
+function enhanceDatabaseError(error, context) {
+  const detail = context ? ` (${context})` : '';
+  const enhanced = new Error(
+    `Database initialization error${detail}: ${error.message}`
+  );
+  enhanced.cause = error;
+  enhanced.code = error.code;
+  return enhanced;
+}
+
+export async function initializeDatabase(options = {}) {
   if (db) return db;
+
+  const {
+    filename = path.join(__dirname, 'database.sqlite'),
+    schemaPath = path.join(__dirname, 'schema.sql'),
+    seedSampleData = process.env.SEED_SAMPLE_DATA !== 'false',
+  } = options;
 
   try {
     db = await open({
-      filename: path.join(__dirname, 'database.sqlite'),
+      filename,
       driver: sqlite3.Database,
     });
 
     // Read and execute schema
-    const schemaPath = path.join(__dirname, 'schema.sql');
     const fs = await import('fs/promises');
-    const schema = await fs.readFile(schemaPath, 'utf-8');
+    const rawSchema = await fs.readFile(schemaPath, 'utf-8').catch((error) => {
+      throw enhanceDatabaseError(
+        error,
+        `failed to read schema at ${schemaPath}`
+      );
+    });
 
-    await db.exec(schema);
+    const schema = seedSampleData ? rawSchema : stripSeedData(rawSchema);
+
+    await db.exec(schema).catch((error) => {
+      throw enhanceDatabaseError(
+        error,
+        `failed to apply schema at ${schemaPath}`
+      );
+    });
     console.log('Database initialized successfully');
 
     return db;
   } catch (error) {
-    console.error('Database initialization error:', error);
+    if (db) {
+      await db.close().catch(() => {});
+      db = null;
+    }
+    console.error(error.message);
     throw error;
   }
 }

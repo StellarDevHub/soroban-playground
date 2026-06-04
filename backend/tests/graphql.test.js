@@ -14,7 +14,8 @@ jest.unstable_mockModule('../src/services/deployService.js', () => ({
 
 // Now import the things we want to test
 const { setupGraphQL } = await import('../src/graphql/index.js');
-const { getCompileStats, getCompileSnapshot } = await import('../src/services/compileService.js');
+const { getCompileStats, getCompileSnapshot } =
+  await import('../src/services/compileService.js');
 const { getDeploymentState } = await import('../src/services/deployService.js');
 
 describe('GraphQL API Layer', () => {
@@ -50,9 +51,7 @@ describe('GraphQL API Layer', () => {
       }
     `;
 
-    const res = await request(app)
-      .post('/graphql')
-      .send({ query });
+    const res = await request(app).post('/graphql').send({ query });
 
     expect(res.status).toBe(200);
     expect(res.body.data.compileStats).toEqual({
@@ -68,7 +67,7 @@ describe('GraphQL API Layer', () => {
       { hash: 'hash1', sizeBytes: 100, path: '/path/1' },
       { hash: 'hash2', sizeBytes: 200, path: '/path/2' },
     ];
-    
+
     getCompileSnapshot.mockResolvedValue({
       history: [
         { requestId: 'req1', hash: 'hash1', timestamp: '2026-01-01' },
@@ -91,10 +90,8 @@ describe('GraphQL API Layer', () => {
       }
     `;
 
-    const res = await request(app)
-      .post('/graphql')
-      .send({ query });
-    
+    const res = await request(app).post('/graphql').send({ query });
+
     expect(res.status).toBe(200);
     expect(res.body.data).toBeDefined();
     const history = res.body.data.compileHistory;
@@ -102,7 +99,7 @@ describe('GraphQL API Layer', () => {
     expect(history[0].artifact.hash).toBe('hash1');
     expect(history[1].artifact.hash).toBe('hash2');
     expect(history[2].artifact.hash).toBe('hash1');
-    
+
     // Verify getCompileSnapshot was called
     expect(getCompileSnapshot).toHaveBeenCalled();
   });
@@ -110,17 +107,15 @@ describe('GraphQL API Layer', () => {
   it('queries deployments and links to artifacts by path', async () => {
     getDeploymentState.mockReturnValue({
       history: [
-        { 
-          deploymentId: 'dep1', 
-          contracts: [{ id: 'c1', wasmPath: '/path/1' }] 
-        }
-      ]
+        {
+          deploymentId: 'dep1',
+          contracts: [{ id: 'c1', wasmPath: '/path/1' }],
+        },
+      ],
     });
 
     getCompileSnapshot.mockResolvedValue({
-      artifacts: [
-        { hash: 'hash1', sizeBytes: 100, path: '/path/1' }
-      ]
+      artifacts: [{ hash: 'hash1', sizeBytes: 100, path: '/path/1' }],
     });
 
     const query = `
@@ -137,11 +132,11 @@ describe('GraphQL API Layer', () => {
       }
     `;
 
-    const res = await request(app)
-      .post('/graphql')
-      .send({ query });
+    const res = await request(app).post('/graphql').send({ query });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.deployments[0].contracts[0].artifact.hash).toBe('hash1');
+    expect(res.body.data.deployments[0].contracts[0].artifact.hash).toBe(
+      'hash1'
+    );
   });
 });

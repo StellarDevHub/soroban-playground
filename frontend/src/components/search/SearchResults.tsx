@@ -163,7 +163,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div className="text-sm text-blue-800">
-              Found {results.length} results for "{meta.query}" 
+              Found {results.length} results for &quot;{meta.query}&quot;
               {meta.searchType === 'fuzzy' && ' (including fuzzy matches)'}
             </div>
             <div className="text-xs text-blue-600">

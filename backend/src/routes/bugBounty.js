@@ -40,9 +40,9 @@ const router = express.Router();
 const SEVERITY_ORDER = ['Low', 'Medium', 'High', 'Critical'];
 
 const DEFAULT_REWARD_TIERS = {
-  Low: 10_000_000,       // 1 XLM (in stroops)
-  Medium: 50_000_000,    // 5 XLM
-  High: 200_000_000,     // 20 XLM
+  Low: 10_000_000, // 1 XLM (in stroops)
+  Medium: 50_000_000, // 5 XLM
+  High: 200_000_000, // 20 XLM
   Critical: 1_000_000_000, // 100 XLM
 };
 
@@ -62,7 +62,14 @@ function validateSeverity(severity) {
 }
 
 function validateStatus(status) {
-  return ['Pending', 'UnderReview', 'Accepted', 'Rejected', 'Paid', 'Withdrawn'].includes(status);
+  return [
+    'Pending',
+    'UnderReview',
+    'Accepted',
+    'Rejected',
+    'Paid',
+    'Withdrawn',
+  ].includes(status);
 }
 
 function validateAddress(addr) {
@@ -151,7 +158,10 @@ router.get(
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const total = reports.length;
-    const paginated = reports.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+    const paginated = reports.slice(
+      (pageNum - 1) * limitNum,
+      pageNum * limitNum
+    );
 
     res.json({
       success: true,
@@ -172,7 +182,9 @@ router.post(
   '/reports',
   asyncHandler(async (req, res, next) => {
     if (store.paused) {
-      return next(createHttpError(503, 'Bug bounty programme is currently paused'));
+      return next(
+        createHttpError(503, 'Bug bounty programme is currently paused')
+      );
     }
 
     const { reporter, title, descriptionHash, severity } = req.body || {};
@@ -183,20 +195,30 @@ router.post(
     }
     const cleanTitle = sanitizeString(title, 200);
     if (!cleanTitle) {
-      return next(createHttpError(400, 'title must be a non-empty string (max 200 chars)'));
+      return next(
+        createHttpError(400, 'title must be a non-empty string (max 200 chars)')
+      );
     }
     const cleanHash = sanitizeString(descriptionHash, 200);
     if (!cleanHash) {
-      return next(createHttpError(400, 'descriptionHash must be a non-empty string'));
+      return next(
+        createHttpError(400, 'descriptionHash must be a non-empty string')
+      );
     }
     if (!validateSeverity(severity)) {
       return next(
-        createHttpError(400, `severity must be one of: ${SEVERITY_ORDER.join(', ')}`)
+        createHttpError(
+          400,
+          `severity must be one of: ${SEVERITY_ORDER.join(', ')}`
+        )
       );
     }
     if (store.openReporters.has(reporter)) {
       return next(
-        createHttpError(409, 'Reporter already has an open report. Close it before submitting another.')
+        createHttpError(
+          409,
+          'Reporter already has an open report. Close it before submitting another.'
+        )
       );
     }
 
@@ -259,7 +281,12 @@ router.patch(
     const report = store.reports.get(id);
     if (!report) return next(createHttpError(404, `Report #${id} not found`));
     if (report.status !== 'Pending') {
-      return next(createHttpError(409, `Report is not Pending (current: ${report.status})`));
+      return next(
+        createHttpError(
+          409,
+          `Report is not Pending (current: ${report.status})`
+        )
+      );
     }
     if (store.paused) {
       return next(createHttpError(503, 'Contract is paused'));
@@ -268,7 +295,11 @@ router.patch(
     report.status = 'UnderReview';
     report.updatedAt = Date.now();
 
-    res.json({ success: true, message: 'Report moved to UnderReview', data: report });
+    res.json({
+      success: true,
+      message: 'Report moved to UnderReview',
+      data: report,
+    });
   })
 );
 
@@ -287,7 +318,12 @@ router.patch(
     const report = store.reports.get(id);
     if (!report) return next(createHttpError(404, `Report #${id} not found`));
     if (report.status !== 'Pending' && report.status !== 'UnderReview') {
-      return next(createHttpError(409, `Cannot accept report with status: ${report.status}`));
+      return next(
+        createHttpError(
+          409,
+          `Cannot accept report with status: ${report.status}`
+        )
+      );
     }
     if (store.paused) {
       return next(createHttpError(503, 'Contract is paused'));
@@ -299,11 +335,16 @@ router.patch(
         : store.rewardTiers[report.severity];
 
     if (!Number.isInteger(rewardAmount) || rewardAmount <= 0) {
-      return next(createHttpError(400, 'reward must be a positive integer (stroops)'));
+      return next(
+        createHttpError(400, 'reward must be a positive integer (stroops)')
+      );
     }
     if (store.poolBalance < rewardAmount) {
       return next(
-        createHttpError(402, `Insufficient pool balance. Pool: ${store.poolBalance}, Required: ${rewardAmount}`)
+        createHttpError(
+          402,
+          `Insufficient pool balance. Pool: ${store.poolBalance}, Required: ${rewardAmount}`
+        )
       );
     }
 
@@ -332,7 +373,12 @@ router.patch(
     const report = store.reports.get(id);
     if (!report) return next(createHttpError(404, `Report #${id} not found`));
     if (report.status !== 'Pending' && report.status !== 'UnderReview') {
-      return next(createHttpError(409, `Cannot reject report with status: ${report.status}`));
+      return next(
+        createHttpError(
+          409,
+          `Cannot reject report with status: ${report.status}`
+        )
+      );
     }
 
     report.status = 'Rejected';
@@ -358,10 +404,20 @@ router.patch(
     const report = store.reports.get(id);
     if (!report) return next(createHttpError(404, `Report #${id} not found`));
     if (report.reporter !== reporter) {
-      return next(createHttpError(403, 'Only the original reporter can withdraw this report'));
+      return next(
+        createHttpError(
+          403,
+          'Only the original reporter can withdraw this report'
+        )
+      );
     }
     if (report.status !== 'Pending') {
-      return next(createHttpError(409, `Can only withdraw Pending reports (current: ${report.status})`));
+      return next(
+        createHttpError(
+          409,
+          `Can only withdraw Pending reports (current: ${report.status})`
+        )
+      );
     }
 
     report.status = 'Withdrawn';
@@ -390,10 +446,17 @@ router.post(
     const report = store.reports.get(id);
     if (!report) return next(createHttpError(404, `Report #${id} not found`));
     if (report.reporter !== reporter) {
-      return next(createHttpError(403, 'Only the original reporter can claim this reward'));
+      return next(
+        createHttpError(403, 'Only the original reporter can claim this reward')
+      );
     }
     if (report.status !== 'Accepted') {
-      return next(createHttpError(409, `Report must be Accepted to claim (current: ${report.status})`));
+      return next(
+        createHttpError(
+          409,
+          `Report must be Accepted to claim (current: ${report.status})`
+        )
+      );
     }
     if (report.rewardAmount <= 0) {
       return next(createHttpError(409, 'No reward to claim'));
@@ -454,7 +517,9 @@ router.post(
     }
     const amountInt = parseInt(amount, 10);
     if (!Number.isInteger(amountInt) || amountInt <= 0) {
-      return next(createHttpError(400, 'amount must be a positive integer (stroops)'));
+      return next(
+        createHttpError(400, 'amount must be a positive integer (stroops)')
+      );
     }
 
     store.poolBalance += amountInt;
@@ -482,7 +547,10 @@ router.get(
       data: {
         tiers: store.rewardTiers,
         tiersXlm: Object.fromEntries(
-          Object.entries(store.rewardTiers).map(([k, v]) => [k, (v / 10_000_000).toFixed(7)])
+          Object.entries(store.rewardTiers).map(([k, v]) => [
+            k,
+            (v / 10_000_000).toFixed(7),
+          ])
         ),
       },
     });
@@ -510,7 +578,12 @@ router.put(
       }
       const amountInt = parseInt(amount, 10);
       if (!Number.isInteger(amountInt) || amountInt <= 0) {
-        return next(createHttpError(400, `Invalid amount for ${severity}: must be positive integer`));
+        return next(
+          createHttpError(
+            400,
+            `Invalid amount for ${severity}: must be positive integer`
+          )
+        );
       }
       updated[severity] = amountInt;
     }

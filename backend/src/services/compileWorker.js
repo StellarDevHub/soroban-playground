@@ -9,7 +9,9 @@ parentPort.on('message', async (job) => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'soroban-compile-'));
   const sourceRoot = path.join(tempDir, 'src');
   await fs.mkdir(sourceRoot, { recursive: true });
-  await fs.mkdir(path.join(process.cwd(), 'cache', 'cargo-target'), { recursive: true });
+  await fs.mkdir(path.join(process.cwd(), 'cache', 'cargo-target'), {
+    recursive: true,
+  });
 
   try {
     await fs.writeFile(path.join(tempDir, 'Cargo.toml'), job.cargoToml, 'utf8');

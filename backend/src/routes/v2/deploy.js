@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 import express from 'express';
-import { asyncHandler, createHttpError } from '../../middleware/errorHandler.js';
+import {
+  asyncHandler,
+  createHttpError,
+} from '../../middleware/errorHandler.js';
 import { deployBatchContracts } from '../../services/deployService.js';
 
 const router = express.Router();
@@ -71,7 +74,11 @@ router.post(
   asyncHandler(async (req, res, next) => {
     const { contracts, batch_id } = req.body || {};
     if (!Array.isArray(contracts) || contracts.length === 0) {
-      return next(createHttpError(400, 'Validation failed', ['contracts must be a non-empty array']));
+      return next(
+        createHttpError(400, 'Validation failed', [
+          'contracts must be a non-empty array',
+        ])
+      );
     }
 
     const controller = new AbortController();
@@ -82,9 +89,9 @@ router.post(
         {
           requestId: `batch-${Date.now()}`,
           batchId: batch_id,
-          contracts: contracts.map(c => ({
+          contracts: contracts.map((c) => ({
             wasmPath: c.wasm_path,
-            contractName: c.contract_name
+            contractName: c.contract_name,
           })),
         },
         { signal: controller.signal }
@@ -94,11 +101,11 @@ router.post(
       return res.json({
         success: true,
         batch_id: result.batchId,
-        deployments: result.deployments.map(d => ({
+        deployments: result.deployments.map((d) => ({
           contract_id: d.contractId,
           contract_name: d.contractName,
-          status: d.status
-        }))
+          status: d.status,
+        })),
       });
     } catch (error) {
       return next(

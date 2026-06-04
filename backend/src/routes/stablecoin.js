@@ -10,12 +10,12 @@ router.get('/metrics', async (req, res) => {
     const metrics = await stablecoinService.getMetrics();
     res.json({
       success: true,
-      data: metrics
+      data: metrics,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -27,12 +27,12 @@ router.get('/price-history', async (req, res) => {
     const history = await stablecoinService.getPriceHistory(parseInt(days));
     res.json({
       success: true,
-      data: history
+      data: history,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -44,12 +44,12 @@ router.get('/rebase-history', async (req, res) => {
     const history = await stablecoinService.getRebaseHistory(parseInt(limit));
     res.json({
       success: true,
-      data: history
+      data: history,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -60,12 +60,12 @@ router.get('/reserve', async (req, res) => {
     const reserve = await stablecoinService.getReserveInfo();
     res.json({
       success: true,
-      data: reserve
+      data: reserve,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -76,12 +76,12 @@ router.get('/status', async (req, res) => {
     const status = await stablecoinService.getContractStatus();
     res.json({
       success: true,
-      data: status
+      data: status,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -93,12 +93,12 @@ router.post('/price', rateLimitMiddleware('oracle'), async (req, res) => {
     const result = await stablecoinService.updatePrice(price, signature);
     res.json({
       success: true,
-      data: result
+      data: result,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -110,12 +110,12 @@ router.post('/rebase', rateLimitMiddleware('invoke'), async (req, res) => {
     const result = await stablecoinService.triggerRebase(adminKey);
     res.json({
       success: true,
-      data: result
+      data: result,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -127,12 +127,12 @@ router.get('/balance/:address', async (req, res) => {
     const balance = await stablecoinService.getBalance(address);
     res.json({
       success: true,
-      data: { address, balance }
+      data: { address, balance },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -142,15 +142,18 @@ router.get('/transactions/:address', async (req, res) => {
   try {
     const { address } = req.params;
     const { limit = 20 } = req.query;
-    const transactions = await stablecoinService.getTransactions(address, parseInt(limit));
+    const transactions = await stablecoinService.getTransactions(
+      address,
+      parseInt(limit)
+    );
     res.json({
       success: true,
-      data: transactions
+      data: transactions,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -162,12 +165,12 @@ router.post('/pause', rateLimitMiddleware('admin'), async (req, res) => {
     const result = await stablecoinService.pause(adminKey);
     res.json({
       success: true,
-      data: result
+      data: result,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -179,12 +182,12 @@ router.post('/unpause', rateLimitMiddleware('admin'), async (req, res) => {
     const result = await stablecoinService.unpause(adminKey);
     res.json({
       success: true,
-      data: result
+      data: result,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -196,31 +199,35 @@ router.post('/reserve/add', rateLimitMiddleware('admin'), async (req, res) => {
     const result = await stablecoinService.addReserve(adminKey, amount);
     res.json({
       success: true,
-      data: result
+      data: result,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
 
 // Withdraw reserve
-router.post('/reserve/withdraw', rateLimitMiddleware('admin'), async (req, res) => {
-  try {
-    const { adminKey, amount } = req.body;
-    const result = await stablecoinService.withdrawReserve(adminKey, amount);
-    res.json({
-      success: true,
-      data: result
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+router.post(
+  '/reserve/withdraw',
+  rateLimitMiddleware('admin'),
+  async (req, res) => {
+    try {
+      const { adminKey, amount } = req.body;
+      const result = await stablecoinService.withdrawReserve(adminKey, amount);
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
   }
-});
+);
 
 export default router;

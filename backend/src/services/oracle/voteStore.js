@@ -56,7 +56,11 @@ export class MemoryVoteStore {
       };
       this.store.set(proofId, entry);
     }
-    entry.votes.set(nodeId, { vote, signature: signature || null, ts: this.now() });
+    entry.votes.set(nodeId, {
+      vote,
+      signature: signature || null,
+      ts: this.now(),
+    });
     return true;
   }
 
@@ -148,7 +152,13 @@ export class RedisVoteStore {
     const out = [];
     let cursor = '0';
     do {
-      const [next, batch] = await this.client.scan(cursor, 'MATCH', `${KEY_PREFIX}:*`, 'COUNT', 200);
+      const [next, batch] = await this.client.scan(
+        cursor,
+        'MATCH',
+        `${KEY_PREFIX}:*`,
+        'COUNT',
+        200
+      );
       cursor = next;
       for (const k of batch) {
         out.push(k.slice(KEY_PREFIX.length + 1));

@@ -10,6 +10,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import './config/index.js';
+import { corsOptions } from './config/cors.js';
 import apiRouter from './routes/api.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
@@ -25,6 +27,7 @@ import migrationRoute from './routes/migration.js';
 import sportsPredictionMarketRoute from './routes/sportsPredictionMarket.js';
 import tokenizedReitRoute from './routes/tokenizedReit.js';
 import treasuryRoute from './routes/treasury.js';
+import storageRoute from './routes/storage.js';
 import { initializeDatabase } from './database/connection.js';
 import { setupGraphQL } from './graphql/index.js';
 
@@ -53,7 +56,7 @@ try {
 
 // Basic middleware
 app.use(morgan('combined'));
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
 
 // Latency tracking middleware
@@ -64,7 +67,11 @@ app.use((req, res, next) => {
     const time = diff[0] + diff[1] / 1e9;
     try {
       requestLatency.observe(
-        { method: req.method, route: req.route ? req.route.path : req.path, status: res.statusCode },
+        {
+          method: req.method,
+          route: req.route ? req.route.path : req.path,
+          status: res.statusCode,
+        },
         time
       );
     } catch {
@@ -75,7 +82,7 @@ app.use((req, res, next) => {
 });
 
 // Rate limiting
-app.use(rateLimitMiddleware('global'));
+// app.use(rateLimitMiddleware('global'));
 
 // Routes
 app.use('/api', apiRouter);
@@ -85,6 +92,7 @@ app.use('/api/migrations', migrationRoute);
 app.use('/api/sports-markets', sportsPredictionMarketRoute);
 app.use('/api/reit', tokenizedReitRoute);
 app.use('/api/treasury', treasuryRoute);
+app.use('/api/storage', storageRoute);
 app.use('/metrics', metricsRoute);
 
 // GraphQL Endpoint

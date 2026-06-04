@@ -1,11 +1,15 @@
 import express from 'express';
-import { asyncHandler, createHttpError } from '../../middleware/errorHandler.js';
+import {
+  asyncHandler,
+  createHttpError,
+} from '../../middleware/errorHandler.js';
 import { invokeSorobanContract } from '../../services/invokeService.js';
 
 const router = express.Router();
 
 function validateInvokeRequest(body) {
-  const { contract_id, function_name, args, network, source_account } = body || {};
+  const { contract_id, function_name, args, network, source_account } =
+    body || {};
   const errors = [];
 
   if (!contract_id) {
@@ -45,7 +49,8 @@ router.post(
       return next(createHttpError(400, 'Validation failed', errors));
     }
 
-    const { contract_id, function_name, args, network, source_account } = req.body;
+    const { contract_id, function_name, args, network, source_account } =
+      req.body;
 
     const requestId = `invoke-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const controller = new AbortController();

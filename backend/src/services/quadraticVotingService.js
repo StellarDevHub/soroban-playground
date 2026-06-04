@@ -9,7 +9,12 @@ const CACHE_TTL = 60; // 1 minute
 /**
  * Initialize the quadratic voting contract
  */
-export async function initialize(contractId, admin, votingPeriod = null, maxCredits = null) {
+export async function initialize(
+  contractId,
+  admin,
+  votingPeriod = null,
+  maxCredits = null
+) {
   const args = { admin };
   if (votingPeriod !== null) args.voting_period = votingPeriod;
   if (maxCredits !== null) args.max_credits = maxCredits;
@@ -25,7 +30,13 @@ export async function initialize(contractId, admin, votingPeriod = null, maxCred
 /**
  * Create a new proposal
  */
-export async function createProposal(contractId, admin, title, description, duration = null) {
+export async function createProposal(
+  contractId,
+  admin,
+  title,
+  description,
+  duration = null
+) {
   const args = { admin, title, description };
   if (duration !== null) args.duration = duration;
 

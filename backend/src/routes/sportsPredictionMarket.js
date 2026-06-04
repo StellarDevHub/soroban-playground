@@ -40,7 +40,9 @@ function validateAddress(addr) {
 }
 
 function requireFields(body, fields) {
-  const missing = fields.filter((f) => body[f] === undefined || body[f] === null || body[f] === '');
+  const missing = fields.filter(
+    (f) => body[f] === undefined || body[f] === null || body[f] === ''
+  );
   return missing.length ? missing.map((f) => `${f} is required`) : null;
 }
 
@@ -81,7 +83,11 @@ router.post(
       return next(createHttpError(400, 'Invalid admin address'));
 
     const result = await invoke(contractId, 'initialize', { admin }, network);
-    return res.json({ success: true, message: 'Contract initialized', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Contract initialized',
+      output: result.parsed,
+    });
   })
 );
 
@@ -109,9 +115,17 @@ router.post(
     } = req.body || {};
 
     const errs = requireFields(req.body, [
-      'contractId', 'creator', 'description', 'sport',
-      'homeTeam', 'awayTeam', 'resolutionDeadline', 'oracle',
-      'oddsHomeBp', 'oddsDrawBp', 'oddsAwayBp',
+      'contractId',
+      'creator',
+      'description',
+      'sport',
+      'homeTeam',
+      'awayTeam',
+      'resolutionDeadline',
+      'oracle',
+      'oddsHomeBp',
+      'oddsDrawBp',
+      'oddsAwayBp',
     ]);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
     if (!validateContractId(contractId))
@@ -122,25 +136,42 @@ router.post(
       return next(createHttpError(400, 'Invalid oracle address'));
     if (typeof sport !== 'number' || sport < 0 || sport > 5)
       return next(createHttpError(400, 'sport must be 0-5'));
-    if (typeof resolutionDeadline !== 'number' || resolutionDeadline <= Date.now() / 1000)
-      return next(createHttpError(400, 'resolutionDeadline must be a future unix timestamp'));
-    for (const [name, val] of [['oddsHomeBp', oddsHomeBp], ['oddsDrawBp', oddsDrawBp], ['oddsAwayBp', oddsAwayBp]]) {
+    if (
+      typeof resolutionDeadline !== 'number' ||
+      resolutionDeadline <= Date.now() / 1000
+    )
+      return next(
+        createHttpError(
+          400,
+          'resolutionDeadline must be a future unix timestamp'
+        )
+      );
+    for (const [name, val] of [
+      ['oddsHomeBp', oddsHomeBp],
+      ['oddsDrawBp', oddsDrawBp],
+      ['oddsAwayBp', oddsAwayBp],
+    ]) {
       if (typeof val !== 'number' || val < 10100)
         return next(createHttpError(400, `${name} must be >= 10100 (1.01x)`));
     }
 
-    const result = await invoke(contractId, 'create_market', {
-      creator,
-      description,
-      sport,
-      home_team: homeTeam,
-      away_team: awayTeam,
-      resolution_deadline: resolutionDeadline,
-      oracle,
-      odds_home_bp: oddsHomeBp,
-      odds_draw_bp: oddsDrawBp,
-      odds_away_bp: oddsAwayBp,
-    }, network);
+    const result = await invoke(
+      contractId,
+      'create_market',
+      {
+        creator,
+        description,
+        sport,
+        home_team: homeTeam,
+        away_team: awayTeam,
+        resolution_deadline: resolutionDeadline,
+        oracle,
+        odds_home_bp: oddsHomeBp,
+        odds_draw_bp: oddsDrawBp,
+        odds_away_bp: oddsAwayBp,
+      },
+      network
+    );
 
     return res.status(201).json({
       success: true,
@@ -163,7 +194,12 @@ router.get(
       return next(createHttpError(400, 'Invalid market id'));
     const contractId = getContractId(req);
 
-    const result = await invoke(contractId, 'get_market', { market_id: marketId }, req.query.network);
+    const result = await invoke(
+      contractId,
+      'get_market',
+      { market_id: marketId },
+      req.query.network
+    );
     return res.json({ success: true, market: result.parsed });
   })
 );
@@ -176,7 +212,12 @@ router.get(
   '/',
   asyncHandler(async (req, res, next) => {
     const contractId = getContractId(req);
-    const result = await invoke(contractId, 'market_count', {}, req.query.network);
+    const result = await invoke(
+      contractId,
+      'market_count',
+      {},
+      req.query.network
+    );
     return res.json({ success: true, marketCount: result.parsed });
   })
 );
@@ -195,25 +236,41 @@ router.post(
       return next(createHttpError(400, 'Invalid market id'));
 
     const { contractId, bettor, outcome, stake, network } = req.body || {};
-    const errs = requireFields(req.body, ['contractId', 'bettor', 'outcome', 'stake']);
+    const errs = requireFields(req.body, [
+      'contractId',
+      'bettor',
+      'outcome',
+      'stake',
+    ]);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
     if (!validateContractId(contractId))
       return next(createHttpError(400, 'Invalid contractId'));
     if (!validateAddress(bettor))
       return next(createHttpError(400, 'Invalid bettor address'));
     if (![0, 1, 2].includes(outcome))
-      return next(createHttpError(400, 'outcome must be 0 (Home), 1 (Draw), or 2 (Away)'));
+      return next(
+        createHttpError(400, 'outcome must be 0 (Home), 1 (Draw), or 2 (Away)')
+      );
     if (typeof stake !== 'number' || stake <= 0)
       return next(createHttpError(400, 'stake must be a positive number'));
 
-    const result = await invoke(contractId, 'place_bet', {
-      bettor,
-      market_id: marketId,
-      outcome,
-      stake,
-    }, network);
+    const result = await invoke(
+      contractId,
+      'place_bet',
+      {
+        bettor,
+        market_id: marketId,
+        outcome,
+        stake,
+      },
+      network
+    );
 
-    return res.json({ success: true, message: 'Bet placed', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Bet placed',
+      output: result.parsed,
+    });
   })
 );
 
@@ -238,12 +295,21 @@ router.post(
     if (![0, 1, 2].includes(winningOutcome))
       return next(createHttpError(400, 'winningOutcome must be 0, 1, or 2'));
 
-    const result = await invoke(contractId, 'resolve_market', {
-      market_id: marketId,
-      winning_outcome: winningOutcome,
-    }, network);
+    const result = await invoke(
+      contractId,
+      'resolve_market',
+      {
+        market_id: marketId,
+        winning_outcome: winningOutcome,
+      },
+      network
+    );
 
-    return res.json({ success: true, message: 'Market resolved', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Market resolved',
+      output: result.parsed,
+    });
   })
 );
 
@@ -263,8 +329,17 @@ router.post(
     if (!validateContractId(contractId))
       return next(createHttpError(400, 'Invalid contractId'));
 
-    const result = await invoke(contractId, 'cancel_market', { market_id: marketId }, network);
-    return res.json({ success: true, message: 'Market cancelled', output: result.parsed });
+    const result = await invoke(
+      contractId,
+      'cancel_market',
+      { market_id: marketId },
+      network
+    );
+    return res.json({
+      success: true,
+      message: 'Market cancelled',
+      output: result.parsed,
+    });
   })
 );
 
@@ -280,24 +355,43 @@ router.post(
     if (isNaN(marketId) || marketId < 1)
       return next(createHttpError(400, 'Invalid market id'));
 
-    const { contractId, oddsHomeBp, oddsDrawBp, oddsAwayBp, network } = req.body || {};
-    const errs = requireFields(req.body, ['contractId', 'oddsHomeBp', 'oddsDrawBp', 'oddsAwayBp']);
+    const { contractId, oddsHomeBp, oddsDrawBp, oddsAwayBp, network } =
+      req.body || {};
+    const errs = requireFields(req.body, [
+      'contractId',
+      'oddsHomeBp',
+      'oddsDrawBp',
+      'oddsAwayBp',
+    ]);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
     if (!validateContractId(contractId))
       return next(createHttpError(400, 'Invalid contractId'));
-    for (const [name, val] of [['oddsHomeBp', oddsHomeBp], ['oddsDrawBp', oddsDrawBp], ['oddsAwayBp', oddsAwayBp]]) {
+    for (const [name, val] of [
+      ['oddsHomeBp', oddsHomeBp],
+      ['oddsDrawBp', oddsDrawBp],
+      ['oddsAwayBp', oddsAwayBp],
+    ]) {
       if (typeof val !== 'number' || val < 10100)
         return next(createHttpError(400, `${name} must be >= 10100`));
     }
 
-    const result = await invoke(contractId, 'update_odds', {
-      market_id: marketId,
-      odds_home_bp: oddsHomeBp,
-      odds_draw_bp: oddsDrawBp,
-      odds_away_bp: oddsAwayBp,
-    }, network);
+    const result = await invoke(
+      contractId,
+      'update_odds',
+      {
+        market_id: marketId,
+        odds_home_bp: oddsHomeBp,
+        odds_draw_bp: oddsDrawBp,
+        odds_away_bp: oddsAwayBp,
+      },
+      network
+    );
 
-    return res.json({ success: true, message: 'Odds updated', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Odds updated',
+      output: result.parsed,
+    });
   })
 );
 
@@ -315,10 +409,15 @@ router.get(
       return next(createHttpError(400, 'Invalid bettor address'));
 
     const contractId = getContractId(req);
-    const result = await invoke(contractId, 'calculate_payout', {
-      market_id: marketId,
-      bettor: req.params.bettor,
-    }, req.query.network);
+    const result = await invoke(
+      contractId,
+      'calculate_payout',
+      {
+        market_id: marketId,
+        bettor: req.params.bettor,
+      },
+      req.query.network
+    );
 
     return res.json({ success: true, payout: result.parsed });
   })
@@ -336,10 +435,17 @@ router.get(
       return next(createHttpError(400, 'Invalid market id'));
 
     const contractId = getContractId(req);
-    const result = await invoke(contractId, 'get_pool_analytics', { market_id: marketId }, req.query.network);
+    const result = await invoke(
+      contractId,
+      'get_pool_analytics',
+      { market_id: marketId },
+      req.query.network
+    );
 
     // result.parsed is (total, home_pct_bp, draw_pct_bp, away_pct_bp)
-    const [totalPool, homePctBp, drawPctBp, awayPctBp] = Array.isArray(result.parsed)
+    const [totalPool, homePctBp, drawPctBp, awayPctBp] = Array.isArray(
+      result.parsed
+    )
       ? result.parsed
       : [0, 0, 0, 0];
 
@@ -367,7 +473,11 @@ router.post(
     if (!validateContractId(contractId))
       return next(createHttpError(400, 'Invalid contractId'));
     const result = await invoke(contractId, 'pause', {}, network);
-    return res.json({ success: true, message: 'Contract paused', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Contract paused',
+      output: result.parsed,
+    });
   })
 );
 
@@ -383,7 +493,11 @@ router.post(
     if (!validateContractId(contractId))
       return next(createHttpError(400, 'Invalid contractId'));
     const result = await invoke(contractId, 'unpause', {}, network);
-    return res.json({ success: true, message: 'Contract unpaused', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Contract unpaused',
+      output: result.parsed,
+    });
   })
 );
 

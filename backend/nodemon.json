@@ -1,0 +1,12 @@
+{
+  "ignore": [
+    "*.db",
+    "*.db-journal",
+    "**/*.sqlite",
+    "**/*.sqlite-journal",
+    ".tmp_compile_*",
+    "data/",
+    "node_modules",
+    ".git"
+  ]
+}

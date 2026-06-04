@@ -17,15 +17,15 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 class DataMarketplaceService extends EventEmitter {
   constructor() {
     super();
-    this.providers = new Map();          // address -> profile
-    this.datasets = new Map();           // id -> dataset
-    this.providerDatasets = new Map();   // address -> Set<id>
-    this.licenses = new Map();           // `${id}|${buyer}` -> license
-    this.datasetBuyers = new Map();      // id -> Set<buyer>
-    this.datasetStats = new Map();       // id -> stats
-    this.buyerStats = new Map();         // buyer -> stats
-    this.queryReceipts = new Map();      // commitment(hex) -> receipt
-    this.activeIds = [];                 // ring of recently listed ids
+    this.providers = new Map(); // address -> profile
+    this.datasets = new Map(); // id -> dataset
+    this.providerDatasets = new Map(); // address -> Set<id>
+    this.licenses = new Map(); // `${id}|${buyer}` -> license
+    this.datasetBuyers = new Map(); // id -> Set<buyer>
+    this.datasetStats = new Map(); // id -> stats
+    this.buyerStats = new Map(); // buyer -> stats
+    this.queryReceipts = new Map(); // commitment(hex) -> receipt
+    this.activeIds = []; // ring of recently listed ids
     this.ACTIVE_CAP = 100;
     this.nextId = 1;
   }
@@ -33,7 +33,8 @@ class DataMarketplaceService extends EventEmitter {
   // ── Providers ────────────────────────────────────────────────────────────
 
   registerProvider({ address, name, contactHash }) {
-    if (this.providers.has(address)) throw httpError(409, 'Provider already registered');
+    if (this.providers.has(address))
+      throw httpError(409, 'Provider already registered');
     const profile = { address, name, contactHash, createdAt: nowSec() };
     this.providers.set(address, profile);
     this.providerDatasets.set(address, new Set());
@@ -61,7 +62,10 @@ class DataMarketplaceService extends EventEmitter {
     if (Number(flatPrice) < 0 || Number(pricePerQuery) < 0) {
       throw httpError(400, 'prices must be >= 0');
     }
-    if (!Number.isFinite(Number(licenseSeconds)) || Number(licenseSeconds) <= 0) {
+    if (
+      !Number.isFinite(Number(licenseSeconds)) ||
+      Number(licenseSeconds) <= 0
+    ) {
       throw httpError(400, 'licenseSeconds must be > 0');
     }
     const id = this.nextId++;
@@ -90,7 +94,8 @@ class DataMarketplaceService extends EventEmitter {
 
   updateDatasetPrice({ provider, id, flatPrice, pricePerQuery }) {
     const dataset = this.requireDataset(id);
-    if (dataset.provider !== provider) throw httpError(403, 'Only the provider can update price');
+    if (dataset.provider !== provider)
+      throw httpError(403, 'Only the provider can update price');
     if (dataset.delisted) throw httpError(409, 'Dataset is delisted');
     if (flatPrice !== undefined) {
       const v = Number(flatPrice);
@@ -107,7 +112,8 @@ class DataMarketplaceService extends EventEmitter {
 
   delistDataset({ provider, id }) {
     const dataset = this.requireDataset(id);
-    if (dataset.provider !== provider) throw httpError(403, 'Only the provider can delist');
+    if (dataset.provider !== provider)
+      throw httpError(403, 'Only the provider can delist');
     if (!dataset.delisted) {
       dataset.delisted = true;
       this.emit('dataset:delisted', dataset);
@@ -121,7 +127,9 @@ class DataMarketplaceService extends EventEmitter {
 
   getProviderDatasets(provider) {
     this.requireProvider(provider);
-    return Array.from(this.providerDatasets.get(provider) || []).map((id) => this.datasets.get(id));
+    return Array.from(this.providerDatasets.get(provider) || []).map((id) =>
+      this.datasets.get(id)
+    );
   }
 
   listActiveDatasets({ limit = 50 } = {}) {
@@ -136,14 +144,19 @@ class DataMarketplaceService extends EventEmitter {
   purchaseAccess({ buyer, datasetId, maxQueries }) {
     const dataset = this.requireDataset(datasetId);
     if (dataset.delisted) throw httpError(409, 'Dataset is delisted');
-    if (buyer === dataset.provider) throw httpError(400, 'Providers cannot purchase their own datasets');
+    if (buyer === dataset.provider)
+      throw httpError(400, 'Providers cannot purchase their own datasets');
     const qty = Number(maxQueries);
-    if (!Number.isInteger(qty) || qty <= 0) throw httpError(400, 'maxQueries must be a positive integer');
+    if (!Number.isInteger(qty) || qty <= 0)
+      throw httpError(400, 'maxQueries must be a positive integer');
     const cost = dataset.flatPrice + dataset.pricePerQuery * qty;
     const now = nowSec();
     const key = lkey(datasetId, buyer);
     const existing = this.licenses.get(key);
-    const wasActive = existing && existing.expiresAt > now && existing.queriesUsed < existing.queriesTotal;
+    const wasActive =
+      existing &&
+      existing.expiresAt > now &&
+      existing.queriesUsed < existing.queriesTotal;
 
     const license = wasActive
       ? {
@@ -189,17 +202,21 @@ class DataMarketplaceService extends EventEmitter {
   /// query never reaches the service.
   submitQuery({ buyer, datasetId, commitment }) {
     const dataset = this.requireDataset(datasetId);
-    if (buyer === dataset.provider) throw httpError(400, 'Providers cannot query their own datasets');
-    if (!isHex32(commitment)) throw httpError(400, 'commitment must be a 32-byte hex string');
+    if (buyer === dataset.provider)
+      throw httpError(400, 'Providers cannot query their own datasets');
+    if (!isHex32(commitment))
+      throw httpError(400, 'commitment must be a 32-byte hex string');
     const cmt = commitment.toLowerCase();
-    if (this.queryReceipts.has(cmt)) throw httpError(409, 'Commitment already used');
+    if (this.queryReceipts.has(cmt))
+      throw httpError(409, 'Commitment already used');
 
     const key = lkey(datasetId, buyer);
     const license = this.licenses.get(key);
     if (!license) throw httpError(404, 'License not found');
     const now = nowSec();
     if (license.expiresAt <= now) throw httpError(410, 'License expired');
-    if (license.queriesUsed >= license.queriesTotal) throw httpError(402, 'No quota remaining');
+    if (license.queriesUsed >= license.queriesTotal)
+      throw httpError(402, 'No quota remaining');
 
     license.queriesUsed += 1;
     const receipt = {
@@ -222,7 +239,8 @@ class DataMarketplaceService extends EventEmitter {
   }
 
   getQueryReceipt(commitment) {
-    if (!isHex32(commitment)) throw httpError(400, 'commitment must be a 32-byte hex string');
+    if (!isHex32(commitment))
+      throw httpError(400, 'commitment must be a 32-byte hex string');
     return this.queryReceipts.get(commitment.toLowerCase()) || null;
   }
 
@@ -255,7 +273,10 @@ class DataMarketplaceService extends EventEmitter {
     const rows = Array.from(this.datasetBuyers.get(dataset.id) || [])
       .map((buyer) => this.licenses.get(lkey(dataset.id, buyer)))
       .filter(Boolean)
-      .map((lic) => ({ ...lic, active: lic.expiresAt > now && lic.queriesUsed < lic.queriesTotal }));
+      .map((lic) => ({
+        ...lic,
+        active: lic.expiresAt > now && lic.queriesUsed < lic.queriesTotal,
+      }));
     return rows.slice(Number(offset), Number(offset) + Number(limit));
   }
 

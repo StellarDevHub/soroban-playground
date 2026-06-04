@@ -4,7 +4,8 @@ jest.unstable_mockModule('../src/services/invokeService.js', () => ({
   invokeSorobanContract: jest.fn(),
 }));
 
-const { invokeSorobanContract } = await import('../src/services/invokeService.js');
+const { invokeSorobanContract } =
+  await import('../src/services/invokeService.js');
 
 import express from 'express';
 import request from 'supertest';

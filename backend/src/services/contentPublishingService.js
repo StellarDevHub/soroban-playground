@@ -18,13 +18,13 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 class ContentPublishingService extends EventEmitter {
   constructor() {
     super();
-    this.authors = new Map();        // address -> author profile
-    this.articles = new Map();       // id -> article
-    this.subscriptions = new Map();  // `${author}|${subscriber}` -> sub
-    this.likes = new Map();          // `${articleId}|${reader}` -> true
+    this.authors = new Map(); // address -> author profile
+    this.articles = new Map(); // id -> article
+    this.subscriptions = new Map(); // `${author}|${subscriber}` -> sub
+    this.likes = new Map(); // `${articleId}|${reader}` -> true
     this.authorArticles = new Map(); // author -> Set<id>
     this.authorSubscribers = new Map(); // author -> Set<subscriber>
-    this.latestIds = [];             // bounded ring (most recent first)
+    this.latestIds = []; // bounded ring (most recent first)
     this.LATEST_CAP = 50;
     this.nextId = 1;
   }

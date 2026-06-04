@@ -4,7 +4,8 @@ jest.unstable_mockModule('../src/services/deployService.js', () => ({
   deployBatchContracts: jest.fn(),
 }));
 
-const { deployBatchContracts } = await import('../src/services/deployService.js');
+const { deployBatchContracts } =
+  await import('../src/services/deployService.js');
 
 import express from 'express';
 import request from 'supertest';

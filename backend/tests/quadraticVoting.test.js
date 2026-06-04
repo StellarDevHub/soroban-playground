@@ -27,8 +27,10 @@ jest.unstable_mockModule('../src/middleware/rateLimiter.js', () => ({
   rateLimitMiddleware: () => (_req, _res, next) => next(),
 }));
 
-const { default: qvService } = await import('../src/services/quadraticVotingService.js');
-const { default: quadraticVotingRoute } = await import('../src/routes/quadraticVoting.js');
+const { default: qvService } =
+  await import('../src/services/quadraticVotingService.js');
+const { default: quadraticVotingRoute } =
+  await import('../src/routes/quadraticVoting.js');
 
 import express from 'express';
 import request from 'supertest';
@@ -55,7 +57,12 @@ describe('POST /api/quadratic-voting/initialize', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(qvService.initialize).toHaveBeenCalledWith(CONTRACT_ID, ADMIN, null, null);
+    expect(qvService.initialize).toHaveBeenCalledWith(
+      CONTRACT_ID,
+      ADMIN,
+      null,
+      null
+    );
   });
 
   it('returns 400 when contractId is missing', async () => {
@@ -80,11 +87,19 @@ describe('POST /api/quadratic-voting/initialize', () => {
   it('passes optional votingPeriod and maxCredits', async () => {
     qvService.initialize.mockResolvedValue({});
 
-    await request(app)
-      .post('/api/quadratic-voting/initialize')
-      .send({ contractId: CONTRACT_ID, admin: ADMIN, votingPeriod: 3600, maxCredits: 50 });
+    await request(app).post('/api/quadratic-voting/initialize').send({
+      contractId: CONTRACT_ID,
+      admin: ADMIN,
+      votingPeriod: 3600,
+      maxCredits: 50,
+    });
 
-    expect(qvService.initialize).toHaveBeenCalledWith(CONTRACT_ID, ADMIN, 3600, 50);
+    expect(qvService.initialize).toHaveBeenCalledWith(
+      CONTRACT_ID,
+      ADMIN,
+      3600,
+      50
+    );
   });
 });
 
@@ -96,7 +111,12 @@ describe('POST /api/quadratic-voting/proposals', () => {
 
     const res = await request(app)
       .post('/api/quadratic-voting/proposals')
-      .send({ contractId: CONTRACT_ID, admin: ADMIN, title: 'Test', description: 'Desc' });
+      .send({
+        contractId: CONTRACT_ID,
+        admin: ADMIN,
+        title: 'Test',
+        description: 'Desc',
+      });
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -130,7 +150,12 @@ describe('POST /api/quadratic-voting/proposals', () => {
 
     const res = await request(app)
       .post('/api/quadratic-voting/proposals')
-      .send({ contractId: CONTRACT_ID, admin: ADMIN, title: 'Test', description: 'Desc' });
+      .send({
+        contractId: CONTRACT_ID,
+        admin: ADMIN,
+        title: 'Test',
+        description: 'Desc',
+      });
 
     expect(res.status).toBe(500);
     expect(res.body.error).toBe('Contract error');
@@ -141,7 +166,13 @@ describe('POST /api/quadratic-voting/proposals', () => {
 
 describe('GET /api/quadratic-voting/proposals/:proposalId', () => {
   it('returns proposal data', async () => {
-    const mockProposal = { id: 0, title: 'Test', status: 'Active', votes_for: 3, votes_against: 0 };
+    const mockProposal = {
+      id: 0,
+      title: 'Test',
+      status: 'Active',
+      votes_for: 3,
+      votes_against: 0,
+    };
     qvService.getProposal.mockResolvedValue(mockProposal);
 
     const res = await request(app)
@@ -173,9 +204,13 @@ describe('POST /api/quadratic-voting/vote', () => {
     qvService.vote.mockResolvedValue({ success: true });
     qvService.creditsToVotes.mockReturnValue(3);
 
-    const res = await request(app)
-      .post('/api/quadratic-voting/vote')
-      .send({ contractId: CONTRACT_ID, voter: VOTER, proposalId: 0, credits: 9, isFor: true });
+    const res = await request(app).post('/api/quadratic-voting/vote').send({
+      contractId: CONTRACT_ID,
+      voter: VOTER,
+      proposalId: 0,
+      credits: 9,
+      isFor: true,
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -192,18 +227,26 @@ describe('POST /api/quadratic-voting/vote', () => {
   });
 
   it('returns 400 for non-positive credits', async () => {
-    const res = await request(app)
-      .post('/api/quadratic-voting/vote')
-      .send({ contractId: CONTRACT_ID, voter: VOTER, proposalId: 0, credits: 0, isFor: true });
+    const res = await request(app).post('/api/quadratic-voting/vote').send({
+      contractId: CONTRACT_ID,
+      voter: VOTER,
+      proposalId: 0,
+      credits: 0,
+      isFor: true,
+    });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/positive integer/);
   });
 
   it('returns 400 when isFor is not boolean', async () => {
-    const res = await request(app)
-      .post('/api/quadratic-voting/vote')
-      .send({ contractId: CONTRACT_ID, voter: VOTER, proposalId: 0, credits: 4, isFor: 'yes' });
+    const res = await request(app).post('/api/quadratic-voting/vote').send({
+      contractId: CONTRACT_ID,
+      voter: VOTER,
+      proposalId: 0,
+      credits: 4,
+      isFor: 'yes',
+    });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/boolean/);
@@ -218,16 +261,31 @@ describe('POST /api/quadratic-voting/whitelist', () => {
 
     const res = await request(app)
       .post('/api/quadratic-voting/whitelist')
-      .send({ contractId: CONTRACT_ID, admin: ADMIN, voter: VOTER, allow: true });
+      .send({
+        contractId: CONTRACT_ID,
+        admin: ADMIN,
+        voter: VOTER,
+        allow: true,
+      });
 
     expect(res.status).toBe(200);
-    expect(qvService.whitelistVoter).toHaveBeenCalledWith(CONTRACT_ID, ADMIN, VOTER, true);
+    expect(qvService.whitelistVoter).toHaveBeenCalledWith(
+      CONTRACT_ID,
+      ADMIN,
+      VOTER,
+      true
+    );
   });
 
   it('returns 400 when allow is not boolean', async () => {
     const res = await request(app)
       .post('/api/quadratic-voting/whitelist')
-      .send({ contractId: CONTRACT_ID, admin: ADMIN, voter: VOTER, allow: 'yes' });
+      .send({
+        contractId: CONTRACT_ID,
+        admin: ADMIN,
+        voter: VOTER,
+        allow: 'yes',
+      });
 
     expect(res.status).toBe(400);
   });

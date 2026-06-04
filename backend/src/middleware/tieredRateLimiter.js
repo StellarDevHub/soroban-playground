@@ -14,7 +14,7 @@ export const tieredRateLimiter = (options = {}) => {
   const {
     strategyName = 'SlidingWindowCounter',
     identifier = 'apiKey', // 'apiKey', 'ip', or 'endpoint'
-    fallbackTier = 'free'
+    fallbackTier = 'free',
   } = options;
 
   const strategy = getStrategy(strategyName);
@@ -23,7 +23,12 @@ export const tieredRateLimiter = (options = {}) => {
     try {
       let apiKeyData = null;
       let tier = fallbackTier;
-      let limits = { requestsPerMinute: 10, requestsPerHour: 100, requestsPerDay: 1000, burstLimit: 20 };
+      let limits = {
+        requestsPerMinute: 10,
+        requestsPerHour: 100,
+        requestsPerDay: 1000,
+        burstLimit: 20,
+      };
 
       // Extract and validate API key
       const apiKey = req.headers['x-api-key'] || req.query.api_key;
@@ -43,14 +48,27 @@ export const tieredRateLimiter = (options = {}) => {
       } else if (identifier === 'endpoint') {
         id = `${req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress}:${req.originalUrl}`;
       } else {
-        id = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        id =
+          req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
       }
 
       // Check rate limits for different windows
       const windows = [
-        { name: 'minute', limit: limits.requestsPerMinute, windowMs: 60 * 1000 },
-        { name: 'hour', limit: limits.requestsPerHour, windowMs: 60 * 60 * 1000 },
-        { name: 'day', limit: limits.requestsPerDay, windowMs: 24 * 60 * 60 * 1000 }
+        {
+          name: 'minute',
+          limit: limits.requestsPerMinute,
+          windowMs: 60 * 1000,
+        },
+        {
+          name: 'hour',
+          limit: limits.requestsPerHour,
+          windowMs: 60 * 60 * 1000,
+        },
+        {
+          name: 'day',
+          limit: limits.requestsPerDay,
+          windowMs: 24 * 60 * 60 * 1000,
+        },
       ];
 
       let minRemaining = Infinity;
@@ -59,26 +77,67 @@ export const tieredRateLimiter = (options = {}) => {
 
       for (const window of windows) {
         const key = `ratelimit:${tier}:${window.name}:${id}`;
-        const result = await strategy.check(redisService, key, window.limit, window.windowMs);
+        const result = await strategy.check(
+          redisService,
+          key,
+          window.limit,
+          window.windowMs
+        );
 
-        minRemaining = Math.min(minRemaining, Math.max(0, window.limit - result.current));
+        minRemaining = Math.min(
+          minRemaining,
+          Math.max(0, window.limit - result.current)
+        );
 
         if (!result.allowed) {
           exceeded = true;
-          retryAfter = Math.max(retryAfter, result.retryAfter || Math.ceil(window.windowMs / 1000));
+          retryAfter = Math.max(
+            retryAfter,
+            result.retryAfter || Math.ceil(window.windowMs / 1000)
+          );
         }
       }
 
       // Set rate limit headers
       res.set({
         'X-RateLimit-Limit-Minute': limits.requestsPerMinute,
-        'X-RateLimit-Remaining-Minute': Math.max(0, limits.requestsPerMinute - (await getCurrentCount(id, tier, 'minute', limits.requestsPerMinute, 60 * 1000))),
+        'X-RateLimit-Remaining-Minute': Math.max(
+          0,
+          limits.requestsPerMinute -
+            (await getCurrentCount(
+              id,
+              tier,
+              'minute',
+              limits.requestsPerMinute,
+              60 * 1000
+            ))
+        ),
         'X-RateLimit-Limit-Hour': limits.requestsPerHour,
-        'X-RateLimit-Remaining-Hour': Math.max(0, limits.requestsPerHour - (await getCurrentCount(id, tier, 'hour', limits.requestsPerHour, 60 * 60 * 1000))),
+        'X-RateLimit-Remaining-Hour': Math.max(
+          0,
+          limits.requestsPerHour -
+            (await getCurrentCount(
+              id,
+              tier,
+              'hour',
+              limits.requestsPerHour,
+              60 * 60 * 1000
+            ))
+        ),
         'X-RateLimit-Limit-Day': limits.requestsPerDay,
-        'X-RateLimit-Remaining-Day': Math.max(0, limits.requestsPerDay - (await getCurrentCount(id, tier, 'day', limits.requestsPerDay, 24 * 60 * 60 * 1000))),
+        'X-RateLimit-Remaining-Day': Math.max(
+          0,
+          limits.requestsPerDay -
+            (await getCurrentCount(
+              id,
+              tier,
+              'day',
+              limits.requestsPerDay,
+              24 * 60 * 60 * 1000
+            ))
+        ),
         'X-RateLimit-Tier': tier,
-        'X-RateLimit-Reset': Math.ceil(Date.now() / 1000) + 60 // Reset in 1 minute minimum
+        'X-RateLimit-Reset': Math.ceil(Date.now() / 1000) + 60, // Reset in 1 minute minimum
       });
 
       if (exceeded) {
@@ -94,15 +153,17 @@ export const tieredRateLimiter = (options = {}) => {
             ipAddress: req.ip,
             userAgent: req.headers['user-agent'],
             statusCode: 429,
-            metadata: { tier, limits }
+            metadata: { tier, limits },
           });
         }
 
-        return next(createHttpError(429, 'Too Many Requests', {
-          retryAfter,
-          tier,
-          limits
-        }));
+        return next(
+          createHttpError(429, 'Too Many Requests', {
+            retryAfter,
+            tier,
+            limits,
+          })
+        );
       }
 
       // Track usage if API key is present
@@ -118,7 +179,7 @@ export const tieredRateLimiter = (options = {}) => {
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
           statusCode: 200,
-          metadata: { tier }
+          metadata: { tier },
         });
       }
 
@@ -128,7 +189,7 @@ export const tieredRateLimiter = (options = {}) => {
       // Fail open to maintain availability
       res.set({
         'X-RateLimit-Tier': fallbackTier,
-        'X-RateLimit-Limit-Minute': 10
+        'X-RateLimit-Limit-Minute': 10,
       });
       next();
     }

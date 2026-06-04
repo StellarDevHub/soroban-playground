@@ -9,7 +9,7 @@ const register = new client.Registry();
 
 // Add a default label which is added to all metrics
 register.setDefaultLabels({
-  app: 'soroban-playground-backend'
+  app: 'soroban-playground-backend',
 });
 
 // Enable the collection of default metrics
@@ -19,47 +19,47 @@ client.collectDefaultMetrics({ register });
 export const rateLimitHits = new client.Counter({
   name: 'rate_limit_hits_total',
   help: 'Total number of rate limit hits',
-  labelNames: ['endpoint', 'status']
+  labelNames: ['endpoint', 'status'],
 });
 register.registerMetric(rateLimitHits);
 
 export const cacheHitsTotal = new client.Counter({
   name: 'soroban_cache_hits_total',
   help: 'Total number of cache hits',
-  labelNames: ['level', 'reason']
+  labelNames: ['level', 'reason'],
 });
 register.registerMetric(cacheHitsTotal);
 
 export const cacheMissesTotal = new client.Counter({
   name: 'soroban_cache_misses_total',
   help: 'Total number of cache misses',
-  labelNames: ['reason']
+  labelNames: ['reason'],
 });
 register.registerMetric(cacheMissesTotal);
 
 export const cacheEvictionsTotal = new client.Counter({
   name: 'soroban_cache_evictions_total',
-  help: 'Total number of cache evictions and invalidations'
+  help: 'Total number of cache evictions and invalidations',
 });
 register.registerMetric(cacheEvictionsTotal);
 
 export const cacheEntryCount = new client.Gauge({
   name: 'soroban_cache_entry_count',
-  help: 'Number of entries currently loaded in L1 cache'
+  help: 'Number of entries currently loaded in L1 cache',
 });
 register.registerMetric(cacheEntryCount);
 
 export const cacheVersionGauge = new client.Gauge({
   name: 'soroban_cache_version',
   help: 'Current cache namespace version',
-  labelNames: ['namespace']
+  labelNames: ['namespace'],
 });
 register.registerMetric(cacheVersionGauge);
 
 export const cacheLatencyHistogram = new client.Histogram({
   name: 'soroban_cache_latency_seconds',
   help: 'Latency for cache operations',
-  labelNames: ['action']
+  labelNames: ['action'],
 });
 register.registerMetric(cacheLatencyHistogram);
 
@@ -67,7 +67,7 @@ export const requestLatency = new client.Histogram({
   name: 'http_request_duration_seconds',
   help: 'Duration of HTTP requests in seconds',
   labelNames: ['method', 'route', 'status'],
-  buckets: [0.1, 0.5, 1, 2, 5]
+  buckets: [0.1, 0.5, 1, 2, 5],
 });
 register.registerMetric(requestLatency);
 
@@ -81,55 +81,55 @@ register.registerMetric(oracleTasksEnqueued);
 export const oracleTasksProcessed = new client.Counter({
   name: 'oracle_tasks_processed_total',
   help: 'Total number of proof tasks processed by workers',
-  labelNames: ['status'] // 'success', 'failure'
+  labelNames: ['status'], // 'success', 'failure'
 });
 register.registerMetric(oracleTasksProcessed);
 
 export const oracleQueueDepth = new client.Gauge({
   name: 'oracle_queue_depth',
-  help: 'Current number of tasks in the pending queue'
+  help: 'Current number of tasks in the pending queue',
 });
 register.registerMetric(oracleQueueDepth);
 
 export const oracleProcessingDuration = new client.Histogram({
   name: 'oracle_task_processing_duration_seconds',
   help: 'Duration of proof task processing in seconds',
-  buckets: [0.1, 0.5, 1, 2, 5, 10]
+  buckets: [0.1, 0.5, 1, 2, 5, 10],
 });
 register.registerMetric(oracleProcessingDuration);
 
 // Event Schema Metrics
 export const eventQuarantineSize = new client.Gauge({
   name: 'event_quarantine_size',
-  help: 'Number of events currently in quarantine'
+  help: 'Number of events currently in quarantine',
 });
 register.registerMetric(eventQuarantineSize);
 
 export const eventSchemaBreakingChangesTotal = new client.Counter({
   name: 'event_schema_breaking_changes_total',
   help: 'Total number of breaking schema changes detected',
-  labelNames: ['event_type']
+  labelNames: ['event_type'],
 });
 register.registerMetric(eventSchemaBreakingChangesTotal);
 
 export const eventSchemaDetectionAlertsTotal = new client.Counter({
   name: 'event_schema_detection_alerts_total',
   help: 'Total number of schema detection alerts fired',
-  labelNames: ['severity']
+  labelNames: ['severity'],
 });
 register.registerMetric(eventSchemaDetectionAlertsTotal);
 
 export const eventSchemaVersionEventsTotal = new client.Counter({
   name: 'event_schema_version_events_total',
   help: 'Total number of schema version events',
-  labelNames: ['event_type', 'version']
+  labelNames: ['event_type', 'version'],
 });
 register.registerMetric(eventSchemaVersionEventsTotal);
 
 export const eventValidationTotal = new client.Counter({
   name: 'event_validation_total',
   help: 'Total number of event validation attempts',
-  labelNames: ['status']
+  labelNames: ['status'],
 });
 register.registerMetric(eventValidationTotal);
 
@@ -137,7 +137,7 @@ register.registerMetric(eventValidationTotal);
 export const oracleProofDeadLetterTotal = new client.Counter({
   name: 'oracle_proof_dead_letter_total',
   help: 'Total number of oracle proof tasks sent to dead letter queue',
-  labelNames: ['reason']
+  labelNames: ['reason'],
 });
 register.registerMetric(oracleProofDeadLetterTotal);
 
@@ -145,51 +145,52 @@ export const oracleProofProcessingDuration = new client.Histogram({
   name: 'oracle_proof_processing_duration_seconds',
   help: 'Duration of oracle proof processing in seconds',
   labelNames: ['outcome'],
-  buckets: [0.1, 0.5, 1, 2, 5, 10]
+  buckets: [0.1, 0.5, 1, 2, 5, 10],
 });
 register.registerMetric(oracleProofProcessingDuration);
 
 export const oracleProofQueueDepth = new client.Gauge({
   name: 'oracle_proof_queue_depth',
   help: 'Current depth of oracle proof queue',
-  labelNames: ['state']
+  labelNames: ['state'],
 });
 register.registerMetric(oracleProofQueueDepth);
 
 export const oracleProofTaskRetries = new client.Counter({
   name: 'oracle_proof_task_retries_total',
   help: 'Total number of oracle proof task retries',
-  labelNames: ['reason']
+  labelNames: ['reason'],
 });
 register.registerMetric(oracleProofTaskRetries);
 
 export const oracleProofTasksEnqueued = new client.Counter({
   name: 'oracle_proof_tasks_enqueued_total',
   help: 'Total number of oracle proof tasks enqueued',
-  labelNames: ['priority']
+  labelNames: ['priority'],
 });
 register.registerMetric(oracleProofTasksEnqueued);
 
 export const oracleProofTaskTransitions = new client.Counter({
   name: 'oracle_proof_task_transitions_total',
   help: 'Total number of oracle proof task state transitions',
-  labelNames: ['from_state', 'to_state']
+  labelNames: ['from_state', 'to_state'],
 });
 register.registerMetric(oracleProofTaskTransitions);
 
 export const oracleProofWorkerHeartbeats = new client.Counter({
   name: 'oracle_proof_worker_heartbeats_total',
   help: 'Total number of heartbeats received from proof workers',
-  labelNames: ['worker_id']
+  labelNames: ['worker_id'],
 });
 register.registerMetric(oracleProofWorkerHeartbeats);
-
-
 
 router.get('/', async (req, res) => {
   try {
     res.set('Content-Type', register.contentType);
-    const merged = await client.Registry.merge([register, oracleLockRegistry]).metrics();
+    const merged = await client.Registry.merge([
+      register,
+      oracleLockRegistry,
+    ]).metrics();
     res.end(merged);
   } catch (ex) {
     res.status(500).end(ex);

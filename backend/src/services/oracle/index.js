@@ -20,7 +20,11 @@ export { oracleLockRegistry, metricsText } from './lockMetrics.js';
 export { MemoryVoteStore, RedisVoteStore } from './voteStore.js';
 export { VoteSigner, canonicalPayload } from './voteSigner.js';
 export { OracleNode } from './oracleNode.js';
-export { OracleService, getOracleService, resetOracleServiceForTests } from './oracleService.js';
+export {
+  OracleService,
+  getOracleService,
+  resetOracleServiceForTests,
+} from './oracleService.js';
 export {
   OracleEvent,
   OracleEventBus,

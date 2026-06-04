@@ -65,8 +65,12 @@ export class VoteSigner {
       .update(canonicalPayload(proofId, nodeId, vote))
       .digest('hex');
     // timingSafeEqual guards against timing attacks; lengths must match.
-    if (expected.length !== signature.length) return { ok: false, reason: 'bad_signature' };
-    const ok = crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'));
+    if (expected.length !== signature.length)
+      return { ok: false, reason: 'bad_signature' };
+    const ok = crypto.timingSafeEqual(
+      Buffer.from(expected, 'hex'),
+      Buffer.from(signature, 'hex')
+    );
     return ok ? { ok: true } : { ok: false, reason: 'bad_signature' };
   }
 }

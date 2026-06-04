@@ -24,11 +24,16 @@ export class QueryBuilder {
 
     const where = this._parseNode(filter);
     const { select, groupBy } = this.buildAggregation(aggregate);
-    const { limitClause, orderBy, cursorClause } = this.buildPagination({ limit, sort, cursor });
+    const { limitClause, orderBy, cursorClause } = this.buildPagination({
+      limit,
+      sort,
+      cursor,
+    });
 
     // Combine WHERE and Cursor logic
     const conditions = [where, cursorClause].filter(Boolean);
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const sql = `
       ${select} 
@@ -37,7 +42,9 @@ export class QueryBuilder {
       ${groupBy} 
       ${orderBy} 
       ${limitClause}
-    `.trim().replace(/\s+/g, ' ');
+    `
+      .trim()
+      .replace(/\s+/g, ' ');
 
     return { sql, params: this.params };
   }
@@ -53,7 +60,8 @@ export class QueryBuilder {
         expressions.push(`(${subExpressions.join(` ${subOp} `)})`);
       } else if (typeof value === 'object' && !Array.isArray(value)) {
         for (const [op, opVal] of Object.entries(value)) {
-          if (this.operators[op]) expressions.push(this._buildExpression(key, op, opVal));
+          if (this.operators[op])
+            expressions.push(this._buildExpression(key, op, opVal));
         }
       } else {
         expressions.push(this._buildExpression(key, '$eq', value));
@@ -63,11 +71,12 @@ export class QueryBuilder {
   }
 
   _buildExpression(column, op, value) {
-    if (!/^[a-zA-Z0-9_]+$/.test(column)) throw new Error(`Invalid column: ${column}`);
+    if (!/^[a-zA-Z0-9_]+$/.test(column))
+      throw new Error(`Invalid column: ${column}`);
     const sqlOp = this.operators[op];
 
     if (op === '$in') {
-      const placeholders = value.map(v => {
+      const placeholders = value.map((v) => {
         this.params.push(v);
         return `$${this.params.length}`;
       });
@@ -87,15 +96,18 @@ export class QueryBuilder {
     if (!agg) return { select: 'SELECT *', groupBy: '' };
     const select = `${agg.type.toUpperCase()}(${agg.field || '*'}) as result`;
     const groupBy = agg.groupBy ? `GROUP BY ${agg.groupBy.join(', ')}` : '';
-    const selectCols = agg.groupBy ? `${agg.groupBy.join(', ')}, ${select}` : select;
+    const selectCols = agg.groupBy
+      ? `${agg.groupBy.join(', ')}, ${select}`
+      : select;
     return { select: `SELECT ${selectCols}`, groupBy };
   }
 
   buildPagination({ limit, sort, cursor }) {
     const safeLimit = Math.min(limit || 50, this.MAX_LIMIT);
-    const orderBy = sort.length > 0 
-      ? `ORDER BY ${sort.map(s => `${s.field} ${s.order || s.direction || 'ASC'}`).join(', ')}` 
-      : 'ORDER BY id ASC';
+    const orderBy =
+      sort.length > 0
+        ? `ORDER BY ${sort.map((s) => `${s.field} ${s.order || s.direction || 'ASC'}`).join(', ')}`
+        : 'ORDER BY id ASC';
 
     let cursorClause = '';
     if (cursor) {

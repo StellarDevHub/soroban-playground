@@ -1,14 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface Outcome {
     name: string;
     odds: number;
 }
 
-export default function MatchCard({ market }: { market: any }) {
+interface Market {
+    id: string;
+    event_name: string;
+    resolution_deadline: number;
+}
+
+export default function MatchCard({ market }: { market: Market }) {
     const [odds, setOdds] = useState<Outcome[]>([]);
+    const [timeLeft, setTimeLeft] = useState<number | null>(null);
+    const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         const fetchOdds = async () => {
@@ -23,6 +31,27 @@ export default function MatchCard({ market }: { market: any }) {
         return () => clearInterval(interval);
     }, [market.id]);
 
+    // Calculate time left for resolution deadline
+    useEffect(() => {
+        if (!market.resolution_deadline) return;
+        
+        const updateTimer = () => {
+            const now = Date.now();
+            const hoursLeft = Math.floor((market.resolution_deadline - now/1000)/3600);
+            setTimeLeft(hoursLeft);
+        };
+        
+        updateTimer(); // Initial calculation
+        
+        intervalRef.current = setInterval(updateTimer, 1000);
+        
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+        };
+    }, [market.resolution_deadline]);
+
     return (
         <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 hover:border-blue-500 transition-all group shadow-lg">
             <div className="flex justify-between items-start mb-4">
@@ -30,7 +59,7 @@ export default function MatchCard({ market }: { market: any }) {
                     Live Match
                 </span>
                 <span className="text-slate-500 text-xs">
-                    Ends in {Math.floor((market.resolution_deadline - Date.now()/1000)/3600)}h
+                    Ends in {timeLeft !== null ? `${timeLeft}h` : '—'}
                 </span>
             </div>
             

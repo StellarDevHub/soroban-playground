@@ -45,7 +45,12 @@ router.post(
   '/file',
   rateLimitMiddleware('invoke'),
   asyncHandler(async (req, res, next) => {
-    const errs = requireFields(req.body, ['inventor', 'title', 'description', 'expiryDate']);
+    const errs = requireFields(req.body, [
+      'inventor',
+      'title',
+      'description',
+      'expiryDate',
+    ]);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
 
     const result = await patentService.filePatent(req.body);
@@ -62,7 +67,10 @@ router.post(
     const errs = requireFields(req.body, ['admin']);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
 
-    const result = await patentService.activatePatent({ admin: req.body.admin, patentId });
+    const result = await patentService.activatePatent({
+      admin: req.body.admin,
+      patentId,
+    });
     res.json({ success: true, data: result.output });
   })
 );
@@ -76,7 +84,10 @@ router.post(
     const errs = requireFields(req.body, ['admin']);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
 
-    const result = await patentService.revokePatent({ admin: req.body.admin, patentId });
+    const result = await patentService.revokePatent({
+      admin: req.body.admin,
+      patentId,
+    });
     res.json({ success: true, data: result.output });
   })
 );
@@ -105,7 +116,13 @@ router.post(
   asyncHandler(async (req, res, next) => {
     const patentId = parseId(req.params.id);
     if (!patentId) return next(createHttpError(400, 'Invalid patent ID'));
-    const errs = requireFields(req.body, ['owner', 'licensee', 'licenseType', 'fee', 'expiryDate']);
+    const errs = requireFields(req.body, [
+      'owner',
+      'licensee',
+      'licenseType',
+      'fee',
+      'expiryDate',
+    ]);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
 
     const result = await patentService.grantLicense({ ...req.body, patentId });
@@ -134,7 +151,10 @@ router.post(
     const errs = requireFields(req.body, ['admin', 'resolution']);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
 
-    const result = await patentService.resolveDispute({ ...req.body, disputeId });
+    const result = await patentService.resolveDispute({
+      ...req.body,
+      disputeId,
+    });
     res.json({ success: true, data: result.output });
   })
 );

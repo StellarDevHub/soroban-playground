@@ -6,6 +6,8 @@ import AnalyticsDashboard from '@/components/sports/AnalyticsDashboard';
 
 interface Market {
     id: string;
+    event_name: string;
+    resolution_deadline: number;
     home_team: string;
     away_team: string;
     odds_home: number;

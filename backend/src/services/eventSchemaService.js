@@ -111,7 +111,8 @@ function normalizeFields(fields, required = [], deprecatedFields = []) {
 
   for (const [name, definition] of Object.entries(fields || {})) {
     const normalizedField = normalizeFieldDefinition(name, definition);
-    normalizedField.required = normalizedField.required || requiredSet.has(name);
+    normalizedField.required =
+      normalizedField.required || requiredSet.has(name);
     normalizedField.deprecated =
       normalizedField.deprecated || deprecatedSet.has(name);
     normalized[name] = normalizedField;
@@ -208,7 +209,9 @@ function analyzeEvolution(previousSchema, nextSchema) {
       breakingChanges: [],
       compatibleChanges: ['Initial schema version'],
       warnings: [],
-      migrationGuide: ['No prior schema exists. Register this as the baseline.'],
+      migrationGuide: [
+        'No prior schema exists. Register this as the baseline.',
+      ],
     };
   }
 
@@ -239,8 +242,14 @@ function analyzeEvolution(previousSchema, nextSchema) {
       compatibleChanges.push(`Made required field "${name}" optional`);
     }
 
-    if (!previousField.required && nextField.required && nextField.default === undefined) {
-      breakingChanges.push(`Made optional field "${name}" required without a default`);
+    if (
+      !previousField.required &&
+      nextField.required &&
+      nextField.default === undefined
+    ) {
+      breakingChanges.push(
+        `Made optional field "${name}" required without a default`
+      );
     }
 
     if (!previousField.deprecated && nextField.deprecated) {
@@ -252,7 +261,9 @@ function analyzeEvolution(previousSchema, nextSchema) {
       (!Array.isArray(previousField.enum) ||
         nextField.enum.some((value) => !previousField.enum.includes(value)))
     ) {
-      warnings.push(`Field "${name}" enum changed; verify downstream consumers`);
+      warnings.push(
+        `Field "${name}" enum changed; verify downstream consumers`
+      );
     }
   }
 
@@ -297,7 +308,8 @@ function analyzeEvolution(previousSchema, nextSchema) {
 }
 
 function normalizeEventEnvelope(input) {
-  const source = input?.event && typeof input.event === 'object' ? input.event : input;
+  const source =
+    input?.event && typeof input.event === 'object' ? input.event : input;
   const event = source || {};
   const eventType = event.eventType || event.event_type || event.type;
   const schemaVersion =
@@ -343,10 +355,7 @@ function validateType(value, field) {
     case 'string':
       return typeof value === 'string';
     case 'address':
-      return (
-        typeof value === 'string' &&
-        /^[CG][A-Z0-9]{55}$/.test(value)
-      );
+      return typeof value === 'string' && /^[CG][A-Z0-9]{55}$/.test(value);
     case 'iso_datetime':
       return typeof value === 'string' && !Number.isNaN(Date.parse(value));
     default:
@@ -483,7 +492,9 @@ class EventSchemaService {
   }
 
   updateQuarantineGauge() {
-    const openCount = this.quarantine.filter((item) => item.status === 'open').length;
+    const openCount = this.quarantine.filter(
+      (item) => item.status === 'open'
+    ).length;
     eventQuarantineSize.set(openCount);
   }
 
@@ -603,7 +614,11 @@ class EventSchemaService {
       });
     }
 
-    if (!envelope.payload || typeof envelope.payload !== 'object' || Array.isArray(envelope.payload)) {
+    if (
+      !envelope.payload ||
+      typeof envelope.payload !== 'object' ||
+      Array.isArray(envelope.payload)
+    ) {
       errors.push({
         path: 'payload',
         code: 'invalid_type',
@@ -633,7 +648,12 @@ class EventSchemaService {
       });
     }
 
-    if (schema && envelope.payload && typeof envelope.payload === 'object' && !Array.isArray(envelope.payload)) {
+    if (
+      schema &&
+      envelope.payload &&
+      typeof envelope.payload === 'object' &&
+      !Array.isArray(envelope.payload)
+    ) {
       for (const fieldName of schema.required) {
         if (
           envelope.payload[fieldName] === undefined ||
@@ -751,7 +771,9 @@ class EventSchemaService {
 
     const envelope = normalizeEventEnvelope(input);
     const record = {
-      id: envelope.id || `evt-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      id:
+        envelope.id ||
+        `evt-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       eventType: validation.eventType,
       schemaVersion: validation.schemaVersion,
       emittedAt: envelope.emittedAt || nowIso(),
@@ -778,7 +800,8 @@ class EventSchemaService {
     const item = {
       id: `q-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       eventType: validation.eventType || envelope.eventType || 'unknown',
-      schemaVersion: validation.schemaVersion || envelope.schemaVersion || 'unknown',
+      schemaVersion:
+        validation.schemaVersion || envelope.schemaVersion || 'unknown',
       status: 'open',
       receivedAt: nowIso(),
       errors: validation.errors,
@@ -809,7 +832,10 @@ class EventSchemaService {
     if (updates.status) {
       item.status = updates.status;
     }
-    if (updates.reviewNotes !== undefined || updates.review_notes !== undefined) {
+    if (
+      updates.reviewNotes !== undefined ||
+      updates.review_notes !== undefined
+    ) {
       item.reviewNotes = updates.reviewNotes ?? updates.review_notes ?? '';
     }
     item.reviewedAt = nowIso();
@@ -870,13 +896,20 @@ class EventSchemaService {
   }
 
   applyMigrationStep(event, fromVersion, toVersion) {
-    const rule = this.findMigrationRule(fromVersion, toVersion, event.eventType);
+    const rule = this.findMigrationRule(
+      fromVersion,
+      toVersion,
+      event.eventType
+    );
     const nextSchema = this.getSchema(event.eventType, toVersion);
     const payload = clone(event.payload || {});
 
     if (rule?.rename) {
       for (const [fromField, toField] of Object.entries(rule.rename)) {
-        if (payload[fromField] !== undefined && payload[toField] === undefined) {
+        if (
+          payload[fromField] !== undefined &&
+          payload[toField] === undefined
+        ) {
           payload[toField] = payload[fromField];
         }
         delete payload[fromField];
@@ -922,7 +955,10 @@ class EventSchemaService {
     }
 
     const targetSchema = this.getSchema(envelope.eventType, targetVersion);
-    const sourceSchema = this.getSchema(envelope.eventType, envelope.schemaVersion);
+    const sourceSchema = this.getSchema(
+      envelope.eventType,
+      envelope.schemaVersion
+    );
     const latestSchema = this.getSchema(envelope.eventType);
     const resolvedTargetVersion =
       targetVersion || latestSchema?.version || envelope.schemaVersion;
@@ -1035,7 +1071,9 @@ class EventSchemaService {
 
   detectSchemaChanges(input) {
     const detected = this.detectSchema(input);
-    const latest = detected.eventType ? this.getSchema(detected.eventType) : null;
+    const latest = detected.eventType
+      ? this.getSchema(detected.eventType)
+      : null;
 
     if (!latest) {
       const alert = {
@@ -1110,7 +1148,9 @@ class EventSchemaService {
       );
     }
     if (migrationGuide.length === 0) {
-      migrationGuide.push('No schema drift detected against the latest version.');
+      migrationGuide.push(
+        'No schema drift detected against the latest version.'
+      );
     }
 
     const alert = {
@@ -1125,7 +1165,11 @@ class EventSchemaService {
       migrationGuide,
     };
 
-    if (breaking || changes.addedFields.length > 0 || changes.deprecatedFieldsSeen.length > 0) {
+    if (
+      breaking ||
+      changes.addedFields.length > 0 ||
+      changes.deprecatedFieldsSeen.length > 0
+    ) {
       this.addSchemaAlert(alert);
     }
 
@@ -1179,12 +1223,16 @@ class EventSchemaService {
         ).length,
       },
       schemas: {
-        eventTypes: new Set([...this.schemas.values()].map((schema) => schema.eventType)).size,
+        eventTypes: new Set(
+          [...this.schemas.values()].map((schema) => schema.eventType)
+        ).size,
         versions: this.schemas.size,
       },
       alerts: {
         total: this.schemaAlerts.length,
-        breaking: this.schemaAlerts.filter((alert) => alert.severity === 'breaking').length,
+        breaking: this.schemaAlerts.filter(
+          (alert) => alert.severity === 'breaking'
+        ).length,
       },
       generatedAt: nowIso(),
     };
@@ -1193,10 +1241,6 @@ class EventSchemaService {
 
 const eventSchemaService = new EventSchemaService();
 
-export {
-  analyzeEvolution,
-  normalizeEventEnvelope,
-  normalizeSchema,
-};
+export { analyzeEvolution, normalizeEventEnvelope, normalizeSchema };
 
 export default eventSchemaService;

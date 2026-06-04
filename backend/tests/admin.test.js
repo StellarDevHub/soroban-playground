@@ -27,7 +27,10 @@ describe('Admin cache endpoints', () => {
   });
 
   it('returns cache snapshot', async () => {
-    getCacheAdminSnapshot.mockResolvedValue({ cacheVersion: 'v1', memoryEntries: 0 });
+    getCacheAdminSnapshot.mockResolvedValue({
+      cacheVersion: 'v1',
+      memoryEntries: 0,
+    });
     const res = await request(app).get('/api/admin/cache');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -53,7 +56,11 @@ describe('Admin cache endpoints', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(invalidateCache).toHaveBeenCalledWith({ hash: 'abc', dependency: undefined, namespace: undefined });
+    expect(invalidateCache).toHaveBeenCalledWith({
+      hash: 'abc',
+      dependency: undefined,
+      namespace: undefined,
+    });
   });
 
   it('bumps cache version', async () => {

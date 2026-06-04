@@ -16,7 +16,7 @@ let ticketPrice = 10_000_000; // 1 XLM in stroops
 let adminAddress = null;
 let roundCount = 0;
 
-const rounds = new Map();       // roundId -> Round
+const rounds = new Map(); // roundId -> Round
 const ticketBuyers = new Map(); // `${roundId}-${ticketId}` -> buyerAddress
 
 const analytics = {
@@ -67,17 +67,24 @@ router.post(
     if (initialized) throw createHttpError(409, 'Contract already initialized');
 
     const { admin, ticketPriceStroops } = req.body || {};
-    if (!validateAddress(admin)) throw createHttpError(400, 'admin address is required');
+    if (!validateAddress(admin))
+      throw createHttpError(400, 'admin address is required');
 
     const price = parseInt(ticketPriceStroops, 10);
-    if (!price || price <= 0) throw createHttpError(400, 'ticketPriceStroops must be a positive integer');
+    if (!price || price <= 0)
+      throw createHttpError(
+        400,
+        'ticketPriceStroops must be a positive integer'
+      );
 
     initialized = true;
     paused = false;
     adminAddress = admin;
     ticketPrice = price;
 
-    res.status(200).json({ success: true, data: { admin, ticketPriceStroops: price } });
+    res
+      .status(200)
+      .json({ success: true, data: { admin, ticketPriceStroops: price } });
   })
 );
 
@@ -130,7 +137,8 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!initialized) throw createHttpError(400, 'Contract not initialized');
     const { caller } = req.body || {};
-    if (caller !== adminAddress) throw createHttpError(403, 'Only admin can pause');
+    if (caller !== adminAddress)
+      throw createHttpError(403, 'Only admin can pause');
     paused = true;
     res.json({ success: true, data: { paused: true } });
   })
@@ -141,7 +149,8 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!initialized) throw createHttpError(400, 'Contract not initialized');
     const { caller } = req.body || {};
-    if (caller !== adminAddress) throw createHttpError(403, 'Only admin can unpause');
+    if (caller !== adminAddress)
+      throw createHttpError(403, 'Only admin can unpause');
     paused = false;
     res.json({ success: true, data: { paused: false } });
   })
@@ -158,15 +167,24 @@ router.get(
     let list = Array.from(rounds.values());
 
     if (status) {
-      list = list.filter(r => r.status.toLowerCase() === status.toLowerCase());
+      list = list.filter(
+        (r) => r.status.toLowerCase() === status.toLowerCase()
+      );
     }
 
     list.sort((a, b) => b.id - a.id);
 
     const total = list.length;
-    const paginated = list.slice(parseInt(offset, 10), parseInt(offset, 10) + parseInt(limit, 10));
+    const paginated = list.slice(
+      parseInt(offset, 10),
+      parseInt(offset, 10) + parseInt(limit, 10)
+    );
 
-    res.json({ success: true, data: paginated, meta: { total, limit: parseInt(limit, 10), offset: parseInt(offset, 10) } });
+    res.json({
+      success: true,
+      data: paginated,
+      meta: { total, limit: parseInt(limit, 10), offset: parseInt(offset, 10) },
+    });
   })
 );
 
@@ -181,10 +199,12 @@ router.post(
     if (paused) throw createHttpError(400, 'Contract is paused');
 
     const { caller, durationSecs } = req.body || {};
-    if (caller !== adminAddress) throw createHttpError(403, 'Only admin can start rounds');
+    if (caller !== adminAddress)
+      throw createHttpError(403, 'Only admin can start rounds');
 
     const duration = parseInt(durationSecs, 10);
-    if (!duration || duration <= 0) throw createHttpError(400, 'durationSecs must be positive');
+    if (!duration || duration <= 0)
+      throw createHttpError(400, 'durationSecs must be positive');
 
     roundCount += 1;
     const id = roundCount;
@@ -242,11 +262,14 @@ router.post(
     const id = parseInt(req.params.id, 10);
     const round = rounds.get(id);
     if (!round) throw createHttpError(404, `Round ${id} not found`);
-    if (round.status !== 'Open') throw createHttpError(400, 'Round is not open');
-    if (nowSecs() >= round.endTime) throw createHttpError(400, 'Round has ended');
+    if (round.status !== 'Open')
+      throw createHttpError(400, 'Round is not open');
+    if (nowSecs() >= round.endTime)
+      throw createHttpError(400, 'Round has ended');
 
     const { buyer } = req.body || {};
-    if (!validateAddress(buyer)) throw createHttpError(400, 'buyer address is required');
+    if (!validateAddress(buyer))
+      throw createHttpError(400, 'buyer address is required');
 
     round.totalTickets += 1;
     round.prizePoolStroops += round.ticketPriceStroops;
@@ -258,7 +281,15 @@ router.post(
     analytics.totalTicketsSold += 1;
     analytics.totalPrizePool += round.ticketPriceStroops;
 
-    res.status(201).json({ success: true, data: { ticketId, roundId: id, buyer, prizePoolXlm: round.prizePoolXlm } });
+    res.status(201).json({
+      success: true,
+      data: {
+        ticketId,
+        roundId: id,
+        buyer,
+        prizePoolXlm: round.prizePoolXlm,
+      },
+    });
   })
 );
 
@@ -277,15 +308,24 @@ router.post(
     if (!round) throw createHttpError(404, `Round ${id} not found`);
 
     const { caller } = req.body || {};
-    if (caller !== adminAddress) throw createHttpError(403, 'Only admin can draw winners');
-    if (round.status === 'Completed') throw createHttpError(400, 'Round already drawn');
-    if (round.status === 'Cancelled') throw createHttpError(400, 'Round is cancelled');
-    if (nowSecs() < round.endTime) throw createHttpError(400, 'Round is still open');
+    if (caller !== adminAddress)
+      throw createHttpError(403, 'Only admin can draw winners');
+    if (round.status === 'Completed')
+      throw createHttpError(400, 'Round already drawn');
+    if (round.status === 'Cancelled')
+      throw createHttpError(400, 'Round is cancelled');
+    if (nowSecs() < round.endTime)
+      throw createHttpError(400, 'Round is still open');
     if (round.totalTickets === 0) throw createHttpError(400, 'No tickets sold');
 
     const drawSeq = Math.floor(Math.random() * 1_000_000);
     const drawTs = nowSecs();
-    const winnerTicketId = verifiableRandom(round.committedSeed, drawSeq, drawTs, round.totalTickets);
+    const winnerTicketId = verifiableRandom(
+      round.committedSeed,
+      drawSeq,
+      drawTs,
+      round.totalTickets
+    );
     const winner = ticketBuyers.get(`${id}-${winnerTicketId}`);
     if (!winner) throw createHttpError(500, 'Winner lookup failed');
 
@@ -295,7 +335,15 @@ router.post(
 
     analytics.completedRounds += 1;
 
-    res.json({ success: true, data: { roundId: id, winner, winnerTicketId, prizePoolXlm: round.prizePoolXlm } });
+    res.json({
+      success: true,
+      data: {
+        roundId: id,
+        winner,
+        winnerTicketId,
+        prizePoolXlm: round.prizePoolXlm,
+      },
+    });
   })
 );
 
@@ -311,12 +359,15 @@ router.post(
     const id = parseInt(req.params.id, 10);
     const round = rounds.get(id);
     if (!round) throw createHttpError(404, `Round ${id} not found`);
-    if (round.status !== 'Completed') throw createHttpError(400, 'Round is not completed');
+    if (round.status !== 'Completed')
+      throw createHttpError(400, 'Round is not completed');
     if (round.claimed) throw createHttpError(400, 'Prize already claimed');
 
     const { claimant } = req.body || {};
-    if (!validateAddress(claimant)) throw createHttpError(400, 'claimant address is required');
-    if (claimant !== round.winner) throw createHttpError(403, 'Only the winner can claim the prize');
+    if (!validateAddress(claimant))
+      throw createHttpError(400, 'claimant address is required');
+    if (claimant !== round.winner)
+      throw createHttpError(403, 'Only the winner can claim the prize');
 
     round.claimed = true;
     analytics.totalPrizesClaimed += round.prizePoolStroops;
@@ -347,9 +398,12 @@ router.post(
     if (!round) throw createHttpError(404, `Round ${id} not found`);
 
     const { caller } = req.body || {};
-    if (caller !== adminAddress) throw createHttpError(403, 'Only admin can cancel rounds');
-    if (round.status === 'Completed') throw createHttpError(400, 'Round already drawn');
-    if (round.status === 'Cancelled') throw createHttpError(400, 'Round already cancelled');
+    if (caller !== adminAddress)
+      throw createHttpError(403, 'Only admin can cancel rounds');
+    if (round.status === 'Completed')
+      throw createHttpError(400, 'Round already drawn');
+    if (round.status === 'Cancelled')
+      throw createHttpError(400, 'Round already cancelled');
 
     round.status = 'Cancelled';
     analytics.cancelledRounds += 1;

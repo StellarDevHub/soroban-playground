@@ -22,6 +22,7 @@ Migrations follow the naming convention: `{timestamp}_{description}.{direction}.
 - `direction`: `up` for applying, `down` for rolling back
 
 Example:
+
 ```
 1234567890_create_users_table.up.sql
 1234567890_create_users_table.down.sql
@@ -90,6 +91,7 @@ npm run test:migrations
 ```
 
 Tests cover:
+
 - Migration file validation
 - Migration execution and rollback
 - Checksum verification
@@ -107,6 +109,7 @@ Tests cover:
 ## Error Handling
 
 The system provides detailed error messages and attempts automatic recovery:
+
 - Validation errors prevent migration execution
 - Failed migrations trigger automatic rollback attempts
 - Rollback failures are logged and reported

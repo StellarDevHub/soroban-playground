@@ -55,7 +55,8 @@ async function generateApiKey(name, tier) {
     }),
   });
 
-  if (!response.ok) throw new Error(`Failed to generate key: ${response.status}`);
+  if (!response.ok)
+    throw new Error(`Failed to generate key: ${response.status}`);
   const data = await response.json();
   return data;
 }
@@ -98,7 +99,9 @@ async function testPersistence() {
     await new Promise((r) => setTimeout(r, 2000));
 
     // Step 5: Restart server (this is a manual step in real scenario)
-    logger.info('Step 5: Server restart would happen here (manual in production)');
+    logger.info(
+      'Step 5: Server restart would happen here (manual in production)'
+    );
     logger.warn(
       'Note: In production, manually restart the server and run this script again'
     );
@@ -113,8 +116,7 @@ async function testPersistence() {
     let allKeysPersisted = true;
     for (const keyBefore of keysBefore) {
       const found = keysAfter.some(
-        (k) =>
-          k.keyPrefix === keyBefore.prefix && k.tier === keyBefore.tier
+        (k) => k.keyPrefix === keyBefore.prefix && k.tier === keyBefore.tier
       );
       if (found) {
         logger.success(`Key ${keyBefore.prefix}**** persisted`);

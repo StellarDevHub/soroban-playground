@@ -39,31 +39,37 @@ const tradeHistory = [];
 
 function matchOrders(aggressorId) {
   const aggressor = orders.get(aggressorId);
-  if (!aggressor || aggressor.status === 'filled' || aggressor.status === 'cancelled') return [];
+  if (
+    !aggressor ||
+    aggressor.status === 'filled' ||
+    aggressor.status === 'cancelled'
+  )
+    return [];
 
   const trades = [];
   // Collect resting orders on the opposite side, sorted by best price then oldest first
   const resting = [...orders.values()]
-    .filter(o =>
-      o.id !== aggressorId &&
-      o.side !== aggressor.side &&
-      (o.status === 'open' || o.status === 'partially_filled')
+    .filter(
+      (o) =>
+        o.id !== aggressorId &&
+        o.side !== aggressor.side &&
+        (o.status === 'open' || o.status === 'partially_filled')
     )
     .sort((a, b) => {
       // For buy aggressor: sort sells ascending (cheapest first)
       // For sell aggressor: sort buys descending (highest first)
-      const priceCmp = aggressor.side === 'buy'
-        ? a.price - b.price
-        : b.price - a.price;
+      const priceCmp =
+        aggressor.side === 'buy' ? a.price - b.price : b.price - a.price;
       return priceCmp !== 0 ? priceCmp : a.createdAt - b.createdAt;
     });
 
   for (const rest of resting) {
     if (aggressor.remaining <= 0) break;
 
-    const priceMatches = aggressor.side === 'buy'
-      ? aggressor.price >= rest.price
-      : aggressor.price <= rest.price;
+    const priceMatches =
+      aggressor.side === 'buy'
+        ? aggressor.price >= rest.price
+        : aggressor.price <= rest.price;
 
     if (!priceMatches) break; // sorted, so no further matches possible
 
@@ -73,7 +79,8 @@ function matchOrders(aggressorId) {
     aggressor.remaining -= fillQty;
     rest.remaining -= fillQty;
 
-    aggressor.status = aggressor.remaining === 0 ? 'filled' : 'partially_filled';
+    aggressor.status =
+      aggressor.remaining === 0 ? 'filled' : 'partially_filled';
     rest.status = rest.remaining === 0 ? 'filled' : 'partially_filled';
 
     const trade = {
@@ -93,13 +100,30 @@ function matchOrders(aggressorId) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function placeOrder({ owner, side, price, quantity }) {
-  if (!owner || typeof owner !== 'string') throw Object.assign(new Error('owner required'), { status: 400 });
-  if (side !== 'buy' && side !== 'sell') throw Object.assign(new Error('side must be buy or sell'), { status: 400 });
-  if (!Number.isFinite(price) || price <= 0) throw Object.assign(new Error('price must be a positive number'), { status: 400 });
-  if (!Number.isFinite(quantity) || quantity <= 0) throw Object.assign(new Error('quantity must be a positive number'), { status: 400 });
+  if (!owner || typeof owner !== 'string')
+    throw Object.assign(new Error('owner required'), { status: 400 });
+  if (side !== 'buy' && side !== 'sell')
+    throw Object.assign(new Error('side must be buy or sell'), { status: 400 });
+  if (!Number.isFinite(price) || price <= 0)
+    throw Object.assign(new Error('price must be a positive number'), {
+      status: 400,
+    });
+  if (!Number.isFinite(quantity) || quantity <= 0)
+    throw Object.assign(new Error('quantity must be a positive number'), {
+      status: 400,
+    });
 
   const id = ++orderIdSeq;
-  const order = { id, owner, side, price, quantity, remaining: quantity, status: 'open', createdAt: Date.now() };
+  const order = {
+    id,
+    owner,
+    side,
+    price,
+    quantity,
+    remaining: quantity,
+    status: 'open',
+    createdAt: Date.now(),
+  };
   orders.set(id, order);
 
   const trades = matchOrders(id);
@@ -108,8 +132,10 @@ export function placeOrder({ owner, side, price, quantity }) {
 
 export function cancelOrder(id, owner) {
   const order = orders.get(id);
-  if (!order) throw Object.assign(new Error('Order not found'), { status: 404 });
-  if (order.owner !== owner) throw Object.assign(new Error('Not order owner'), { status: 403 });
+  if (!order)
+    throw Object.assign(new Error('Order not found'), { status: 404 });
+  if (order.owner !== owner)
+    throw Object.assign(new Error('Not order owner'), { status: 403 });
   if (order.status === 'filled' || order.status === 'cancelled') {
     throw Object.assign(new Error('Order is not active'), { status: 409 });
   }
@@ -119,24 +145,36 @@ export function cancelOrder(id, owner) {
 
 export function getOrder(id) {
   const order = orders.get(id);
-  if (!order) throw Object.assign(new Error('Order not found'), { status: 404 });
+  if (!order)
+    throw Object.assign(new Error('Order not found'), { status: 404 });
   return order;
 }
 
 export function getOrderBook() {
   const bids = [...orders.values()]
-    .filter(o => o.side === 'buy' && (o.status === 'open' || o.status === 'partially_filled'))
+    .filter(
+      (o) =>
+        o.side === 'buy' &&
+        (o.status === 'open' || o.status === 'partially_filled')
+    )
     .sort((a, b) => b.price - a.price || a.createdAt - b.createdAt);
 
   const asks = [...orders.values()]
-    .filter(o => o.side === 'sell' && (o.status === 'open' || o.status === 'partially_filled'))
+    .filter(
+      (o) =>
+        o.side === 'sell' &&
+        (o.status === 'open' || o.status === 'partially_filled')
+    )
     .sort((a, b) => a.price - b.price || a.createdAt - b.createdAt);
 
   return { bids, asks };
 }
 
 export function getTrades({ limit = 50, offset = 0 } = {}) {
-  const slice = tradeHistory.slice().reverse().slice(offset, offset + limit);
+  const slice = tradeHistory
+    .slice()
+    .reverse()
+    .slice(offset, offset + limit);
   return { trades: slice, total: tradeHistory.length };
 }
 
@@ -144,7 +182,9 @@ export function getStats() {
   const allOrders = [...orders.values()];
   return {
     totalOrders: allOrders.length,
-    openOrders: allOrders.filter(o => o.status === 'open' || o.status === 'partially_filled').length,
+    openOrders: allOrders.filter(
+      (o) => o.status === 'open' || o.status === 'partially_filled'
+    ).length,
     totalTrades: tradeHistory.length,
     totalVolume: tradeHistory.reduce((s, t) => s + t.quantity, 0),
   };

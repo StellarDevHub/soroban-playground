@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use super::{types::Error, VotingContract, VotingContractClient};
+use crate::storage::{set_count, set_total_voters};
 use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Symbol, Vec};
 
 fn setup() -> (Env, VotingContractClient<'static>, Address, Vec<Symbol>) {
@@ -146,4 +147,54 @@ fn test_registered_option_queries_work() {
 
     assert!(client.is_option_registered(&rust));
     assert!(!client.is_option_registered(&python));
+}
+
+#[test]
+fn test_vote_reports_count_underflow_instead_of_panicking() {
+    let (env, client, admin, options) = setup();
+    client.initialize(&admin, &options);
+
+    let voter = Address::generate(&env);
+    let rust = symbol_short!("RUST");
+    let go = symbol_short!("GO");
+
+    client.vote(&voter, &rust);
+    set_count(&env, &rust, 0);
+
+    let result = client.try_vote(&voter, &go);
+    assert!(matches!(result, Err(Ok(Error::VoteCountUnderflow))));
+    assert_eq!(client.get_vote(&voter), Some(rust.clone()));
+    assert_eq!(client.get_votes(&go), 0);
+}
+
+#[test]
+fn test_vote_reports_count_overflow_instead_of_panicking() {
+    let (env, client, admin, options) = setup();
+    client.initialize(&admin, &options);
+
+    let voter = Address::generate(&env);
+    let rust = symbol_short!("RUST");
+
+    set_count(&env, &rust, u32::MAX);
+
+    let result = client.try_vote(&voter, &rust);
+    assert!(matches!(result, Err(Ok(Error::VoteCountOverflow))));
+    assert!(!client.has_voted(&voter));
+    assert_eq!(client.total_voters(), 0);
+}
+
+#[test]
+fn test_vote_reports_voter_count_overflow_instead_of_panicking() {
+    let (env, client, admin, options) = setup();
+    client.initialize(&admin, &options);
+
+    let voter = Address::generate(&env);
+    let rust = symbol_short!("RUST");
+
+    set_total_voters(&env, u32::MAX);
+
+    let result = client.try_vote(&voter, &rust);
+    assert!(matches!(result, Err(Ok(Error::VoterCountOverflow))));
+    assert!(!client.has_voted(&voter));
+    assert_eq!(client.get_votes(&rust), 0);
 }

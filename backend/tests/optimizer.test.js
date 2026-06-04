@@ -1,57 +1,68 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
-import yieldOptimizerService from "../src/services/yieldOptimizerService.js";
+import yieldOptimizerService from '../src/services/yieldOptimizerService.js';
 
 const { adminAddress, executorAddress } = yieldOptimizerService.getConfig();
 
-test("create strategy + deposit + withdraw lifecycle", async () => {
+test('create strategy + deposit + withdraw lifecycle', async () => {
   yieldOptimizerService.reset();
 
   const strategy = await yieldOptimizerService.createStrategy({
     actor: adminAddress,
-    name: "Cross-Protocol Stable Blend",
-    protocol: "Blend + Aquarius",
+    name: 'Cross-Protocol Stable Blend',
+    protocol: 'Blend + Aquarius',
     apyBps: 1320,
     feeBps: 250,
     compoundInterval: 86400,
   });
 
-  assert.equal(strategy.name, "Cross-Protocol Stable Blend");
+  assert.equal(strategy.name, 'Cross-Protocol Stable Blend');
 
-  const deposited = await yieldOptimizerService.deposit(strategy.id, "GUSEROPT1", 5000);
+  const deposited = await yieldOptimizerService.deposit(
+    strategy.id,
+    'GUSEROPT1',
+    5000
+  );
   assert.equal(deposited.sharesMinted, 5000);
 
-  const withdrawn = await yieldOptimizerService.withdraw(strategy.id, "GUSEROPT1", 1200);
+  const withdrawn = await yieldOptimizerService.withdraw(
+    strategy.id,
+    'GUSEROPT1',
+    1200
+  );
   assert.equal(withdrawn.withdrawnAmount, 1200);
   assert.ok(withdrawn.strategy.tvl >= 3800);
 });
 
-test("compound restricted to admin or executor", async () => {
+test('compound restricted to admin or executor', async () => {
   yieldOptimizerService.reset();
 
   const strategy = await yieldOptimizerService.createStrategy({
     actor: adminAddress,
-    name: "Keeper Compound Vault",
-    protocol: "Blend + Wave",
+    name: 'Keeper Compound Vault',
+    protocol: 'Blend + Wave',
     apyBps: 1500,
     feeBps: 300,
     compoundInterval: 1,
   });
 
-  await yieldOptimizerService.deposit(strategy.id, "GUSEROPT2", 10000);
+  await yieldOptimizerService.deposit(strategy.id, 'GUSEROPT2', 10000);
 
   await assert.rejects(
-    () => yieldOptimizerService.compound(strategy.id, "GUNAUTHORIZED"),
+    () => yieldOptimizerService.compound(strategy.id, 'GUNAUTHORIZED'),
     /Only the admin or executor can compound a strategy/
   );
 
   await new Promise((resolve) => setTimeout(resolve, 1100));
-  const result = await yieldOptimizerService.compound(strategy.id, executorAddress);
+  const result = await yieldOptimizerService.compound(
+    strategy.id,
+    executorAddress
+  );
   assert.ok(result.compoundedTvl >= 10000);
 });
 
-test("backtest is deterministic for same inputs", async () => {
+test('backtest is deterministic for same inputs', async () => {
   yieldOptimizerService.reset();
 
   const payload = {

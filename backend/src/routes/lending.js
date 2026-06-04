@@ -9,28 +9,31 @@ router.get(
   '/credit-score/:address',
   asyncHandler(async (req, res) => {
     const { address } = req.params;
-    
-    // Filter ingested events for repayments by this user
-    const events = eventSchemaService.readEvents({ 
-      eventType: 'repayment' 
-    }).filter(e => e.data?.user === address);
 
-    const history = events.map(e => ({
+    // Filter ingested events for repayments by this user
+    const events = eventSchemaService
+      .readEvents({
+        eventType: 'repayment',
+      })
+      .filter((e) => e.data?.user === address);
+
+    const history = events.map((e) => ({
       amount: e.data?.amount,
       score: e.data?.score,
-      timestamp: e.timestamp
+      timestamp: e.timestamp,
     }));
 
     // Get the latest score or default to 0
-    const currentScore = history.length > 0 ? history[history.length - 1].score : 0;
+    const currentScore =
+      history.length > 0 ? history[history.length - 1].score : 0;
 
     return sendSuccess(res, {
       data: {
         address,
         currentScore,
-        history
+        history,
       },
-      message: 'Credit score and repayment history retrieved'
+      message: 'Credit score and repayment history retrieved',
     });
   })
 );

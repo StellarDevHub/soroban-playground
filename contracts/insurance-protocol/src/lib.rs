@@ -112,8 +112,18 @@ impl InsuranceProtocol {
             return Err(Error::PolicyInactive);
         }
 
+        // Prevent double policy purchase by same holder for same product
+        let policy_count = get_policy_count(&env);
+        for pid in 1..=policy_count {
+            if let Ok(existing_policy) = get_policy(&env, pid) {
+                if existing_policy.holder == holder && existing_policy.product_id == product_id && existing_policy.is_active {
+                    return Err(Error::PolicyAlreadyExists);
+                }
+            }
+        }
+
         let now = env.ledger().timestamp();
-        let id = get_policy_count(&env) + 1;
+        let id = policy_count + 1;
         let policy = Policy {
             holder: holder.clone(),
             product_id,

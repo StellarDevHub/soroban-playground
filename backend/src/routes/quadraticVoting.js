@@ -17,7 +17,9 @@ const router = express.Router();
 // ── Input validation helpers ──────────────────────────────────────────────────
 
 function requireFields(body, fields) {
-  const missing = fields.filter((f) => body[f] === undefined || body[f] === null || body[f] === '');
+  const missing = fields.filter(
+    (f) => body[f] === undefined || body[f] === null || body[f] === ''
+  );
   return missing.length ? missing : null;
 }
 
@@ -53,11 +55,17 @@ function sendError(res, status, message) {
  */
 router.post('/initialize', rateLimitMiddleware('invoke'), async (req, res) => {
   const missing = requireFields(req.body, ['contractId', 'admin']);
-  if (missing) return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
+  if (missing)
+    return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
 
   const { contractId, admin, votingPeriod, maxCredits } = req.body;
   try {
-    const result = await qvService.initialize(contractId, admin, votingPeriod ?? null, maxCredits ?? null);
+    const result = await qvService.initialize(
+      contractId,
+      admin,
+      votingPeriod ?? null,
+      maxCredits ?? null
+    );
     res.json({ success: true, data: result });
   } catch (err) {
     sendError(res, 500, err.message);
@@ -90,14 +98,27 @@ router.post('/initialize', rateLimitMiddleware('invoke'), async (req, res) => {
  *         description: Validation error
  */
 router.post('/proposals', rateLimitMiddleware('invoke'), async (req, res) => {
-  const missing = requireFields(req.body, ['contractId', 'admin', 'title', 'description']);
-  if (missing) return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
+  const missing = requireFields(req.body, [
+    'contractId',
+    'admin',
+    'title',
+    'description',
+  ]);
+  if (missing)
+    return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
 
   const { contractId, admin, title, description, duration } = req.body;
-  if (title.length > 32) return sendError(res, 400, 'Title must be 32 characters or fewer');
+  if (title.length > 32)
+    return sendError(res, 400, 'Title must be 32 characters or fewer');
 
   try {
-    const result = await qvService.createProposal(contractId, admin, title, description, duration ?? null);
+    const result = await qvService.createProposal(
+      contractId,
+      admin,
+      title,
+      description,
+      duration ?? null
+    );
     res.status(201).json({ success: true, data: { proposalId: result } });
   } catch (err) {
     sendError(res, 500, err.message);
@@ -129,10 +150,12 @@ router.post('/proposals', rateLimitMiddleware('invoke'), async (req, res) => {
  */
 router.get('/proposals/:proposalId', async (req, res) => {
   const { contractId } = req.query;
-  if (!contractId) return sendError(res, 400, 'contractId query param required');
+  if (!contractId)
+    return sendError(res, 400, 'contractId query param required');
 
   const proposalId = parseInt(req.params.proposalId, 10);
-  if (isNaN(proposalId)) return sendError(res, 400, 'proposalId must be an integer');
+  if (isNaN(proposalId))
+    return sendError(res, 400, 'proposalId must be an integer');
 
   try {
     const result = await qvService.getProposal(contractId, proposalId);
@@ -160,7 +183,8 @@ router.get('/proposals/:proposalId', async (req, res) => {
  */
 router.get('/proposals/count', async (req, res) => {
   const { contractId } = req.query;
-  if (!contractId) return sendError(res, 400, 'contractId query param required');
+  if (!contractId)
+    return sendError(res, 400, 'contractId query param required');
 
   try {
     const count = await qvService.getProposalCount(contractId);
@@ -195,21 +219,27 @@ router.get('/proposals/count', async (req, res) => {
  *       200:
  *         description: Proposal cancelled
  */
-router.post('/proposals/:proposalId/cancel', rateLimitMiddleware('invoke'), async (req, res) => {
-  const missing = requireFields(req.body, ['contractId', 'admin']);
-  if (missing) return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
+router.post(
+  '/proposals/:proposalId/cancel',
+  rateLimitMiddleware('invoke'),
+  async (req, res) => {
+    const missing = requireFields(req.body, ['contractId', 'admin']);
+    if (missing)
+      return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
 
-  const proposalId = parseInt(req.params.proposalId, 10);
-  if (isNaN(proposalId)) return sendError(res, 400, 'proposalId must be an integer');
+    const proposalId = parseInt(req.params.proposalId, 10);
+    if (isNaN(proposalId))
+      return sendError(res, 400, 'proposalId must be an integer');
 
-  const { contractId, admin } = req.body;
-  try {
-    const result = await qvService.finalizeProposal(contractId, proposalId);
-    res.json({ success: true, data: result });
-  } catch (err) {
-    sendError(res, 500, err.message);
+    const { contractId, admin } = req.body;
+    try {
+      const result = await qvService.finalizeProposal(contractId, proposalId);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      sendError(res, 500, err.message);
+    }
   }
-});
+);
 
 /**
  * @openapi
@@ -235,20 +265,25 @@ router.post('/proposals/:proposalId/cancel', rateLimitMiddleware('invoke'), asyn
  *       200:
  *         description: Proposal finalized with status
  */
-router.post('/proposals/:proposalId/finalize', rateLimitMiddleware('invoke'), async (req, res) => {
-  const { contractId } = req.body;
-  if (!contractId) return sendError(res, 400, 'contractId required');
+router.post(
+  '/proposals/:proposalId/finalize',
+  rateLimitMiddleware('invoke'),
+  async (req, res) => {
+    const { contractId } = req.body;
+    if (!contractId) return sendError(res, 400, 'contractId required');
 
-  const proposalId = parseInt(req.params.proposalId, 10);
-  if (isNaN(proposalId)) return sendError(res, 400, 'proposalId must be an integer');
+    const proposalId = parseInt(req.params.proposalId, 10);
+    if (isNaN(proposalId))
+      return sendError(res, 400, 'proposalId must be an integer');
 
-  try {
-    const result = await qvService.finalizeProposal(contractId, proposalId);
-    res.json({ success: true, data: { status: result } });
-  } catch (err) {
-    sendError(res, 500, err.message);
+    try {
+      const result = await qvService.finalizeProposal(contractId, proposalId);
+      res.json({ success: true, data: { status: result } });
+    } catch (err) {
+      sendError(res, 500, err.message);
+    }
   }
-});
+);
 
 /**
  * @openapi
@@ -276,8 +311,15 @@ router.post('/proposals/:proposalId/finalize', rateLimitMiddleware('invoke'), as
  *         description: Validation error
  */
 router.post('/vote', rateLimitMiddleware('invoke'), async (req, res) => {
-  const missing = requireFields(req.body, ['contractId', 'voter', 'proposalId', 'credits', 'isFor']);
-  if (missing) return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
+  const missing = requireFields(req.body, [
+    'contractId',
+    'voter',
+    'proposalId',
+    'credits',
+    'isFor',
+  ]);
+  if (missing)
+    return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
 
   const { contractId, voter, proposalId, credits, isFor } = req.body;
 
@@ -289,9 +331,18 @@ router.post('/vote', rateLimitMiddleware('invoke'), async (req, res) => {
   }
 
   try {
-    const result = await qvService.vote(contractId, voter, proposalId, credits, isFor);
+    const result = await qvService.vote(
+      contractId,
+      voter,
+      proposalId,
+      credits,
+      isFor
+    );
     const votesReceived = qvService.creditsToVotes(credits);
-    res.json({ success: true, data: { result, votesReceived, creditsSpent: credits } });
+    res.json({
+      success: true,
+      data: { result, votesReceived, creditsSpent: credits },
+    });
   } catch (err) {
     sendError(res, 500, err.message);
   }
@@ -320,14 +371,26 @@ router.post('/vote', rateLimitMiddleware('invoke'), async (req, res) => {
  *         description: Whitelist updated
  */
 router.post('/whitelist', rateLimitMiddleware('invoke'), async (req, res) => {
-  const missing = requireFields(req.body, ['contractId', 'admin', 'voter', 'allow']);
-  if (missing) return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
+  const missing = requireFields(req.body, [
+    'contractId',
+    'admin',
+    'voter',
+    'allow',
+  ]);
+  if (missing)
+    return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
 
   const { contractId, admin, voter, allow } = req.body;
-  if (typeof allow !== 'boolean') return sendError(res, 400, 'allow must be a boolean');
+  if (typeof allow !== 'boolean')
+    return sendError(res, 400, 'allow must be a boolean');
 
   try {
-    const result = await qvService.whitelistVoter(contractId, admin, voter, allow);
+    const result = await qvService.whitelistVoter(
+      contractId,
+      admin,
+      voter,
+      allow
+    );
     res.json({ success: true, data: result });
   } catch (err) {
     sendError(res, 500, err.message);
@@ -355,10 +418,14 @@ router.post('/whitelist', rateLimitMiddleware('invoke'), async (req, res) => {
  */
 router.get('/whitelist/:voter', async (req, res) => {
   const { contractId } = req.query;
-  if (!contractId) return sendError(res, 400, 'contractId query param required');
+  if (!contractId)
+    return sendError(res, 400, 'contractId query param required');
 
   try {
-    const whitelisted = await qvService.isWhitelisted(contractId, req.params.voter);
+    const whitelisted = await qvService.isWhitelisted(
+      contractId,
+      req.params.voter
+    );
     res.json({ success: true, data: { voter: req.params.voter, whitelisted } });
   } catch (err) {
     sendError(res, 500, err.message);
@@ -387,7 +454,8 @@ router.get('/whitelist/:voter', async (req, res) => {
  */
 router.post('/pause', rateLimitMiddleware('invoke'), async (req, res) => {
   const missing = requireFields(req.body, ['contractId', 'admin']);
-  if (missing) return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
+  if (missing)
+    return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
 
   const { contractId, admin } = req.body;
   try {
@@ -420,7 +488,8 @@ router.post('/pause', rateLimitMiddleware('invoke'), async (req, res) => {
  */
 router.post('/unpause', rateLimitMiddleware('invoke'), async (req, res) => {
   const missing = requireFields(req.body, ['contractId', 'admin']);
-  if (missing) return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
+  if (missing)
+    return sendError(res, 400, `Missing fields: ${missing.join(', ')}`);
 
   const { contractId, admin } = req.body;
   try {
@@ -448,7 +517,8 @@ router.post('/unpause', rateLimitMiddleware('invoke'), async (req, res) => {
  */
 router.get('/status', async (req, res) => {
   const { contractId } = req.query;
-  if (!contractId) return sendError(res, 400, 'contractId query param required');
+  if (!contractId)
+    return sendError(res, 400, 'contractId query param required');
 
   try {
     const paused = await qvService.isPaused(contractId);
@@ -475,7 +545,8 @@ router.get('/status', async (req, res) => {
  */
 router.get('/credits-to-votes', (req, res) => {
   const credits = parseInt(req.query.credits, 10);
-  if (isNaN(credits) || credits < 0) return sendError(res, 400, 'credits must be a non-negative integer');
+  if (isNaN(credits) || credits < 0)
+    return sendError(res, 400, 'credits must be a non-negative integer');
 
   const votes = qvService.creditsToVotes(credits);
   res.json({ success: true, data: { credits, votes } });

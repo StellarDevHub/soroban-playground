@@ -12,7 +12,11 @@ describe('retry strategy', () => {
   });
 
   it('produces fixed delays', () => {
-    const opts = normalizeRetry({ strategy: RetryStrategy.FIXED, baseMs: 50, jitter: 0 });
+    const opts = normalizeRetry({
+      strategy: RetryStrategy.FIXED,
+      baseMs: 50,
+      jitter: 0,
+    });
     expect(nextDelay(opts, 1, () => 0.5)).toBe(50);
     expect(nextDelay(opts, 5, () => 0.5)).toBe(50);
   });

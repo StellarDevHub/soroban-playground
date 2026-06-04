@@ -1,7 +1,4 @@
-import {
-  OracleService,
-  OracleEvent,
-} from '../../src/services/oracle/index.js';
+import { OracleService, OracleEvent } from '../../src/services/oracle/index.js';
 
 describe('OracleService end-to-end', () => {
   it('reaches consensus and elects exactly one leader for a single proof', async () => {
@@ -40,7 +37,10 @@ describe('OracleService end-to-end', () => {
   });
 
   it('uses a custom submitter when provided', async () => {
-    const submitter = jest.fn(async ({ proofId, vote }) => ({ tx: `tx-${proofId}`, vote }));
+    const submitter = jest.fn(async ({ proofId, vote }) => ({
+      tx: `tx-${proofId}`,
+      vote,
+    }));
     const svc = new OracleService({ nodeCount: 3, threshold: 2, submitter });
     const proof = await svc.submitProofAndWait({ payload: 'data' });
     expect(submitter).toHaveBeenCalledTimes(1); // only the leader submits
@@ -86,5 +86,20 @@ describe('OracleService end-to-end', () => {
     const h = svc.health();
     expect(h.nodes).toBe(4);
     expect(h.threshold).toBe(3);
+  });
+
+  it('retains only the configured number of proofs', async () => {
+    const svc = new OracleService({
+      nodeCount: 3,
+      threshold: 2,
+      proofRetention: 1,
+    });
+
+    const first = await svc.submitProofAndWait({ round: 1 });
+    const second = await svc.submitProofAndWait({ round: 2 });
+
+    expect(svc.getProof(first.id)).toBeNull();
+    expect(svc.getProof(second.id)).toBeTruthy();
+    expect(svc.listProofs({ limit: 10 })).toHaveLength(1);
   });
 });

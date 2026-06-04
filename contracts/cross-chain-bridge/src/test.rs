@@ -309,3 +309,83 @@ fn test_stats_track_correctly() {
     assert_eq!(stats.total_minted, 990_000);
     assert_eq!(stats.active_deposits, 0);
 }
+
+// ── Additional edge-case error handling ───────────────────────────────────────
+
+#[test]
+fn test_get_deposit_not_found() {
+    let (_env, client, ..) = setup();
+    let result = client.try_get_deposit(&999u32);
+    assert!(matches!(result, Err(Ok(Error::DepositNotFound))));
+}
+
+#[test]
+fn test_non_admin_cannot_set_fee() {
+    let (env, client, _admin, _relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_fee(&stranger, &50u32);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_non_admin_cannot_set_relayer() {
+    let (env, client, _admin, relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_relayer(&stranger, &relayer, &false);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_non_admin_cannot_set_daily_limit() {
+    let (env, client, _admin, _relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_daily_limit(&stranger, &999i128);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_non_admin_cannot_set_expiry() {
+    let (env, client, _admin, _relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_expiry(&stranger, &7200u64);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
+
+#[test]
+fn test_refund_double_refund_fails() {
+    let (env, client, _admin, _relayer) = setup();
+    let depositor = Address::generate(&env);
+    let token = String::from_str(&env, "USDC");
+    let id = client.lock(&depositor, &token, &1_000_000i128, &eth_dest(&env));
+    env.ledger().with_mut(|l| l.timestamp += EXPIRY + 1);
+    client.refund(&depositor, &id);
+    let result = client.try_refund(&depositor, &id);
+    assert!(matches!(result, Err(Ok(Error::AlreadyProcessed))));
+}
+
+#[test]
+fn test_zero_fee_lock_no_deduction() {
+    let (env, client, admin, _relayer) = setup();
+    client.set_fee(&admin, &0u32);
+    let depositor = Address::generate(&env);
+    let token = String::from_str(&env, "XLM");
+    let id = client.lock(&depositor, &token, &500_000i128, &eth_dest(&env));
+    let deposit = client.get_deposit(&id);
+    assert_eq!(deposit.amount, 500_000);
+    assert_eq!(deposit.fee, 0);
+}
+
+#[test]
+fn test_daily_limit_resets_after_window() {
+    let (env, client, admin, _relayer) = setup();
+    client.set_daily_limit(&admin, &1_000i128);
+    let depositor = Address::generate(&env);
+    let token = String::from_str(&env, "XLM");
+    // First lock within limit
+    client.lock(&depositor, &token, &500i128, &eth_dest(&env));
+    // Advance past 24h window
+    env.ledger().with_mut(|l| l.timestamp += 86_401);
+    // Should succeed again after reset
+    let id = client.lock(&depositor, &token, &500i128, &eth_dest(&env));
+    assert_eq!(id, 2);
+}

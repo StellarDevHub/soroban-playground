@@ -12,7 +12,20 @@ import {
   Server,
   Sparkles,
 } from "lucide-react";
-import Editor from "@/components/Editor";
+import dynamic from "next/dynamic";
+import MobileEditor from "@/components/MobileEditor";
+
+const Editor = dynamic(() => import("@/components/Editor"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full w-full text-gray-500">
+      <div className="flex flex-col items-center gap-3">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500" />
+        <span className="text-xs font-mono text-gray-400">Loading editor...</span>
+      </div>
+    </div>
+  ),
+});
 import Console from "@/components/Console";
 import DeployPanel from "@/components/DeployPanel";
 import CallPanel from "@/components/CallPanel";
@@ -546,13 +559,17 @@ export default function Home() {
             : "size unavailable"
         } · ${payload.cached ? "cache hit" : "fresh build"}`,
       );
-      setCompileStats((prev) => ({
-        ...prev,
-        cacheHitRate: payload.cached
-          ? Math.min(100, prev.cacheHitRate + 10)
-          : Math.max(0, prev.cacheHitRate - 5),
-        activeWorkers: Math.max(prev.activeWorkers, 1),
-      }));
+      try {
+        const statsRes = await fetch(`${DEFAULT_API_BASE_URL}/api/compile/stats`);
+        if (statsRes.ok) {
+          const statsPayload = await statsRes.json();
+          if (statsPayload.stats) {
+            setCompileStats((prev) => ({ ...prev, ...statsPayload.stats }));
+          }
+        }
+      } catch (err) {
+        // ignore stats fetch errors
+      }
 
       appendLog(`[compile] ${payload.message}`);
       compileLogs.forEach((log) => appendLog(`[cargo] ${log}`));
@@ -2140,32 +2157,35 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="grid flex-1 gap-0 lg:grid-cols-[minmax(0,1fr)_440px]">
-          <section className="flex min-h-[560px] flex-col border-b border-white/8 p-4 lg:border-b-0 lg:border-r">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2">
-              <div>
-                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  <Code2 size={14} />
-                  Contract Editor
-                </p>
-                <p className="mt-1 text-sm text-slate-300">
-                  Edit `lib.rs`, then compile against the backend toolchain.
-                </p>
-              </div>
-              <a
-                href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
-              >
-                <BookOpen size={14} />
-                Soroban Docs
-              </a>
-            </div>
-            <Editor code={code} setCode={setCode} />
-          </section>
-
-          <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
+        <main className="flex-1">
+          <MobileEditor
+            editor={
+              <section className="flex min-h-[560px] flex-col border-b border-white/8 p-4 lg:border-b-0 lg:border-r">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2">
+                  <div>
+                    <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      <Code2 size={14} />
+                      Contract Editor
+                    </p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Edit `lib.rs`, then compile against the backend toolchain.
+                    </p>
+                  </div>
+                  <a
+                    href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
+                  >
+                    <BookOpen size={14} />
+                    Soroban Docs
+                  </a>
+                </div>
+                <Editor code={code} setCode={setCode} />
+              </section>
+            }
+            output={
+              <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
             <DeployPanel
               onCompile={handleCompile}
               onDeploy={handleDeploy}
@@ -2204,8 +2224,6 @@ export default function Home() {
                     {compileStats.activeWorkers}
                   </p>
                 </div>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-300">
                 <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
                   <p className="text-slate-500">ETA</p>
                   <p className="mt-1 text-base font-semibold text-slate-100">
@@ -2216,6 +2234,12 @@ export default function Home() {
                   <p className="text-slate-500">Slow Builds</p>
                   <p className="mt-1 text-base font-semibold text-rose-300">
                     {compileStats.slowCompiles}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
+                  <p className="text-slate-500">Total Builds</p>
+                  <p className="mt-1 text-base font-semibold text-indigo-300">
+                    {compileStats.totalCompiles}
                   </p>
                 </div>
               </div>
@@ -2481,6 +2505,8 @@ export default function Home() {
               onIngestionPauseChange={setIsIngestionPaused} 
             />
           </aside>
+            }
+          />
         </main>
       </div>
     </div>

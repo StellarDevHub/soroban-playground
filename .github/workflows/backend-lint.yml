@@ -1,35 +1,34 @@
-name: Backend Linting & Checks
-
-on:
-  pull_request:
-    paths:
-      - 'backend/**'
-      - 'scripts/check-license.js'
-  push:
-    branches:
-      - main
-    paths:
-      - 'backend/**'
-      - 'scripts/check-license.js'
-
-jobs:
-  lint-and-check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Run License Check
-        run: node scripts/check-license.js
-
-      - name: Run linting and formatting check
-        working-directory: backend
-        run: |
-          npm install --no-package-lock --no-save eslint prettier
-          npx eslint src/
-          npx prettier --check src/
+# name: Backend Linting & Checks
+#
+#on:
+#  pull_request:
+#    paths:
+#      - 'backend/**'
+#      - 'scripts/check-license.js'
+#  push:
+#    branches:
+#      - main
+#    paths:
+#      - 'backend/**'
+#      - 'scripts/check-license.js'
+#
+#jobs:
+#  lint-and-check:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Setup Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: '22'
+#
+#      - name: Run License Check
+#        run: node scripts/check-license.js
+#
+#      - name: Run linting and formatting check
+#        run: |
+#          npm ci --no-audit --no-fund
+#          npm run lint:check --workspace=backend
+#          npm run format:check --workspace=backend

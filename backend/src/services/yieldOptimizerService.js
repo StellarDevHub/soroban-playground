@@ -1,9 +1,9 @@
 const DEFAULT_ADMIN =
   process.env.OPTIMIZER_ADMIN_ADDRESS ||
-  "GOPTIMIZERADMIN000000000000000000000000000000000000";
+  'GOPTIMIZERADMIN000000000000000000000000000000000000';
 const DEFAULT_EXECUTOR =
   process.env.OPTIMIZER_EXECUTOR_ADDRESS ||
-  "GOPTIMIZEREXECUTOR000000000000000000000000000000000";
+  'GOPTIMIZEREXECUTOR000000000000000000000000000000000';
 const SECONDS_PER_YEAR = 31_536_000;
 const BPS_DENOM = 10_000;
 
@@ -107,7 +107,7 @@ class YieldOptimizerService {
     this.strategies.push(strategy);
     this.recordHistory({
       actor: input.actor,
-      action: "strategy.created",
+      action: 'strategy.created',
       strategyId: strategy.id,
       details: {
         name: strategy.name,
@@ -133,7 +133,7 @@ class YieldOptimizerService {
 
     this.recordHistory({
       actor,
-      action: "strategy.updated",
+      action: 'strategy.updated',
       strategyId: strategy.id,
       details: {
         apyBps: strategy.apyBps,
@@ -151,7 +151,7 @@ class YieldOptimizerService {
       return null;
     }
     if (!strategy.isActive) {
-      const error = new Error("Strategy is paused");
+      const error = new Error('Strategy is paused');
       error.statusCode = 409;
       throw error;
     }
@@ -172,7 +172,7 @@ class YieldOptimizerService {
 
     this.recordHistory({
       actor,
-      action: "strategy.deposit",
+      action: 'strategy.deposit',
       strategyId: strategy.id,
       details: {
         amount,
@@ -194,14 +194,14 @@ class YieldOptimizerService {
     }
     const position = strategy.positions.find((item) => item.user === actor);
     if (!position) {
-      const error = new Error("User has no position in this strategy");
+      const error = new Error('User has no position in this strategy');
       error.statusCode = 404;
       throw error;
     }
 
     const currentBalance = this.positionValue(strategy, position.shares);
     if (amount > currentBalance) {
-      const error = new Error("Withdrawal exceeds current strategy balance");
+      const error = new Error('Withdrawal exceeds current strategy balance');
       error.statusCode = 409;
       throw error;
     }
@@ -219,12 +219,14 @@ class YieldOptimizerService {
     strategy.updatedAt = nowIso();
 
     if (position.shares <= 0) {
-      strategy.positions = strategy.positions.filter((item) => item.user !== actor);
+      strategy.positions = strategy.positions.filter(
+        (item) => item.user !== actor
+      );
     }
 
     this.recordHistory({
       actor,
-      action: "strategy.withdraw",
+      action: 'strategy.withdraw',
       strategyId: strategy.id,
       details: {
         amount,
@@ -250,7 +252,9 @@ class YieldOptimizerService {
 
   async compound(id, actor) {
     if (![DEFAULT_ADMIN, DEFAULT_EXECUTOR].includes(actor)) {
-      const error = new Error("Only the admin or executor can compound a strategy");
+      const error = new Error(
+        'Only the admin or executor can compound a strategy'
+      );
       error.statusCode = 403;
       throw error;
     }
@@ -263,7 +267,7 @@ class YieldOptimizerService {
     const now = nowSeconds();
     const elapsed = now - strategy.lastCompoundTs;
     if (elapsed < strategy.compoundInterval) {
-      const error = new Error("Compound interval has not elapsed yet");
+      const error = new Error('Compound interval has not elapsed yet');
       error.statusCode = 409;
       throw error;
     }
@@ -281,7 +285,7 @@ class YieldOptimizerService {
 
     this.recordHistory({
       actor,
-      action: "strategy.compound",
+      action: 'strategy.compound',
       strategyId: strategy.id,
       details: {
         netReward,
@@ -299,7 +303,9 @@ class YieldOptimizerService {
   }
 
   async listHistory() {
-    return clone([...this.history].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)));
+    return clone(
+      [...this.history].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+    );
   }
 
   async backtest(input) {
@@ -352,7 +358,9 @@ class YieldOptimizerService {
     const effectiveApy =
       depositAmount <= 0
         ? 0
-        : Number(((((equity / depositAmount) ** (365 / days)) - 1) * 100).toFixed(2));
+        : Number(
+            (((equity / depositAmount) ** (365 / days) - 1) * 100).toFixed(2)
+          );
 
     return {
       strategyId: strategy?.id || null,
@@ -368,14 +376,16 @@ class YieldOptimizerService {
         deterministicSeries: true,
         source: strategy
           ? `Mocked historical blend for ${strategy.protocol}`
-          : "Mocked historical protocol basket",
+          : 'Mocked historical protocol basket',
       },
       series,
     };
   }
 
   findStrategy(id) {
-    return this.strategies.find((strategy) => strategy.id === Number(id)) || null;
+    return (
+      this.strategies.find((strategy) => strategy.id === Number(id)) || null
+    );
   }
 
   findOrCreatePosition(strategy, user) {
@@ -396,7 +406,9 @@ class YieldOptimizerService {
     if (strategy.totalShares === 0 || shares === 0) {
       return 0;
     }
-    return Math.floor((shares * strategy.totalDeposited) / strategy.totalShares);
+    return Math.floor(
+      (shares * strategy.totalDeposited) / strategy.totalShares
+    );
   }
 
   serializePosition(strategy, position) {
@@ -439,7 +451,9 @@ class YieldOptimizerService {
 
   assertAdmin(actor) {
     if (actor !== DEFAULT_ADMIN) {
-      const error = new Error("Only the configured admin can update strategies");
+      const error = new Error(
+        'Only the configured admin can update strategies'
+      );
       error.statusCode = 403;
       throw error;
     }

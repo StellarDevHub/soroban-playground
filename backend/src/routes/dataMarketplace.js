@@ -22,19 +22,22 @@ function requireString(value, field, { max = 256 } = {}) {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw createHttpError(400, `${field} is required`);
   }
-  if (value.length > max) throw createHttpError(400, `${field} must be <= ${max} characters`);
+  if (value.length > max)
+    throw createHttpError(400, `${field} must be <= ${max} characters`);
   return value.trim();
 }
 
 function requireAddress(value, field) {
   const v = requireString(value, field);
-  if (!STELLAR_ADDRESS.test(v)) throw createHttpError(400, `${field} is not a valid Stellar address`);
+  if (!STELLAR_ADDRESS.test(v))
+    throw createHttpError(400, `${field} is not a valid Stellar address`);
   return v;
 }
 
 function requireHash(value, field) {
   const v = requireString(value, field);
-  if (!HEX_HASH.test(v)) throw createHttpError(400, `${field} must be a 32-byte hex string`);
+  if (!HEX_HASH.test(v))
+    throw createHttpError(400, `${field} must be a 32-byte hex string`);
   return v.toLowerCase();
 }
 
@@ -69,7 +72,11 @@ router.post(
     const address = requireAddress(req.body?.address, 'address');
     const name = requireString(req.body?.name, 'name', { max: 64 });
     const contactHash = requireHash(req.body?.contactHash, 'contactHash');
-    const profile = dataMarketplaceService.registerProvider({ address, name, contactHash });
+    const profile = dataMarketplaceService.registerProvider({
+      address,
+      name,
+      contactHash,
+    });
     res.status(201).json({ success: true, data: profile });
   })
 );
@@ -88,7 +95,10 @@ router.get(
   '/providers/:address/datasets',
   asyncHandler(async (req, res) => {
     const address = requireAddress(req.params.address, 'address');
-    res.json({ success: true, data: dataMarketplaceService.getProviderDatasets(address) });
+    res.json({
+      success: true,
+      data: dataMarketplaceService.getProviderDatasets(address),
+    });
   })
 );
 
@@ -101,10 +111,23 @@ router.post(
     const title = requireString(req.body?.title, 'title', { max: 200 });
     const schemaHash = requireHash(req.body?.schemaHash, 'schemaHash');
     const manifestHash = requireHash(req.body?.manifestHash, 'manifestHash');
-    const encryptionPubkey = requireHash(req.body?.encryptionPubkey, 'encryptionPubkey');
-    const flatPrice = requireInt(req.body?.flatPrice ?? 0, 'flatPrice', { min: 0 });
-    const pricePerQuery = requireInt(req.body?.pricePerQuery ?? 0, 'pricePerQuery', { min: 0 });
-    const licenseSeconds = requireInt(req.body?.licenseSeconds, 'licenseSeconds', { min: 1 });
+    const encryptionPubkey = requireHash(
+      req.body?.encryptionPubkey,
+      'encryptionPubkey'
+    );
+    const flatPrice = requireInt(req.body?.flatPrice ?? 0, 'flatPrice', {
+      min: 0,
+    });
+    const pricePerQuery = requireInt(
+      req.body?.pricePerQuery ?? 0,
+      'pricePerQuery',
+      { min: 0 }
+    );
+    const licenseSeconds = requireInt(
+      req.body?.licenseSeconds,
+      'licenseSeconds',
+      { min: 1 }
+    );
 
     const dataset = dataMarketplaceService.listDataset({
       provider,
@@ -124,7 +147,10 @@ router.get(
   '/datasets',
   asyncHandler(async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 50)));
-    res.json({ success: true, data: dataMarketplaceService.listActiveDatasets({ limit }) });
+    res.json({
+      success: true,
+      data: dataMarketplaceService.listActiveDatasets({ limit }),
+    });
   })
 );
 
@@ -145,10 +171,16 @@ router.patch(
     const provider = requireAddress(req.body?.provider, 'provider');
     const updates = { provider, id };
     if (req.body?.flatPrice !== undefined) {
-      updates.flatPrice = requireInt(req.body.flatPrice, 'flatPrice', { min: 0 });
+      updates.flatPrice = requireInt(req.body.flatPrice, 'flatPrice', {
+        min: 0,
+      });
     }
     if (req.body?.pricePerQuery !== undefined) {
-      updates.pricePerQuery = requireInt(req.body.pricePerQuery, 'pricePerQuery', { min: 0 });
+      updates.pricePerQuery = requireInt(
+        req.body.pricePerQuery,
+        'pricePerQuery',
+        { min: 0 }
+      );
     }
     const dataset = dataMarketplaceService.updateDatasetPrice(updates);
     res.json({ success: true, data: dataset });
@@ -169,7 +201,10 @@ router.get(
   '/datasets/:id/analytics',
   asyncHandler(async (req, res) => {
     const id = requireInt(req.params.id, 'id', { min: 1 });
-    res.json({ success: true, data: dataMarketplaceService.getDatasetStats(id) });
+    res.json({
+      success: true,
+      data: dataMarketplaceService.getDatasetStats(id),
+    });
   })
 );
 
@@ -193,8 +228,14 @@ router.post(
   asyncHandler(async (req, res) => {
     const buyer = requireAddress(req.body?.buyer, 'buyer');
     const datasetId = requireInt(req.body?.datasetId, 'datasetId', { min: 1 });
-    const maxQueries = requireInt(req.body?.maxQueries, 'maxQueries', { min: 1 });
-    const license = dataMarketplaceService.purchaseAccess({ buyer, datasetId, maxQueries });
+    const maxQueries = requireInt(req.body?.maxQueries, 'maxQueries', {
+      min: 1,
+    });
+    const license = dataMarketplaceService.purchaseAccess({
+      buyer,
+      datasetId,
+      maxQueries,
+    });
     res.status(201).json({ success: true, data: license });
   })
 );
@@ -216,7 +257,11 @@ router.post(
     const buyer = requireAddress(req.body?.buyer, 'buyer');
     const datasetId = requireInt(req.body?.datasetId, 'datasetId', { min: 1 });
     const commitment = requireHash(req.body?.commitment, 'commitment');
-    const receipt = dataMarketplaceService.submitQuery({ buyer, datasetId, commitment });
+    const receipt = dataMarketplaceService.submitQuery({
+      buyer,
+      datasetId,
+      commitment,
+    });
     res.status(201).json({ success: true, data: receipt });
   })
 );
@@ -235,7 +280,9 @@ router.post(
   '/queries/verify',
   asyncHandler(async (req, res) => {
     const commitment = requireHash(req.body?.commitment, 'commitment');
-    const preimage = requireString(req.body?.preimageHex, 'preimageHex', { max: 8192 });
+    const preimage = requireString(req.body?.preimageHex, 'preimageHex', {
+      max: 8192,
+    });
     const valid = dataMarketplaceService.verifyCommitment(commitment, preimage);
     res.json({ success: true, data: { valid } });
   })
@@ -247,14 +294,20 @@ router.get(
   '/buyers/:address/analytics',
   asyncHandler(async (req, res) => {
     const address = requireAddress(req.params.address, 'address');
-    res.json({ success: true, data: dataMarketplaceService.getBuyerStats(address) });
+    res.json({
+      success: true,
+      data: dataMarketplaceService.getBuyerStats(address),
+    });
   })
 );
 
 router.get(
   '/analytics/platform',
   asyncHandler(async (_req, res) => {
-    res.json({ success: true, data: dataMarketplaceService.getPlatformAnalytics() });
+    res.json({
+      success: true,
+      data: dataMarketplaceService.getPlatformAnalytics(),
+    });
   })
 );
 

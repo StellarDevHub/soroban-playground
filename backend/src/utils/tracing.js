@@ -1,7 +1,10 @@
 import { trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import config from '../config/index.js';
 
-const tracer = trace.getTracer(config.tracing.serviceName, config.tracing.serviceVersion);
+const tracer = trace.getTracer(
+  config.tracing.serviceName,
+  config.tracing.serviceVersion
+);
 
 // Helper to create a span with common attributes
 export function createSpan(name, attributes = {}, kind = SpanKind.INTERNAL) {

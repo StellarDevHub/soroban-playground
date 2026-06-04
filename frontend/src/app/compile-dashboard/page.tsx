@@ -60,6 +60,18 @@ interface CompileStats {
   artifactsCount: number;
 }
 
+interface CompileHistoryItem {
+  requestId: string;
+  hash: string;
+  cached: boolean;
+  durationMs: number;
+  timestamp: string;
+  artifact: {
+    sizeBytes: number;
+    durationMs: number;
+  };
+}
+
 interface HistoryItem {
   requestId: string;
   hash: string;
@@ -207,7 +219,7 @@ export default function CompileDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/50">
-                    {history.length > 0 ? history.map((item: any) => (
+                    {history.length > 0 ? history.map((item: HistoryItem) => (
                       <tr key={item.requestId} className="hover:bg-gray-800/30 transition-colors group">
                         <td className="px-6 py-4">
                           {item.cached ? (

@@ -8,20 +8,32 @@ describe('VoteSigner', () => {
     const s = new VoteSigner({ keys: { A: 'secret' }, required: true });
     const sig = s.sign({ proofId: 'p', nodeId: 'A', vote: { v: 1 } });
     expect(sig).toMatch(/^[a-f0-9]{64}$/);
-    expect(s.verify({ proofId: 'p', nodeId: 'A', vote: { v: 1 }, signature: sig }).ok).toBe(true);
+    expect(
+      s.verify({ proofId: 'p', nodeId: 'A', vote: { v: 1 }, signature: sig }).ok
+    ).toBe(true);
   });
 
   it('rejects a signature with a tampered vote', () => {
     const s = new VoteSigner({ keys: { A: 'secret' }, required: true });
     const sig = s.sign({ proofId: 'p', nodeId: 'A', vote: { v: 1 } });
-    const result = s.verify({ proofId: 'p', nodeId: 'A', vote: { v: 2 }, signature: sig });
+    const result = s.verify({
+      proofId: 'p',
+      nodeId: 'A',
+      vote: { v: 2 },
+      signature: sig,
+    });
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('bad_signature');
   });
 
   it('rejects a node we have no key for', () => {
     const s = new VoteSigner({ keys: {}, required: true });
-    const result = s.verify({ proofId: 'p', nodeId: 'X', vote: 1, signature: 'a'.repeat(64) });
+    const result = s.verify({
+      proofId: 'p',
+      nodeId: 'X',
+      vote: 1,
+      signature: 'a'.repeat(64),
+    });
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('unknown_node');
   });

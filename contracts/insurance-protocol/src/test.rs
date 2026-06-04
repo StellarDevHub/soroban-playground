@@ -200,6 +200,17 @@ fn test_buy_policy_sequential_ids() {
     assert_eq!(id2, 2);
 }
 
+#[test]
+fn test_buy_policy_double_purchase_fails() {
+    let (env, admin, client) = setup();
+    let product_id = add_product(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    let _policy_id = client.buy_policy(&holder, &product_id);
+    // Attempt to buy again for same product and holder
+    let result = client.try_buy_policy(&holder, &product_id);
+    assert_eq!(result, Err(Ok(Error::PolicyAlreadyExists)));
+}
+
 // ── file_claim ────────────────────────────────────────────────────────────────
 
 #[test]

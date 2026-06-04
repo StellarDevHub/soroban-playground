@@ -33,9 +33,12 @@ export class ConsensusCoordinator {
     auditLog = sharedAuditLog,
     voteTtlMs,
   } = {}) {
-    if (!lockManager) throw new Error('ConsensusCoordinator requires a lockManager');
+    if (!lockManager)
+      throw new Error('ConsensusCoordinator requires a lockManager');
     this.lockManager = lockManager;
-    this.voteStore = voteStore || new MemoryVoteStore({ defaultTtlMs: voteTtlMs ?? 5 * 60_000 });
+    this.voteStore =
+      voteStore ||
+      new MemoryVoteStore({ defaultTtlMs: voteTtlMs ?? 5 * 60_000 });
     this.voteSigner = voteSigner || new VoteSigner({ required: false });
     this.weights = weights || null; // optional Map<nodeId, number> or plain object
     this.audit = auditLog;
@@ -49,7 +52,12 @@ export class ConsensusCoordinator {
   }
 
   async registerVote(proofId, nodeId, vote, signature) {
-    const verification = this.voteSigner.verify({ proofId, nodeId, vote, signature });
+    const verification = this.voteSigner.verify({
+      proofId,
+      nodeId,
+      vote,
+      signature,
+    });
     if (!verification.ok) {
       this.audit.record('consensus.vote_rejected', {
         proofId,
@@ -122,7 +130,13 @@ export class ConsensusCoordinator {
   }
 
   // Combined: register a vote, check quorum, attempt to become leader.
-  async submitVoteAndMaybeLead({ proofId, nodeId, vote, signature, threshold }) {
+  async submitVoteAndMaybeLead({
+    proofId,
+    nodeId,
+    vote,
+    signature,
+    threshold,
+  }) {
     await this.registerVote(proofId, nodeId, vote, signature);
     const quorum = await this.checkQuorum(proofId, threshold);
     if (!quorum.reached) {

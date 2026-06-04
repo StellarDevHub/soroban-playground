@@ -26,7 +26,7 @@ export class ApiKeyService {
     tier = 'free',
     userId,
     organizationId,
-    expiresAt
+    expiresAt,
   }) {
     const key = this.generateSecureKey();
     const keyHash = crypto.createHash('sha256').update(key).digest('hex');
@@ -36,7 +36,16 @@ export class ApiKeyService {
     const result = await db.run(
       `INSERT INTO api_keys (key_hash, key_prefix, name, description, tier, user_id, organization_id, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [keyHash, keyPrefix, name, description, tier, userId, organizationId, expiresAt]
+      [
+        keyHash,
+        keyPrefix,
+        name,
+        description,
+        tier,
+        userId,
+        organizationId,
+        expiresAt,
+      ]
     );
 
     // Log key generation
@@ -44,7 +53,7 @@ export class ApiKeyService {
       action: 'key_generated',
       apiKeyId: result.lastID,
       userId,
-      metadata: { tier, name }
+      metadata: { tier, name },
     });
 
     return {
@@ -55,7 +64,7 @@ export class ApiKeyService {
       description,
       tier,
       status: 'active',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
   }
 
@@ -103,10 +112,10 @@ export class ApiKeyService {
         requestsPerMinute: row.requests_per_minute,
         requestsPerHour: row.requests_per_hour,
         requestsPerDay: row.requests_per_day,
-        burstLimit: row.burst_limit
+        burstLimit: row.burst_limit,
       },
       usageCount: row.usage_count + 1,
-      lastUsedAt: new Date().toISOString()
+      lastUsedAt: new Date().toISOString(),
     };
   }
 
@@ -145,8 +154,8 @@ export class ApiKeyService {
         requestsPerMinute: row.requests_per_minute,
         requestsPerHour: row.requests_per_hour,
         requestsPerDay: row.requests_per_day,
-        burstLimit: row.burst_limit
-      }
+        burstLimit: row.burst_limit,
+      },
     };
   }
 
@@ -178,7 +187,7 @@ export class ApiKeyService {
 
     const rows = await db.all(query, params);
 
-    return rows.map(row => ({
+    return rows.map((row) => ({
       id: row.id,
       keyPrefix: row.key_prefix,
       name: row.name,
@@ -194,8 +203,8 @@ export class ApiKeyService {
         requestsPerMinute: row.requests_per_minute,
         requestsPerHour: row.requests_per_hour,
         requestsPerDay: row.requests_per_day,
-        burstLimit: row.burst_limit
-      }
+        burstLimit: row.burst_limit,
+      },
     }));
   }
 
@@ -215,7 +224,7 @@ export class ApiKeyService {
     await this.logAudit({
       action: 'key_revoked',
       apiKeyId: keyId,
-      metadata: { reason }
+      metadata: { reason },
     });
   }
 
@@ -265,7 +274,7 @@ export class ApiKeyService {
       dailyUsage,
       endpointUsage,
       violations,
-      period: `${days} days`
+      period: `${days} days`,
     };
   }
 
@@ -285,7 +294,12 @@ export class ApiKeyService {
     const db = getDatabase();
     await db.run(
       `INSERT INTO audit_log (api_key_id, user_id, action, metadata) VALUES (?, ?, ?, ?)`,
-      [event.apiKeyId, event.userId, event.action, JSON.stringify(event.metadata || {})]
+      [
+        event.apiKeyId,
+        event.userId,
+        event.action,
+        JSON.stringify(event.metadata || {}),
+      ]
     );
   }
 
@@ -298,7 +312,7 @@ export class ApiKeyService {
    */
   async trackUsage(apiKeyId, endpoint, tier, windowMinutes = 1) {
     const now = new Date();
-    const windowStart = new Date(now.getTime() - (windowMinutes * 60 * 1000));
+    const windowStart = new Date(now.getTime() - windowMinutes * 60 * 1000);
     const db = getDatabase();
 
     await db.run(

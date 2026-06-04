@@ -20,7 +20,10 @@ jest.mock('../../src/middleware/rateLimiter.js', () => ({
 
 import { invokeSorobanContract } from '../../src/services/invokeService.js';
 import sportsPredictionMarketRoute from '../../src/routes/sportsPredictionMarket.js';
-import { notFoundHandler, errorHandler } from '../../src/middleware/errorHandler.js';
+import {
+  notFoundHandler,
+  errorHandler,
+} from '../../src/middleware/errorHandler.js';
 
 // ── Test app ──────────────────────────────────────────────────────────────────
 function buildApp() {
@@ -32,15 +35,20 @@ function buildApp() {
   return app;
 }
 
-const VALID_CONTRACT = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const VALID_ADDRESS  = 'GDEMO4MV6L6QY6P4UQBW5SC4R6X4P7WALLETDEMO4MV6L6QY6P4UQBW';
+const VALID_CONTRACT =
+  'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_ADDRESS = 'GDEMO4MV6L6QY6P4UQBW5SC4R6X4P7WALLETDEMO4MV6L6QY6P4UQBW';
 
 describe('Sports Prediction Market API', () => {
   let app;
 
   beforeEach(() => {
     app = buildApp();
-    invokeSorobanContract.mockResolvedValue({ parsed: 'ok', stdout: '', stderr: '' });
+    invokeSorobanContract.mockResolvedValue({
+      parsed: 'ok',
+      stdout: '',
+      stderr: '',
+    });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -90,8 +98,14 @@ describe('Sports Prediction Market API', () => {
     };
 
     it('returns 201 on valid input', async () => {
-      invokeSorobanContract.mockResolvedValue({ parsed: 1, stdout: '', stderr: '' });
-      const res = await request(app).post('/api/sports-markets').send(validBody);
+      invokeSorobanContract.mockResolvedValue({
+        parsed: 1,
+        stdout: '',
+        stderr: '',
+      });
+      const res = await request(app)
+        .post('/api/sports-markets')
+        .send(validBody);
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.marketId).toBe(1);
@@ -122,7 +136,11 @@ describe('Sports Prediction Market API', () => {
   // ── GET /:id ────────────────────────────────────────────────────────────────
   describe('GET /api/sports-markets/:id', () => {
     it('returns market data', async () => {
-      invokeSorobanContract.mockResolvedValue({ parsed: { id: 1 }, stdout: '', stderr: '' });
+      invokeSorobanContract.mockResolvedValue({
+        parsed: { id: 1 },
+        stdout: '',
+        stderr: '',
+      });
       const res = await request(app)
         .get('/api/sports-markets/1')
         .query({ contractId: VALID_CONTRACT });
@@ -141,24 +159,33 @@ describe('Sports Prediction Market API', () => {
   // ── POST /:id/bet ───────────────────────────────────────────────────────────
   describe('POST /api/sports-markets/:id/bet', () => {
     it('places a bet successfully', async () => {
-      const res = await request(app)
-        .post('/api/sports-markets/1/bet')
-        .send({ contractId: VALID_CONTRACT, bettor: VALID_ADDRESS, outcome: 0, stake: 500 });
+      const res = await request(app).post('/api/sports-markets/1/bet').send({
+        contractId: VALID_CONTRACT,
+        bettor: VALID_ADDRESS,
+        outcome: 0,
+        stake: 500,
+      });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
 
     it('returns 400 for invalid outcome', async () => {
-      const res = await request(app)
-        .post('/api/sports-markets/1/bet')
-        .send({ contractId: VALID_CONTRACT, bettor: VALID_ADDRESS, outcome: 5, stake: 500 });
+      const res = await request(app).post('/api/sports-markets/1/bet').send({
+        contractId: VALID_CONTRACT,
+        bettor: VALID_ADDRESS,
+        outcome: 5,
+        stake: 500,
+      });
       expect(res.status).toBe(400);
     });
 
     it('returns 400 for zero stake', async () => {
-      const res = await request(app)
-        .post('/api/sports-markets/1/bet')
-        .send({ contractId: VALID_CONTRACT, bettor: VALID_ADDRESS, outcome: 0, stake: 0 });
+      const res = await request(app).post('/api/sports-markets/1/bet').send({
+        contractId: VALID_CONTRACT,
+        bettor: VALID_ADDRESS,
+        outcome: 0,
+        stake: 0,
+      });
       expect(res.status).toBe(400);
     });
   });

@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, Symbol};
+use soroban_sdk::{Address, Env, String, Symbol};
 
 use crate::types::{BetPosition, Error, SportMarket};
 
@@ -7,13 +7,36 @@ const PAUSED_KEY: &str = "paused";
 const MARKET_COUNT_KEY: &str = "mkt_cnt";
 
 fn market_key(env: &Env, id: u32) -> Symbol {
-    Symbol::new(env, &format!("sm{}", id))
+    // Create symbol directly without string concatenation
+    // Use a fixed-length symbol format
+    let mut buf = [0u8; 8];
+    buf[0] = b's';
+    buf[1] = b'm';
+    // Convert id to bytes (simplified for Soroban)
+    let id_bytes = id.to_be_bytes();
+    buf[2] = id_bytes[2];
+    buf[3] = id_bytes[3];
+    Symbol::new(env, &buf)
 }
 
 fn position_key(env: &Env, market_id: u32, bettor: &Address) -> Symbol {
-    let addr = bettor.to_string();
-    let short: &str = if addr.len() >= 6 { &addr[..6] } else { &addr };
-    Symbol::new(env, &format!("bp{}_{}", market_id, short))
+    // Create symbol directly without string concatenation
+    // Use a fixed-length symbol format
+    let mut buf = [0u8; 12];
+    buf[0] = b'b';
+    buf[1] = b'p';
+    // Convert market_id to bytes
+    let id_bytes = market_id.to_be_bytes();
+    buf[2] = id_bytes[2];
+    buf[3] = id_bytes[3];
+    buf[4] = b'_';
+    // Use first few bytes of address
+    let addr_bytes = bettor.to_bytes();
+    buf[5] = addr_bytes[0];
+    buf[6] = addr_bytes[1];
+    buf[7] = addr_bytes[2];
+    buf[8] = addr_bytes[3];
+    Symbol::new(env, &buf)
 }
 
 // ── Admin / pause ─────────────────────────────────────────────────────────────

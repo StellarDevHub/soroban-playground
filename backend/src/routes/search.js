@@ -18,24 +18,28 @@ router.use(async (req, res, next) => {
 router.post('/projects', async (req, res) => {
   try {
     const { query, filters = {}, pagination = {} } = req.body;
-    
+
     if (!query || query.trim().length < 1) {
-      return res.status(400).json({ 
-        error: 'Query parameter is required and must be at least 1 character' 
+      return res.status(400).json({
+        error: 'Query parameter is required and must be at least 1 character',
       });
     }
 
-    const results = await searchService.searchProjects(query.trim(), filters, pagination);
-    
+    const results = await searchService.searchProjects(
+      query.trim(),
+      filters,
+      pagination
+    );
+
     res.json({
       success: true,
-      data: results
+      data: results,
     });
   } catch (error) {
     console.error('Search endpoint error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Search operation failed',
-      message: error.message 
+      message: error.message,
     });
   }
 });
@@ -44,22 +48,25 @@ router.post('/projects', async (req, res) => {
 router.get('/autocomplete', async (req, res) => {
   try {
     const { q: query, limit = 10 } = req.query;
-    
+
     if (!query || query.length < 2) {
       return res.json({ suggestions: [] });
     }
 
-    const suggestions = await searchService.getAutocompleteSuggestions(query, parseInt(limit));
-    
+    const suggestions = await searchService.getAutocompleteSuggestions(
+      query,
+      parseInt(limit)
+    );
+
     res.json({
       success: true,
-      data: { suggestions }
+      data: { suggestions },
     });
   } catch (error) {
     console.error('Autocomplete error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Autocomplete failed',
-      message: error.message 
+      message: error.message,
     });
   }
 });
@@ -68,18 +75,18 @@ router.get('/autocomplete', async (req, res) => {
 router.get('/facets', async (req, res) => {
   try {
     const { q: query = '' } = req.query;
-    
+
     const facets = await searchService.getFacetCounts(query);
-    
+
     res.json({
       success: true,
-      data: facets
+      data: facets,
     });
   } catch (error) {
     console.error('Facets error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Facet retrieval failed',
-      message: error.message 
+      message: error.message,
     });
   }
 });
@@ -88,18 +95,18 @@ router.get('/facets', async (req, res) => {
 router.get('/popular', async (req, res) => {
   try {
     const { limit = 10 } = req.query;
-    
+
     const popular = await searchService.getPopularSearches(parseInt(limit));
-    
+
     res.json({
       success: true,
-      data: popular
+      data: popular,
     });
   } catch (error) {
     console.error('Popular searches error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Popular searches retrieval failed',
-      message: error.message 
+      message: error.message,
     });
   }
 });
@@ -108,18 +115,18 @@ router.get('/popular', async (req, res) => {
 router.get('/analytics', async (req, res) => {
   try {
     const { days = 7 } = req.query;
-    
+
     const analytics = await searchService.getSearchAnalytics(parseInt(days));
-    
+
     res.json({
       success: true,
-      data: analytics
+      data: analytics,
     });
   } catch (error) {
     console.error('Analytics error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Analytics retrieval failed',
-      message: error.message 
+      message: error.message,
     });
   }
 });
@@ -129,19 +136,19 @@ router.get('/health', async (req, res) => {
   try {
     // Test database connection
     await searchService.initialize();
-    
+
     res.json({
       success: true,
       status: 'healthy',
       timestamp: new Date().toISOString(),
-      service: 'search-service'
+      service: 'search-service',
     });
   } catch (error) {
     res.status(503).json({
       success: false,
       status: 'unhealthy',
       error: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });

@@ -13,14 +13,14 @@ class StablecoinService {
   async initialize(contractId) {
     this.contractId = contractId;
     this.initialized = true;
-    
+
     // Initialize tables if needed
     await this._initTables();
   }
 
   async _initTables() {
     const db = await dbService.getDb();
-    
+
     // Price history table
     await db.exec(`
       CREATE TABLE IF NOT EXISTS stablecoin_price_history (
@@ -30,7 +30,7 @@ class StablecoinService {
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
     // Rebase history table
     await db.exec(`
       CREATE TABLE IF NOT EXISTS stablecoin_rebase_history (
@@ -41,7 +41,7 @@ class StablecoinService {
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
     // Transaction history table
     await db.exec(`
       CREATE TABLE IF NOT EXISTS stablecoin_transactions (
@@ -67,14 +67,14 @@ class StablecoinService {
       totalSupply: '1000000000000',
       totalReserve: '950000000000',
       collateralizationRatio: 0.95,
-      currentPrice: 1.00,
-      targetPrice: 1.00,
+      currentPrice: 1.0,
+      targetPrice: 1.0,
       priceDeviation: 0,
       lastRebase: new Date(Date.now() - 3600000).toISOString(),
       rebaseCount: 24,
       holders: 1543,
       volume24h: '50000000000',
-      marketCap: '1000000000000'
+      marketCap: '1000000000000',
     };
 
     await cacheService.set(cacheKey, metrics, CACHE_TTL);
@@ -108,20 +108,20 @@ class StablecoinService {
   _generateSimulatedPriceHistory(days) {
     const history = [];
     const now = Date.now();
-    
+
     for (let i = days; i >= 0; i--) {
       const timestamp = new Date(now - i * 24 * 60 * 60 * 1000).toISOString();
       // Generate price around $1.00 with small variance
       const variance = (Math.random() - 0.5) * 0.02;
-      const price = 1.00 + variance;
-      
+      const price = 1.0 + variance;
+
       history.push({
         price: Math.round(price * 10000000),
         target_price: 10000000,
-        timestamp
+        timestamp,
       });
     }
-    
+
     return history;
   }
 
@@ -131,12 +131,15 @@ class StablecoinService {
     if (cached) return cached;
 
     const db = await dbService.getDb();
-    const history = await db.all(`
+    const history = await db.all(
+      `
       SELECT old_supply, new_supply, price, timestamp
       FROM stablecoin_rebase_history
       ORDER BY timestamp DESC
       LIMIT ?
-    `, [limit]);
+    `,
+      [limit]
+    );
 
     // If no data, return empty array
     await cacheService.set(cacheKey, history, CACHE_TTL);
@@ -156,9 +159,9 @@ class StablecoinService {
       assets: [
         { asset: 'XLM', amount: '400000000000', value: '400000000000' },
         { asset: 'USDC', amount: '300000000000', value: '300000000000' },
-        { asset: 'BTC', amount: '8333', value: '250000000000' }
+        { asset: 'BTC', amount: '8333', value: '250000000000' },
       ],
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
     };
 
     await cacheService.set(cacheKey, reserve, CACHE_TTL);
@@ -177,7 +180,7 @@ class StablecoinService {
       targetPrice: '1.00',
       rebaseCooldown: 3600,
       lastRebase: new Date(Date.now() - 3600000).toISOString(),
-      nextRebase: new Date(Date.now() + 3600000).toISOString()
+      nextRebase: new Date(Date.now() + 3600000).toISOString(),
     };
 
     await cacheService.set(cacheKey, status, CACHE_TTL);
@@ -187,11 +190,14 @@ class StablecoinService {
   async updatePrice(price, signature) {
     // In production, verify oracle signature and submit to contract
     const db = await dbService.getDb();
-    
-    await db.run(`
+
+    await db.run(
+      `
       INSERT INTO stablecoin_price_history (price, target_price)
       VALUES (?, ?)
-    `, [price * 10000000, 10000000]);
+    `,
+      [price * 10000000, 10000000]
+    );
 
     await cacheService.del(`${CACHE_PREFIX}metrics`);
     await cacheService.del(`${CACHE_PREFIX}price_history`);
@@ -199,7 +205,7 @@ class StablecoinService {
     return {
       success: true,
       price,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -207,15 +213,18 @@ class StablecoinService {
     // In production, invoke contract rebase function
     const db = await dbService.getDb();
     const metrics = await this.getMetrics();
-    
+
     const oldSupply = parseInt(metrics.totalSupply);
     // Simulate rebase effect
     const newSupply = Math.floor(oldSupply * 1.001);
-    
-    await db.run(`
+
+    await db.run(
+      `
       INSERT INTO stablecoin_rebase_history (old_supply, new_supply, price)
       VALUES (?, ?, ?)
-    `, [oldSupply, newSupply, 10000000]);
+    `,
+      [oldSupply, newSupply, 10000000]
+    );
 
     await cacheService.del(`${CACHE_PREFIX}metrics`);
     await cacheService.del(`${CACHE_PREFIX}rebase_history`);
@@ -224,7 +233,7 @@ class StablecoinService {
       success: true,
       oldSupply: oldSupply.toString(),
       newSupply: newSupply.toString(),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -233,19 +242,22 @@ class StablecoinService {
     return {
       address,
       balance: '1000000',
-      formatted: '100.00'
+      formatted: '100.00',
     };
   }
 
   async getTransactions(address, limit = 20) {
     const db = await dbService.getDb();
-    const transactions = await db.all(`
+    const transactions = await db.all(
+      `
       SELECT type, amount, from_address, to_address, tx_hash, timestamp
       FROM stablecoin_transactions
       WHERE address = ?
       ORDER BY timestamp DESC
       LIMIT ?
-    `, [address, limit]);
+    `,
+      [address, limit]
+    );
 
     // If no transactions, return sample data
     if (transactions.length === 0) {
@@ -258,7 +270,7 @@ class StablecoinService {
   _generateSampleTransactions(address, limit) {
     const types = ['mint', 'burn', 'transfer'];
     const transactions = [];
-    
+
     for (let i = 0; i < Math.min(limit, 5); i++) {
       transactions.push({
         type: types[i % types.length],
@@ -266,32 +278,32 @@ class StablecoinService {
         from_address: i % 2 === 0 ? address : 'GABCD...',
         to_address: i % 2 === 0 ? 'GABCD...' : address,
         tx_hash: '0x' + Math.random().toString(16).substr(2, 40),
-        timestamp: new Date(Date.now() - i * 86400000).toISOString()
+        timestamp: new Date(Date.now() - i * 86400000).toISOString(),
       });
     }
-    
+
     return transactions;
   }
 
   async pause(adminKey) {
     // In production, invoke contract pause
     await cacheService.del(`${CACHE_PREFIX}status`);
-    
+
     return {
       success: true,
       paused: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
   async unpause(adminKey) {
     // In production, invoke contract unpause
     await cacheService.del(`${CACHE_PREFIX}status`);
-    
+
     return {
       success: true,
       paused: false,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -299,11 +311,11 @@ class StablecoinService {
     // In production, invoke contract add_reserve
     await cacheService.del(`${CACHE_PREFIX}reserve`);
     await cacheService.del(`${CACHE_PREFIX}metrics`);
-    
+
     return {
       success: true,
       amount,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -311,11 +323,11 @@ class StablecoinService {
     // In production, invoke contract withdraw_reserve
     await cacheService.del(`${CACHE_PREFIX}reserve`);
     await cacheService.del(`${CACHE_PREFIX}metrics`);
-    
+
     return {
       success: true,
       amount,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 }

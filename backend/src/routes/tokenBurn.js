@@ -44,7 +44,9 @@ router.post(
     const { contractId, from, amount } = req.body || {};
 
     if (!validateContractId(contractId)) {
-      return next(createHttpError(400, 'contractId must be a valid Stellar contract ID'));
+      return next(
+        createHttpError(400, 'contractId must be a valid Stellar contract ID')
+      );
     }
     if (typeof from !== 'string' || !from.trim()) {
       return next(createHttpError(400, 'from address is required'));
@@ -97,13 +99,19 @@ router.post(
     const { contractId, initialSupply, burnRate } = req.body || {};
 
     if (!validateContractId(contractId)) {
-      return next(createHttpError(400, 'contractId must be a valid Stellar contract ID'));
+      return next(
+        createHttpError(400, 'contractId must be a valid Stellar contract ID')
+      );
     }
     if (!validatePositiveInt(initialSupply)) {
-      return next(createHttpError(400, 'initialSupply must be a positive integer'));
+      return next(
+        createHttpError(400, 'initialSupply must be a positive integer')
+      );
     }
     if (typeof burnRate !== 'number' || burnRate < 0 || burnRate > 10000) {
-      return next(createHttpError(400, 'burnRate must be 0–10000 (basis points)'));
+      return next(
+        createHttpError(400, 'burnRate must be 0–10000 (basis points)')
+      );
     }
 
     const state = getState(contractId);
@@ -132,13 +140,18 @@ router.get(
     const { contractId } = req.params;
 
     if (!validateContractId(contractId)) {
-      return next(createHttpError(400, 'contractId must be a valid Stellar contract ID'));
+      return next(
+        createHttpError(400, 'contractId must be a valid Stellar contract ID')
+      );
     }
 
     const state = getState(contractId);
     const burnedPercent =
       state.totalSupply + state.totalBurned > 0
-        ? ((state.totalBurned / (state.totalSupply + state.totalBurned)) * 100).toFixed(4)
+        ? (
+            (state.totalBurned / (state.totalSupply + state.totalBurned)) *
+            100
+          ).toFixed(4)
         : '0.0000';
 
     return res.status(200).json({
@@ -165,7 +178,9 @@ router.get(
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
 
     if (!validateContractId(contractId)) {
-      return next(createHttpError(400, 'contractId must be a valid Stellar contract ID'));
+      return next(
+        createHttpError(400, 'contractId must be a valid Stellar contract ID')
+      );
     }
 
     const state = getState(contractId);
@@ -191,10 +206,14 @@ router.post(
     const { contractId, burnRate } = req.body || {};
 
     if (!validateContractId(contractId)) {
-      return next(createHttpError(400, 'contractId must be a valid Stellar contract ID'));
+      return next(
+        createHttpError(400, 'contractId must be a valid Stellar contract ID')
+      );
     }
     if (typeof burnRate !== 'number' || burnRate < 0 || burnRate > 10000) {
-      return next(createHttpError(400, 'burnRate must be 0–10000 (basis points)'));
+      return next(
+        createHttpError(400, 'burnRate must be 0–10000 (basis points)')
+      );
     }
 
     const state = getState(contractId);

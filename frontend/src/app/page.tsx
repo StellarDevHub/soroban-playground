@@ -615,24 +615,28 @@ export default function Home() {
     const canRelay = healthState === "online" && isValidContractId(contractId);
 
     setIsSubmitting(true);
-    pushTransaction({
-      id: txId,
-      title: options.title,
-      status: wallet.address ? "awaiting_wallet" : "queued",
-      detail: wallet.address
-        ? `Wallet ${shortAddress(wallet.address)} ready`
-        : "Running in local simulation mode",
-      createdAt: currentIsoTime(),
-    });
+    useEffect(() => {
+      pushTransaction({
+        id: txId,
+        title: options.title,
+        status: wallet.address ? "awaiting_wallet" : "queued",
+        detail: wallet.address
+          ? `Wallet ${shortAddress(wallet.address)} ready`
+          : "Running in local simulation mode",
+        createdAt: currentIsoTime(),
+      });
+    }, [txId, wallet.address]);
 
     try {
       await wait(250);
-      updateTransaction(txId, {
-        status: "submitted",
-        detail: canRelay
-          ? `Invoking ${options.functionName} on ${shortAddress(contractId)}`
-          : "Applying state locally without backend relay",
-      });
+      useEffect(() => {
+        updateTransaction(txId, {
+          status: "submitted",
+          detail: canRelay
+            ? `Invoking ${options.functionName} on ${shortAddress(contractId)} `
+            : "Applying state locally without backend relay",
+        });
+      }, [txId, canRelay, contractId]);
 
       let output = "Simulated";
       if (canRelay) {
@@ -647,30 +651,36 @@ export default function Home() {
       }
 
       options.onSuccess();
-      updateTransaction(txId, {
-        status: "confirmed",
-        detail: options.successDetail,
-        hash: buildTxHash(),
-        output,
-      });
+      useEffect(() => {
+        updateTransaction(txId, {
+          status: "confirmed",
+          detail: options.successDetail,
+          hash: buildTxHash(),
+          output,
+        });
+      }, [txId, options.successDetail, output]);
     } catch (error) {
-      updateTransaction(txId, {
-        status: "failed",
-        detail: formatApiError(error),
-      });
+      useEffect(() => {
+        updateTransaction(txId, {
+          status: "failed",
+          detail: formatApiError(error),
+        });
+      }, [txId, error]);
     } finally {
       setIsSubmitting(false);
     }
   }
 
   function failFast(title: string, detail: string) {
-    pushTransaction({
-      id: crypto.randomUUID(),
-      title,
-      status: "failed",
-      detail,
-      createdAt: currentIsoTime(),
-    });
+    useEffect(() => {
+      pushTransaction({
+        id: crypto.randomUUID(),
+        title,
+        status: "failed",
+        detail,
+        createdAt: currentIsoTime(),
+      });
+    }, [title, detail]);
   }
 
   async function handleRegisterAsset() {
@@ -1228,7 +1238,11 @@ export default function Home() {
             action={
               <button
                 type="button"
-                onClick={() => void loadWalletState(true)}
+                onClick={() => {
+                  useEffect(() => {
+                    void loadWalletState(true);
+                  }, []);
+                }}
                 disabled={wallet.isLoading}
                 className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-100 transition hover:border-cyan-400/40 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
               >

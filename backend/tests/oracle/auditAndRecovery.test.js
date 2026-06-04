@@ -24,13 +24,22 @@ describe('audit log + crash recovery', () => {
     const b = new LockManager({ backend, nodeId: 'B', auditLog: audit });
 
     // A holds keyA, B holds keyB
-    const ha = await a.acquire({ scope: LockScope.PROJECT, id: 'A', ttlMs: 5000 });
-    const hb = await b.acquire({ scope: LockScope.BATCH, id: 'B', ttlMs: 5000 });
+    const ha = await a.acquire({
+      scope: LockScope.PROJECT,
+      id: 'A',
+      ttlMs: 5000,
+    });
+    const hb = await b.acquire({
+      scope: LockScope.BATCH,
+      id: 'B',
+      ttlMs: 5000,
+    });
 
     // Now A waits for B's BATCH key, B waits for A's PROJECT key — cycle.
     // We must use the *same* deadlock detector for both managers to see
     // the cycle, so wire that explicitly.
-    const { sharedDeadlockDetector } = await import('../../src/services/oracle/index.js');
+    const { sharedDeadlockDetector } =
+      await import('../../src/services/oracle/index.js');
     const a2 = new LockManager({
       backend,
       nodeId: 'A2',
@@ -49,8 +58,14 @@ describe('audit log + crash recovery', () => {
 
     // Manually exercise the detector path through the manager: we expect
     // one of these two competing waits to trip the cycle.
-    const r1 = sharedDeadlockDetector.declareWait(ha.owner, 'oracle:lock:batch:B');
-    const r2 = sharedDeadlockDetector.declareWait(hb.owner, 'oracle:lock:project:A');
+    const r1 = sharedDeadlockDetector.declareWait(
+      ha.owner,
+      'oracle:lock:batch:B'
+    );
+    const r2 = sharedDeadlockDetector.declareWait(
+      hb.owner,
+      'oracle:lock:project:A'
+    );
     expect(r1.deadlock || r2.deadlock).toBe(true);
 
     // Cleanup so other tests don't see leftover state in the shared detector.

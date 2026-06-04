@@ -1,6 +1,6 @@
 /**
  * Synthetic Assets API Routes (v1)
- * 
+ *
  * Endpoints:
  * POST   /register        - Register new synthetic asset
  * POST   /mint            - Mint synthetic assets
@@ -344,10 +344,19 @@ router.get('/params', async (req, res) => {
  */
 router.put('/params', requireAuth, async (req, res) => {
   try {
-    const { minCollateralRatio, liquidationThreshold, liquidationBonus, feePercentage } = req.body;
+    const {
+      minCollateralRatio,
+      liquidationThreshold,
+      liquidationBonus,
+      feePercentage,
+    } = req.body;
 
-    if (minCollateralRatio === undefined || liquidationThreshold === undefined ||
-        liquidationBonus === undefined || feePercentage === undefined) {
+    if (
+      minCollateralRatio === undefined ||
+      liquidationThreshold === undefined ||
+      liquidationBonus === undefined ||
+      feePercentage === undefined
+    ) {
       return res.status(400).json({
         success: false,
         error: 'Missing required parameters',

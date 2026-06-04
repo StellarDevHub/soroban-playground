@@ -1,15 +1,21 @@
-import sqlite3 from 'sqlite3';
-import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
 
+/**
+ * DatabaseService provides a lightweight wrapper around SQLite3 with async helpers.
+ * Dynamic import of the sqlite3 module avoids loading native bindings during Jest tests.
+ */
 class DatabaseService {
+  /**
+   * @param {string|null} dbPath Optional custom database file path.
+   */
   constructor(dbPath = null) {
     this.dbPath = dbPath || path.join(process.cwd(), 'data', 'app.db');
     this.db = null;
     this.ensureDataDirectory();
   }
 
+  /** Ensure the directory for the SQLite file exists. */
   ensureDataDirectory() {
     const dataDir = path.dirname(this.dbPath);
     if (!fs.existsSync(dataDir)) {
@@ -17,27 +23,24 @@ class DatabaseService {
     }
   }
 
+  /** Dynamically import sqlite3 and open the database. */
   async connect() {
+    const { default: sqlite3 } = await import('sqlite3');
     return new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
+      this.db = new sqlite3.Database(this.dbPath, err => {
+        if (err) reject(err);
+        else resolve();
       });
     });
   }
 
+  /** Close the database connection if open. */
   async close() {
     return new Promise((resolve, reject) => {
       if (this.db) {
-        this.db.close((err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
+        this.db.close(err => {
+          if (err) reject(err);
+          else resolve();
         });
       } else {
         resolve();
@@ -45,42 +48,37 @@ class DatabaseService {
     });
   }
 
+  /** Run a SQL statement that does not return rows (e.g., INSERT, UPDATE). */
   async run(sql, params = []) {
     return new Promise((resolve, reject) => {
-      this.db.run(sql, params, function(err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve({ id: this.lastID, changes: this.changes });
-        }
+      this.db.run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve({ id: this.lastID, changes: this.changes });
       });
     });
   }
 
+  /** Retrieve a single row. */
   async get(sql, params = []) {
     return new Promise((resolve, reject) => {
       this.db.get(sql, params, (err, row) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(row);
-        }
+        if (err) reject(err);
+        else resolve(row);
       });
     });
   }
 
+  /** Retrieve all matching rows. */
   async all(sql, params = []) {
     return new Promise((resolve, reject) => {
       this.db.all(sql, params, (err, rows) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(rows);
-        }
+        if (err) reject(err);
+        else resolve(rows);
       });
     });
   }
 
+  /** Run a callback inside a transaction. */
   async transaction(callback) {
     await this.run('BEGIN TRANSACTION');
     try {
@@ -93,17 +91,22 @@ class DatabaseService {
     }
   }
 
+  /** Helper to start a transaction without a callback. */
   async beginTransaction() {
     await this.run('BEGIN TRANSACTION');
   }
 
+  /** Helper to commit a transaction started manually. */
   async commit() {
     await this.run('COMMIT');
   }
 
-  async rollback() {
-    await this.run('ROLLBACK');
+  /** Alias for SELECT queries – returns all rows. */
+  async query(sql, params = []) {
+    return this.all(sql, params);
   }
 }
 
+// Export a singleton instance for convenience throughout the codebase.
+export const databaseService = new DatabaseService();
 export default DatabaseService;

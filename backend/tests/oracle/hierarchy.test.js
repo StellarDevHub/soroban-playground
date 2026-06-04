@@ -12,8 +12,14 @@ describe('hierarchy', () => {
     expect(buildKey(LockScope.PROJECT, 'p1')).toBe('oracle:lock:project:p1');
     expect(buildKey(LockScope.BATCH, 'b1')).toBe('oracle:lock:batch:b1');
 
-    expect(parseKey('oracle:lock:project:p1')).toEqual({ scope: 'project', id: 'p1' });
-    expect(parseKey('oracle:lock:global')).toEqual({ scope: 'global', id: null });
+    expect(parseKey('oracle:lock:project:p1')).toEqual({
+      scope: 'project',
+      id: 'p1',
+    });
+    expect(parseKey('oracle:lock:global')).toEqual({
+      scope: 'global',
+      id: null,
+    });
     expect(parseKey('not-a-lock')).toBeNull();
   });
 
@@ -28,22 +34,34 @@ describe('hierarchy', () => {
   });
 
   it('rejects acquiring a broader lock when narrower is held', () => {
-    const result = validateAcquisitionOrder(LockScope.GLOBAL, [LockScope.BATCH]);
+    const result = validateAcquisitionOrder(LockScope.GLOBAL, [
+      LockScope.BATCH,
+    ]);
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/ordering violation/i);
   });
 
   it('allows acquiring narrower locks while broader are held', () => {
-    expect(validateAcquisitionOrder(LockScope.BATCH, [LockScope.GLOBAL]).ok).toBe(true);
-    expect(validateAcquisitionOrder(LockScope.PROJECT, [LockScope.GLOBAL]).ok).toBe(true);
+    expect(
+      validateAcquisitionOrder(LockScope.BATCH, [LockScope.GLOBAL]).ok
+    ).toBe(true);
+    expect(
+      validateAcquisitionOrder(LockScope.PROJECT, [LockScope.GLOBAL]).ok
+    ).toBe(true);
   });
 
   it('strictParent requires a parent for batch locks', () => {
-    const without = validateAcquisitionOrder(LockScope.BATCH, [], { strictParent: true });
-    expect(without.ok).toBe(false);
-    const withParent = validateAcquisitionOrder(LockScope.BATCH, [LockScope.PROJECT], {
+    const without = validateAcquisitionOrder(LockScope.BATCH, [], {
       strictParent: true,
     });
+    expect(without.ok).toBe(false);
+    const withParent = validateAcquisitionOrder(
+      LockScope.BATCH,
+      [LockScope.PROJECT],
+      {
+        strictParent: true,
+      }
+    );
     expect(withParent.ok).toBe(true);
   });
 });

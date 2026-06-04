@@ -38,7 +38,8 @@ function createDeployHistoryLoader() {
   return new DataLoader(async (contractIds) => {
     let history = [];
     try {
-      const { readDeployHistory } = await import('../services/deployService.js');
+      const { readDeployHistory } =
+        await import('../services/deployService.js');
       history = (await readDeployHistory()) ?? [];
     } catch {
       // deployService may not export readDeployHistory — graceful fallback

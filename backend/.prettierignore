@@ -1,3 +1,8 @@
-node_modules
-dist
-build
+node_modules/
+cache/
+build/
+dist/
+*.log
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

@@ -185,10 +185,12 @@ export const typeDefs = /* GraphQL */ `
     compileHistory: [CompileHistoryItem!]! @complexity(value: 3)
 
     # Deploy
-    deployHistory(first: Int, after: String): DeployHistoryConnection! @complexity(value: 3, multipliers: ["first"])
+    deployHistory(first: Int, after: String): DeployHistoryConnection!
+      @complexity(value: 3, multipliers: ["first"])
 
     # Invoke — admin only
-    invokeLog(contractId: String!, first: Int, after: String): JSON @complexity(value: 5)
+    invokeLog(contractId: String!, first: Int, after: String): JSON
+      @complexity(value: 5)
 
     # Health
     health: String! @complexity(value: 1)

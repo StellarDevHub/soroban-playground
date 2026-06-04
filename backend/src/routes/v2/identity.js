@@ -1,5 +1,8 @@
 import express from 'express';
-import { asyncHandler, createHttpError } from '../../middleware/errorHandler.js';
+import {
+  asyncHandler,
+  createHttpError,
+} from '../../middleware/errorHandler.js';
 import { invokeSorobanContract } from '../../services/invokeService.js';
 
 const router = express.Router();
@@ -9,7 +12,10 @@ const CONTRACT_ID_RE = /^C[A-Z0-9]{55}$/;
 function validateContractId(contractId, errors) {
   if (!contractId) {
     errors.push('contract_id is required');
-  } else if (typeof contractId !== 'string' || !CONTRACT_ID_RE.test(contractId)) {
+  } else if (
+    typeof contractId !== 'string' ||
+    !CONTRACT_ID_RE.test(contractId)
+  ) {
     errors.push('contract_id must be a valid Stellar contract ID');
   }
 }
@@ -79,14 +85,8 @@ async function invokeAndRespond(req, res, next, payload) {
 router.post(
   '/register',
   asyncHandler(async (req, res, next) => {
-    const {
-      contract_id,
-      owner,
-      did,
-      metadata_hash,
-      network,
-      source_account,
-    } = req.body || {};
+    const { contract_id, owner, did, metadata_hash, network, source_account } =
+      req.body || {};
     const errors = [];
     validateContractId(contract_id, errors);
     validateRequiredString('owner', owner, errors);

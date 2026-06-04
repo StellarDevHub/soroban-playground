@@ -8,19 +8,19 @@ router.get('/status', async (req, res) => {
   try {
     const migrationService = new MigrationService();
     await migrationService.initialize();
-    
+
     const status = await migrationService.getMigrationStatus();
-    
+
     await migrationService.close();
-    
+
     res.json({
       success: true,
-      data: status
+      data: status,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -30,22 +30,22 @@ router.get('/history', async (req, res) => {
   try {
     const migrationService = new MigrationService();
     await migrationService.initialize();
-    
+
     const appliedMigrations = await migrationService.getAppliedMigrations();
-    
+
     await migrationService.close();
-    
+
     res.json({
       success: true,
       data: {
         migrations: appliedMigrations,
-        total: appliedMigrations.length
-      }
+        total: appliedMigrations.length,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -54,27 +54,27 @@ router.get('/history', async (req, res) => {
 router.post('/up', async (req, res) => {
   try {
     const { dryRun = false } = req.body;
-    
+
     const migrationService = new MigrationService();
     await migrationService.initialize();
-    
+
     const results = await migrationService.migrateUp(dryRun);
-    
+
     await migrationService.close();
-    
+
     res.json({
       success: true,
       data: {
         results,
         dryRun,
-        executed: results.filter(r => !r.dryRun).length,
-        total: results.length
-      }
+        executed: results.filter((r) => !r.dryRun).length,
+        total: results.length,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -83,28 +83,28 @@ router.post('/up', async (req, res) => {
 router.post('/down', async (req, res) => {
   try {
     const { targetVersion, dryRun = false } = req.body;
-    
+
     const migrationService = new MigrationService();
     await migrationService.initialize();
-    
+
     const results = await migrationService.migrateDown(targetVersion, dryRun);
-    
+
     await migrationService.close();
-    
+
     res.json({
       success: true,
       data: {
         results,
         dryRun,
         targetVersion,
-        executed: results.filter(r => !r.dryRun).length,
-        total: results.length
-      }
+        executed: results.filter((r) => !r.dryRun).length,
+        total: results.length,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -114,23 +114,23 @@ router.get('/validate', async (req, res) => {
   try {
     const migrationService = new MigrationService();
     await migrationService.initialize();
-    
+
     const { errors, upFiles } = await migrationService.validateMigrationFiles();
-    
+
     await migrationService.close();
-    
+
     res.json({
       success: true,
       data: {
         valid: errors.length === 0,
         errors,
-        totalMigrations: upFiles.length
-      }
+        totalMigrations: upFiles.length,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });

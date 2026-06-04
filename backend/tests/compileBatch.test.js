@@ -7,7 +7,8 @@ jest.unstable_mockModule('../src/services/compileService.js', () => ({
   compileProgressBus: { on: jest.fn() },
 }));
 
-const { compileQueued, compileBatch } = await import('../src/services/compileService.js');
+const { compileQueued, compileBatch } =
+  await import('../src/services/compileService.js');
 
 import express from 'express';
 import request from 'supertest';

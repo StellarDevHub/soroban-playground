@@ -24,7 +24,10 @@ router.get('/tracks', async (req, res) => {
 router.post('/licenses', async (req, res) => {
   try {
     const { trackId, buyerData } = req.body;
-    const license = await musicLicensingService.purchaseLicense(trackId, buyerData);
+    const license = await musicLicensingService.purchaseLicense(
+      trackId,
+      buyerData
+    );
     res.json({ success: true, data: license });
   } catch (error) {
     res.status(404).json({ success: false, error: error.message });

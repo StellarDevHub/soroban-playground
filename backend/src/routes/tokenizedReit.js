@@ -41,7 +41,9 @@ function validateAddress(addr) {
 }
 
 function requireFields(body, fields) {
-  const missing = fields.filter((f) => body[f] === undefined || body[f] === null || body[f] === '');
+  const missing = fields.filter(
+    (f) => body[f] === undefined || body[f] === null || body[f] === ''
+  );
   return missing.length ? missing.map((f) => `${f} is required`) : null;
 }
 
@@ -82,7 +84,11 @@ router.post(
       return next(createHttpError(400, 'Invalid admin address'));
 
     const result = await invoke(contractId, 'initialize', { admin }, network);
-    return res.json({ success: true, message: 'REIT contract initialized', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'REIT contract initialized',
+      output: result.parsed,
+    });
   })
 );
 
@@ -95,11 +101,23 @@ router.post(
   '/trusts',
   rateLimitMiddleware('invoke'),
   asyncHandler(async (req, res, next) => {
-    const { contractId, admin, name, totalShares, pricePerShare, annualYieldBps, network } =
-      req.body || {};
+    const {
+      contractId,
+      admin,
+      name,
+      totalShares,
+      pricePerShare,
+      annualYieldBps,
+      network,
+    } = req.body || {};
 
     const errs = requireFields(req.body, [
-      'contractId', 'admin', 'name', 'totalShares', 'pricePerShare', 'annualYieldBps',
+      'contractId',
+      'admin',
+      'name',
+      'totalShares',
+      'pricePerShare',
+      'annualYieldBps',
     ]);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
     if (!validateContractId(contractId))
@@ -107,10 +125,18 @@ router.post(
     if (!validateAddress(admin))
       return next(createHttpError(400, 'Invalid admin address'));
     if (typeof totalShares !== 'number' || totalShares <= 0)
-      return next(createHttpError(400, 'totalShares must be a positive number'));
+      return next(
+        createHttpError(400, 'totalShares must be a positive number')
+      );
     if (typeof pricePerShare !== 'number' || pricePerShare <= 0)
-      return next(createHttpError(400, 'pricePerShare must be a positive number'));
-    if (typeof annualYieldBps !== 'number' || annualYieldBps < 0 || annualYieldBps > 10000)
+      return next(
+        createHttpError(400, 'pricePerShare must be a positive number')
+      );
+    if (
+      typeof annualYieldBps !== 'number' ||
+      annualYieldBps < 0 ||
+      annualYieldBps > 10000
+    )
       return next(createHttpError(400, 'annualYieldBps must be 0–10000'));
 
     const result = await invoke(
@@ -143,7 +169,12 @@ router.get(
   '/trusts',
   asyncHandler(async (req, res, next) => {
     const contractId = getContractId(req);
-    const result = await invoke(contractId, 'trust_count', {}, req.query.network);
+    const result = await invoke(
+      contractId,
+      'trust_count',
+      {},
+      req.query.network
+    );
     return res.json({ success: true, trustCount: result.parsed });
   })
 );
@@ -160,7 +191,12 @@ router.get(
       return next(createHttpError(400, 'Invalid trust id'));
     const contractId = getContractId(req);
 
-    const result = await invoke(contractId, 'get_trust', { trust_id: trustId }, req.query.network);
+    const result = await invoke(
+      contractId,
+      'get_trust',
+      { trust_id: trustId },
+      req.query.network
+    );
     return res.json({ success: true, trust: result.parsed });
   })
 );
@@ -189,7 +225,11 @@ router.post(
       { admin, trust_id: trustId },
       network
     );
-    return res.json({ success: true, message: 'Trust deactivated', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Trust deactivated',
+      output: result.parsed,
+    });
   })
 );
 
@@ -222,7 +262,11 @@ router.post(
       { admin, trust_id: trustId, amount },
       network
     );
-    return res.json({ success: true, message: 'Dividends deposited', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Dividends deposited',
+      output: result.parsed,
+    });
   })
 );
 
@@ -255,7 +299,12 @@ router.post(
       { investor, trust_id: trustId, shares },
       network
     );
-    return res.json({ success: true, message: 'Shares purchased', cost: result.parsed, output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Shares purchased',
+      cost: result.parsed,
+      output: result.parsed,
+    });
   })
 );
 
@@ -273,7 +322,12 @@ router.post(
       return next(createHttpError(400, 'Invalid trust id'));
 
     const { contractId, from, to, shares, network } = req.body || {};
-    const errs = requireFields(req.body, ['contractId', 'from', 'to', 'shares']);
+    const errs = requireFields(req.body, [
+      'contractId',
+      'from',
+      'to',
+      'shares',
+    ]);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
     if (!validateContractId(contractId))
       return next(createHttpError(400, 'Invalid contractId'));
@@ -282,7 +336,9 @@ router.post(
     if (!validateAddress(to))
       return next(createHttpError(400, 'Invalid to address'));
     if (from === to)
-      return next(createHttpError(400, 'from and to must be different addresses'));
+      return next(
+        createHttpError(400, 'from and to must be different addresses')
+      );
     if (typeof shares !== 'number' || shares <= 0 || !Number.isInteger(shares))
       return next(createHttpError(400, 'shares must be a positive integer'));
 
@@ -292,7 +348,11 @@ router.post(
       { from, to, trust_id: trustId, shares },
       network
     );
-    return res.json({ success: true, message: 'Shares transferred', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Shares transferred',
+      output: result.parsed,
+    });
   })
 );
 
@@ -323,7 +383,12 @@ router.post(
       { investor, trust_id: trustId },
       network
     );
-    return res.json({ success: true, message: 'Dividends claimed', amount: result.parsed, output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Dividends claimed',
+      amount: result.parsed,
+      output: result.parsed,
+    });
   })
 );
 
@@ -389,7 +454,11 @@ router.post(
     if (!validateAddress(admin))
       return next(createHttpError(400, 'Invalid admin address'));
     const result = await invoke(contractId, 'pause', { admin }, network);
-    return res.json({ success: true, message: 'Contract paused', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Contract paused',
+      output: result.parsed,
+    });
   })
 );
 
@@ -407,7 +476,11 @@ router.post(
     if (!validateAddress(admin))
       return next(createHttpError(400, 'Invalid admin address'));
     const result = await invoke(contractId, 'unpause', { admin }, network);
-    return res.json({ success: true, message: 'Contract unpaused', output: result.parsed });
+    return res.json({
+      success: true,
+      message: 'Contract unpaused',
+      output: result.parsed,
+    });
   })
 );
 

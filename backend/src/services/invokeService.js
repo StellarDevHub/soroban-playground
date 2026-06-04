@@ -2,7 +2,12 @@ import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
-import { createSpan, setSpanAttributes, addSpanEvent, injectTraceContext } from '../utils/tracing.js';
+import {
+  createSpan,
+  setSpanAttributes,
+  addSpanEvent,
+  injectTraceContext,
+} from '../utils/tracing.js';
 
 const MAX_CONCURRENT = Number.parseInt(process.env.INVOKE_POOL_SIZE || '3', 10);
 const INVOKE_TIMEOUT_MS = Number.parseInt(
@@ -11,6 +16,15 @@ const INVOKE_TIMEOUT_MS = Number.parseInt(
 );
 const INVOKE_LOG_FILE =
   process.env.INVOKE_LOG_FILE || path.join(process.cwd(), 'logs', 'invoke.log');
+const CONTRACT_ID_RE = /^C[A-Z0-9]{55}$/;
+const FUNCTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SENSITIVE_ARG_KEYS = new Set([
+  'secret',
+  'password',
+  'token',
+  'privateKey',
+  'private_key',
+]);
 
 const queue = [];
 let activeCount = 0;
@@ -24,7 +38,64 @@ function logInvocation(entry) {
   fs.appendFileSync(INVOKE_LOG_FILE, `${JSON.stringify(entry)}\n`, 'utf8');
 }
 
-function createCliArgs(request) {
+function sanitizeArgs(args = {}) {
+  return Object.fromEntries(
+    Object.entries(args).map(([key, value]) => [
+      key,
+      SENSITIVE_ARG_KEYS.has(key) ? '[REDACTED]' : value,
+    ])
+  );
+}
+
+function sanitizeLogRequest(request) {
+  return {
+    ...request,
+    sourceAccount: request.sourceAccount ? '[REDACTED]' : undefined,
+    args: sanitizeArgs(request.args),
+  };
+}
+
+export function validateInvocationRequest(request = {}) {
+  const errors = [];
+  if (!CONTRACT_ID_RE.test(request.contractId || '')) {
+    errors.push('contractId must be a valid Stellar contract ID');
+  }
+  if (!FUNCTION_NAME_RE.test(request.functionName || '')) {
+    errors.push('functionName must be a valid contract function identifier');
+  }
+  if (
+    request.args !== undefined &&
+    (request.args === null ||
+      typeof request.args !== 'object' ||
+      Array.isArray(request.args))
+  ) {
+    errors.push('args must be an object');
+  }
+  return errors;
+}
+
+function appendCliArg(cliArgs, key, value) {
+  if (!FUNCTION_NAME_RE.test(key)) {
+    throw new Error(`Invalid invocation argument name "${key}"`);
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) appendCliArg(cliArgs, key, item);
+    return;
+  }
+  if (value === undefined || value === null) return;
+
+  cliArgs.push(`--${key}`);
+  cliArgs.push(
+    typeof value === 'object' ? JSON.stringify(value) : String(value)
+  );
+}
+
+export function createCliArgs(request) {
+  const validationErrors = validateInvocationRequest(request);
+  if (validationErrors.length > 0) {
+    throw new Error(validationErrors.join('; '));
+  }
+
   const sourceAccount =
     request.sourceAccount || process.env.SOROBAN_SOURCE_ACCOUNT;
   if (!sourceAccount) {
@@ -47,14 +118,13 @@ function createCliArgs(request) {
   ];
 
   for (const [key, value] of Object.entries(request.args || {})) {
-    cliArgs.push(`--${key}`);
-    cliArgs.push(String(value));
+    appendCliArg(cliArgs, key, value);
   }
 
   return cliArgs;
 }
 
-function parseCliOutput(stdout = '') {
+export function parseCliOutput(stdout = '') {
   const trimmed = stdout.trim();
   if (!trimmed) {
     return { raw: '', parsed: null };
@@ -65,6 +135,14 @@ function parseCliOutput(stdout = '') {
   } catch {
     return { raw: trimmed, parsed: trimmed };
   }
+}
+
+export function getInvocationQueueStats() {
+  return {
+    activeCount,
+    queuedCount: queue.length,
+    maxConcurrent: MAX_CONCURRENT,
+  };
 }
 
 function runQueued(task) {
@@ -97,7 +175,8 @@ export async function invokeSorobanContract(request, { signal } = {}) {
   const span = createSpan('soroban.invoke', {
     'invoke.contract_id': request.contractId,
     'invoke.function_name': request.functionName,
-    'invoke.network': request.network || process.env.DEFAULT_NETWORK || 'testnet',
+    'invoke.network':
+      request.network || process.env.DEFAULT_NETWORK || 'testnet',
     'invoke.request_id': request.requestId,
     'invoke.args_count': Object.keys(request.args || {}).length,
   });
@@ -155,7 +234,7 @@ export async function invokeSorobanContract(request, { signal } = {}) {
             const durationMs = Date.now() - Date.parse(startedAt);
             setSpanAttributes(span, {
               'invoke.duration_ms': durationMs,
-              'invoke.exit_code': err ? (err.code || 1) : 0,
+              'invoke.exit_code': err ? err.code || 1 : 0,
             });
 
             if (err) {
@@ -208,7 +287,7 @@ export async function invokeSorobanContract(request, { signal } = {}) {
             logInvocation({
               startedAt,
               endedAt: new Date().toISOString(),
-              request,
+              request: sanitizeLogRequest(request),
               status: 'failed',
               error: error.message,
             });
@@ -234,7 +313,7 @@ export async function invokeSorobanContract(request, { signal } = {}) {
             logInvocation({
               startedAt,
               endedAt,
-              request,
+              request: sanitizeLogRequest(request),
               status: baseResult.status,
               code,
               stdout: output.raw,

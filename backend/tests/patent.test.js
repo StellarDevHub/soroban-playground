@@ -62,7 +62,9 @@ describe('POST /api/patents/file', () => {
   });
 
   it('returns 400 when required fields are missing', async () => {
-    const res = await request(app).post('/api/patents/file').send({ inventor: 'GABC' });
+    const res = await request(app)
+      .post('/api/patents/file')
+      .send({ inventor: 'GABC' });
     expect(res.status).toBe(400);
     expect(res.body.message).toBe('Validation failed');
     expect(res.body.details).toContain('title is required');
@@ -80,11 +82,16 @@ describe('POST /api/patents/:id/activate', () => {
       .send({ admin: 'GADMIN' });
 
     expect(res.status).toBe(200);
-    expect(patentService.activatePatent).toHaveBeenCalledWith({ admin: 'GADMIN', patentId: 1 });
+    expect(patentService.activatePatent).toHaveBeenCalledWith({
+      admin: 'GADMIN',
+      patentId: 1,
+    });
   });
 
   it('returns 400 for non-numeric ID', async () => {
-    const res = await request(app).post('/api/patents/abc/activate').send({ admin: 'GADMIN' });
+    const res = await request(app)
+      .post('/api/patents/abc/activate')
+      .send({ admin: 'GADMIN' });
     expect(res.status).toBe(400);
   });
 
@@ -106,7 +113,10 @@ describe('POST /api/patents/:id/revoke', () => {
       .send({ admin: 'GADMIN' });
 
     expect(res.status).toBe(200);
-    expect(patentService.revokePatent).toHaveBeenCalledWith({ admin: 'GADMIN', patentId: 2 });
+    expect(patentService.revokePatent).toHaveBeenCalledWith({
+      admin: 'GADMIN',
+      patentId: 2,
+    });
   });
 });
 
@@ -143,24 +153,25 @@ describe('POST /api/patents/:id/license', () => {
   it('grants a license', async () => {
     patentService.grantLicense.mockResolvedValue(ok(1));
 
-    const res = await request(app)
-      .post('/api/patents/1/license')
-      .send({
-        owner: 'GOWNER',
-        licensee: 'GLICENSEE',
-        licenseType: 'NonExclusive',
-        fee: 1000000,
-        expiryDate: 9999999999,
-      });
+    const res = await request(app).post('/api/patents/1/license').send({
+      owner: 'GOWNER',
+      licensee: 'GLICENSEE',
+      licenseType: 'NonExclusive',
+      fee: 1000000,
+      expiryDate: 9999999999,
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.data).toBe(1);
   });
 
   it('returns 400 when fee is missing', async () => {
-    const res = await request(app)
-      .post('/api/patents/1/license')
-      .send({ owner: 'GOWNER', licensee: 'GL', licenseType: 'Exclusive', expiryDate: 999 });
+    const res = await request(app).post('/api/patents/1/license').send({
+      owner: 'GOWNER',
+      licensee: 'GL',
+      licenseType: 'Exclusive',
+      expiryDate: 999,
+    });
     expect(res.status).toBe(400);
     expect(res.body.details).toContain('fee is required');
   });
@@ -210,13 +221,17 @@ describe('POST /api/patents/disputes/:id/resolve', () => {
 describe('POST /api/patents/pause and /unpause', () => {
   it('pauses the contract', async () => {
     patentService.pauseContract.mockResolvedValue(ok(null));
-    const res = await request(app).post('/api/patents/pause').send({ admin: 'GADMIN' });
+    const res = await request(app)
+      .post('/api/patents/pause')
+      .send({ admin: 'GADMIN' });
     expect(res.status).toBe(200);
   });
 
   it('unpauses the contract', async () => {
     patentService.unpauseContract.mockResolvedValue(ok(null));
-    const res = await request(app).post('/api/patents/unpause').send({ admin: 'GADMIN' });
+    const res = await request(app)
+      .post('/api/patents/unpause')
+      .send({ admin: 'GADMIN' });
     expect(res.status).toBe(200);
   });
 });

@@ -63,10 +63,9 @@ export async function notarizeFile(fileHash, metadata, callerAddress) {
 export async function verifyFile(fileHash) {
   await _init;
 
-  const row = await db.get(
-    'SELECT * FROM notary_records WHERE file_hash = ?',
-    [fileHash]
-  );
+  const row = await db.get('SELECT * FROM notary_records WHERE file_hash = ?', [
+    fileHash,
+  ]);
 
   if (!row) {
     const err = new Error('File not found');
@@ -109,10 +108,9 @@ export async function revokeNotarization(fileHash, callerAddress) {
     throw err;
   }
 
-  await db.run(
-    'UPDATE notary_records SET verified = 0 WHERE file_hash = ?',
-    [fileHash]
-  );
+  await db.run('UPDATE notary_records SET verified = 0 WHERE file_hash = ?', [
+    fileHash,
+  ]);
 }
 
 /**

@@ -20,7 +20,10 @@ jest.mock('../../src/middleware/rateLimiter.js', () => ({
 
 import { invokeSorobanContract } from '../../src/services/invokeService.js';
 import tokenizedReitRoute from '../../src/routes/tokenizedReit.js';
-import { notFoundHandler, errorHandler } from '../../src/middleware/errorHandler.js';
+import {
+  notFoundHandler,
+  errorHandler,
+} from '../../src/middleware/errorHandler.js';
 
 // ── Test app ──────────────────────────────────────────────────────────────────
 function buildApp() {
@@ -32,16 +35,22 @@ function buildApp() {
   return app;
 }
 
-const VALID_CONTRACT = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const VALID_ADMIN    = 'GDEMO4MV6L6QY6P4UQBW5SC4R6X4P7WALLETDEMO4MV6L6QY6P4UQBW';
-const VALID_INVESTOR = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+const VALID_CONTRACT =
+  'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_ADMIN = 'GDEMO4MV6L6QY6P4UQBW5SC4R6X4P7WALLETDEMO4MV6L6QY6P4UQBW';
+const VALID_INVESTOR =
+  'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
 
 describe('Tokenized REIT API', () => {
   let app;
 
   beforeEach(() => {
     app = buildApp();
-    invokeSorobanContract.mockResolvedValue({ parsed: 'ok', stdout: '', stderr: '' });
+    invokeSorobanContract.mockResolvedValue({
+      parsed: 'ok',
+      stdout: '',
+      stderr: '',
+    });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -137,7 +146,9 @@ describe('Tokenized REIT API', () => {
   // ── GET /trusts/:id ─────────────────────────────────────────────────────────
   describe('GET /api/reit/trusts/:id', () => {
     it('returns trust data', async () => {
-      invokeSorobanContract.mockResolvedValue({ parsed: { name: 'Test REIT', total_shares: 1000 } });
+      invokeSorobanContract.mockResolvedValue({
+        parsed: { name: 'Test REIT', total_shares: 1000 },
+      });
       const res = await request(app)
         .get('/api/reit/trusts/1')
         .query({ contractId: VALID_CONTRACT });
@@ -156,9 +167,11 @@ describe('Tokenized REIT API', () => {
   // ── POST /trusts/:id/dividends ──────────────────────────────────────────────
   describe('POST /api/reit/trusts/:id/dividends', () => {
     it('returns 200 on valid deposit', async () => {
-      const res = await request(app)
-        .post('/api/reit/trusts/1/dividends')
-        .send({ contractId: VALID_CONTRACT, admin: VALID_ADMIN, amount: 1000000 });
+      const res = await request(app).post('/api/reit/trusts/1/dividends').send({
+        contractId: VALID_CONTRACT,
+        admin: VALID_ADMIN,
+        amount: 1000000,
+      });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(invokeSorobanContract).toHaveBeenCalledWith(
@@ -178,17 +191,21 @@ describe('Tokenized REIT API', () => {
   describe('POST /api/reit/trusts/:id/buy', () => {
     it('returns cost on valid purchase', async () => {
       invokeSorobanContract.mockResolvedValue({ parsed: 500000 });
-      const res = await request(app)
-        .post('/api/reit/trusts/1/buy')
-        .send({ contractId: VALID_CONTRACT, investor: VALID_INVESTOR, shares: 5 });
+      const res = await request(app).post('/api/reit/trusts/1/buy').send({
+        contractId: VALID_CONTRACT,
+        investor: VALID_INVESTOR,
+        shares: 5,
+      });
       expect(res.status).toBe(200);
       expect(res.body.cost).toBe(500000);
     });
 
     it('returns 400 for non-integer shares', async () => {
-      const res = await request(app)
-        .post('/api/reit/trusts/1/buy')
-        .send({ contractId: VALID_CONTRACT, investor: VALID_INVESTOR, shares: 1.5 });
+      const res = await request(app).post('/api/reit/trusts/1/buy').send({
+        contractId: VALID_CONTRACT,
+        investor: VALID_INVESTOR,
+        shares: 1.5,
+      });
       expect(res.status).toBe(400);
     });
   });
@@ -196,17 +213,23 @@ describe('Tokenized REIT API', () => {
   // ── POST /trusts/:id/transfer ───────────────────────────────────────────────
   describe('POST /api/reit/trusts/:id/transfer', () => {
     it('returns 200 on valid transfer', async () => {
-      const res = await request(app)
-        .post('/api/reit/trusts/1/transfer')
-        .send({ contractId: VALID_CONTRACT, from: VALID_ADMIN, to: VALID_INVESTOR, shares: 10 });
+      const res = await request(app).post('/api/reit/trusts/1/transfer').send({
+        contractId: VALID_CONTRACT,
+        from: VALID_ADMIN,
+        to: VALID_INVESTOR,
+        shares: 10,
+      });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
 
     it('returns 400 when from === to', async () => {
-      const res = await request(app)
-        .post('/api/reit/trusts/1/transfer')
-        .send({ contractId: VALID_CONTRACT, from: VALID_ADMIN, to: VALID_ADMIN, shares: 10 });
+      const res = await request(app).post('/api/reit/trusts/1/transfer').send({
+        contractId: VALID_CONTRACT,
+        from: VALID_ADMIN,
+        to: VALID_ADMIN,
+        shares: 10,
+      });
       expect(res.status).toBe(400);
     });
   });

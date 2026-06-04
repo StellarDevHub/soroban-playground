@@ -8,18 +8,26 @@ const router = express.Router();
 router.get('/rate-limits', async (req, res) => {
   try {
     const config = await redisService.client.hgetall('config:rate_limits');
-    const topIps = await redisService.client.zrevrange('analytics:top_ips', 0, 19, 'WITHSCORES');
-    
+    const topIps = await redisService.client.zrevrange(
+      'analytics:top_ips',
+      0,
+      19,
+      'WITHSCORES'
+    );
+
     // Format top IPs
     const formattedTopIps = [];
     for (let i = 0; i < topIps.length; i += 2) {
-      formattedTopIps.push({ ip: topIps[i], count: parseInt(topIps[i+1], 10) });
+      formattedTopIps.push({
+        ip: topIps[i],
+        count: parseInt(topIps[i + 1], 10),
+      });
     }
 
     res.json({
       config,
       topIps: formattedTopIps,
-      fallback: redisService.isFallbackMode
+      fallback: redisService.isFallbackMode,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -28,25 +36,31 @@ router.get('/rate-limits', async (req, res) => {
 
 router.put('/rate-limits', async (req, res) => {
   const { endpoint, limit } = req.body;
-  
+
   if (!endpoint || !limit) {
     return res.status(400).json({ error: 'Endpoint and limit are required' });
   }
 
   try {
     await redisService.client.hset('config:rate_limits', endpoint, limit);
-    
+
     // Log audit change
     const auditKey = `audit:config:${Date.now()}`;
-    await redisService.client.set(auditKey, JSON.stringify({
-      endpoint,
-      limit,
-      timestamp: new Date().toISOString(),
-      user: 'admin' // Simple for now
-    }));
+    await redisService.client.set(
+      auditKey,
+      JSON.stringify({
+        endpoint,
+        limit,
+        timestamp: new Date().toISOString(),
+        user: 'admin', // Simple for now
+      })
+    );
     await redisService.client.expire(auditKey, 60 * 60 * 24 * 7); // 7 days
 
-    res.json({ success: true, message: `Limit for ${endpoint} updated to ${limit}` });
+    res.json({
+      success: true,
+      message: `Limit for ${endpoint} updated to ${limit}`,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -85,14 +99,17 @@ router.post('/oracle-queue/dead-letter/:id/requeue', async (req, res) => {
 // Generate new API key
 router.post('/api-keys', async (req, res) => {
   try {
-    const { name, description, tier, userId, organizationId, expiresAt } = req.body;
+    const { name, description, tier, userId, organizationId, expiresAt } =
+      req.body;
 
     if (!name || !tier) {
       return res.status(400).json({ error: 'Name and tier are required' });
     }
 
     if (!['free', 'standard', 'premium', 'admin'].includes(tier)) {
-      return res.status(400).json({ error: 'Invalid tier. Must be one of: free, standard, premium, admin' });
+      return res.status(400).json({
+        error: 'Invalid tier. Must be one of: free, standard, premium, admin',
+      });
     }
 
     const keyData = await apiKeyService.generateKey({
@@ -101,7 +118,7 @@ router.post('/api-keys', async (req, res) => {
       tier,
       userId: userId || 1, // Default to first user for now
       organizationId,
-      expiresAt: expiresAt ? new Date(expiresAt) : null
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
     });
 
     res.json(keyData);
@@ -120,7 +137,7 @@ router.get('/api-keys', async (req, res) => {
       {
         status,
         limit: parseInt(limit) || 50,
-        offset: parseInt(offset) || 0
+        offset: parseInt(offset) || 0,
       }
     );
 
@@ -158,10 +175,9 @@ router.delete('/api-keys/:id', async (req, res) => {
 router.get('/api-keys/:id/usage', async (req, res) => {
   try {
     const { days } = req.query;
-    const stats = await apiKeyService.getUsageStats(
-      req.params.id,
-      { days: parseInt(days) || 30 }
-    );
+    const stats = await apiKeyService.getUsageStats(req.params.id, {
+      days: parseInt(days) || 30,
+    });
     res.json(stats);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -172,7 +188,7 @@ router.get('/api-keys/:id/usage', async (req, res) => {
 router.get('/rate-limits/stats', async (req, res) => {
   try {
     // Get tier distribution
-    const tierStats = await redisService.client.hgetall('stats:tiers') || {};
+    const tierStats = (await redisService.client.hgetall('stats:tiers')) || {};
 
     // Get recent violations
     const violations = await redisService.client.zrevrange(
@@ -186,14 +202,14 @@ router.get('/rate-limits/stats', async (req, res) => {
     for (let i = 0; i < violations.length; i += 2) {
       formattedViolations.push({
         identifier: violations[i],
-        count: parseInt(violations[i + 1], 10)
+        count: parseInt(violations[i + 1], 10),
       });
     }
 
     res.json({
       tierStats,
       recentViolations: formattedViolations,
-      fallbackMode: redisService.isFallbackMode
+      fallbackMode: redisService.isFallbackMode,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

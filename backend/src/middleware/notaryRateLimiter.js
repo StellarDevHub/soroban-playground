@@ -13,7 +13,11 @@ const store = new Map();
  * Simple in-memory rate limiter: 10 requests per minute per IP.
  */
 export function notaryRateLimiter(req, res, next) {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const ip =
+    req.ip ||
+    req.headers['x-forwarded-for'] ||
+    req.socket.remoteAddress ||
+    'unknown';
   const now = Date.now();
 
   let entry = store.get(ip);

@@ -37,7 +37,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const { fileHash } = req.params;
     if (!/^[0-9a-fA-F]{64}$/.test(fileHash)) {
-      throw createHttpError(400, 'Invalid fileHash', ['fileHash must be a 64-char hex string']);
+      throw createHttpError(400, 'Invalid fileHash', [
+        'fileHash must be a 64-char hex string',
+      ]);
     }
     const record = await verifyFile(fileHash);
     res.json({ success: true, data: record });
@@ -53,7 +55,9 @@ router.delete(
   asyncHandler(async (req, res) => {
     const { fileHash } = req.params;
     if (!/^[0-9a-fA-F]{64}$/.test(fileHash)) {
-      throw createHttpError(400, 'Invalid fileHash', ['fileHash must be a 64-char hex string']);
+      throw createHttpError(400, 'Invalid fileHash', [
+        'fileHash must be a 64-char hex string',
+      ]);
     }
     const { callerAddress } = req.body ?? {};
     if (!callerAddress) {
@@ -71,7 +75,10 @@ router.get(
   '/history',
   asyncHandler(async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit, 10) || 20)
+    );
     const result = await listNotarizations(page, limit);
     res.json({ success: true, data: result });
   })

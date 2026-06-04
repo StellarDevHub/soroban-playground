@@ -6,9 +6,18 @@ import {
   VoteSigner,
 } from '../../src/services/oracle/index.js';
 
-function makeCoordinator(backend, nodeId, { voteStore, voteSigner, weights } = {}) {
+function makeCoordinator(
+  backend,
+  nodeId,
+  { voteStore, voteSigner, weights } = {}
+) {
   const lockManager = new LockManager({ backend, nodeId });
-  return new ConsensusCoordinator({ lockManager, voteStore, voteSigner, weights });
+  return new ConsensusCoordinator({
+    lockManager,
+    voteStore,
+    voteSigner,
+    weights,
+  });
 }
 
 describe('ConsensusCoordinator', () => {
@@ -90,21 +99,36 @@ describe('ConsensusCoordinator', () => {
 
   it('rejects unsigned votes when signer is required', async () => {
     const signer = new VoteSigner({ keys: { A: 'secret-a' }, required: true });
-    const co = makeCoordinator(new MemoryBackend(), 'A', { voteSigner: signer });
-    await expect(co.registerVote('p', 'A', { v: 1 })).rejects.toThrow(/signature_required/);
+    const co = makeCoordinator(new MemoryBackend(), 'A', {
+      voteSigner: signer,
+    });
+    await expect(co.registerVote('p', 'A', { v: 1 })).rejects.toThrow(
+      /signature_required/
+    );
   });
 
   it('accepts signed votes and rejects forgeries', async () => {
-    const signer = new VoteSigner({ keys: { A: 'secret-a', B: 'secret-b' }, required: true });
-    const co = makeCoordinator(new MemoryBackend(), 'A', { voteSigner: signer });
+    const signer = new VoteSigner({
+      keys: { A: 'secret-a', B: 'secret-b' },
+      required: true,
+    });
+    const co = makeCoordinator(new MemoryBackend(), 'A', {
+      voteSigner: signer,
+    });
     const goodSig = signer.sign({ proofId: 'p', nodeId: 'A', vote: { v: 1 } });
-    await expect(co.registerVote('p', 'A', { v: 1 }, goodSig)).resolves.toBeDefined();
+    await expect(
+      co.registerVote('p', 'A', { v: 1 }, goodSig)
+    ).resolves.toBeDefined();
 
     // Wrong vote (signature for { v:1 } applied to { v:2 })
-    await expect(co.registerVote('p', 'A', { v: 2 }, goodSig)).rejects.toThrow(/bad_signature/);
+    await expect(co.registerVote('p', 'A', { v: 2 }, goodSig)).rejects.toThrow(
+      /bad_signature/
+    );
 
     // Vote attributed to a node we have no key for
-    await expect(co.registerVote('p', 'C', { v: 1 }, goodSig)).rejects.toThrow(/unknown_node/);
+    await expect(co.registerVote('p', 'C', { v: 1 }, goodSig)).rejects.toThrow(
+      /unknown_node/
+    );
   });
 
   it('honors per-node weights when computing tallies', async () => {

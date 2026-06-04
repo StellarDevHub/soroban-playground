@@ -14,8 +14,8 @@ router.post('/register', (req, res) => {
     id: warranties.length + 1,
     owner,
     productId,
-    expiry: Date.now() + (duration * 1000),
-    status: 'Active'
+    expiry: Date.now() + duration * 1000,
+    status: 'Active',
   };
   warranties.push(newWarranty);
   res.status(201).json(newWarranty);

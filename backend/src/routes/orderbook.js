@@ -65,7 +65,12 @@ router.post(
   asyncHandler(async (req, res, next) => {
     const { owner, side, price, quantity } = req.body || {};
     try {
-      const result = placeOrder({ owner, side, price: Number(price), quantity: Number(quantity) });
+      const result = placeOrder({
+        owner,
+        side,
+        price: Number(price),
+        quantity: Number(quantity),
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err) {
       next(createHttpError(err.status || 400, err.message));
@@ -95,7 +100,8 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
-    if (!Number.isInteger(id)) return next(createHttpError(400, 'Invalid order ID'));
+    if (!Number.isInteger(id))
+      return next(createHttpError(400, 'Invalid order ID'));
     try {
       res.json({ success: true, data: getOrder(id) });
     } catch (err) {
@@ -141,7 +147,8 @@ router.post(
   asyncHandler(async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     const { owner } = req.body || {};
-    if (!Number.isInteger(id)) return next(createHttpError(400, 'Invalid order ID'));
+    if (!Number.isInteger(id))
+      return next(createHttpError(400, 'Invalid order ID'));
     if (!owner) return next(createHttpError(400, 'owner required'));
     try {
       const order = cancelOrder(id, owner);

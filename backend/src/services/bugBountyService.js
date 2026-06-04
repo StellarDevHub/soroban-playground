@@ -13,16 +13,20 @@ class BugBountyService {
       ...reportData,
       status: 'Open',
       reward: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
     // Store in cache (or DB in a real app)
-    await cacheService.set(`${this.cacheKeyPrefix}${reportId}`, report, 60 * 60 * 24 * 30); // 30 days
+    await cacheService.set(
+      `${this.cacheKeyPrefix}${reportId}`,
+      report,
+      60 * 60 * 24 * 30
+    ); // 30 days
 
     // Broadcast update via WebSocket
     broadcast({
       type: 'BUG_REPORT_SUBMITTED',
-      data: report
+      data: report,
     });
 
     return report;
@@ -32,7 +36,7 @@ class BugBountyService {
     // In a real database, we would query. Since we use cache here, we'll return a mock list
     // or retrieve keys starting with prefix. CacheService might not have a pattern match.
     // For now, return a mock or a stored array of IDs.
-    const ids = await cacheService.get(`${this.cacheKeyPrefix}all_ids`) || [];
+    const ids = (await cacheService.get(`${this.cacheKeyPrefix}all_ids`)) || [];
     const reports = [];
     for (const id of ids) {
       const report = await cacheService.get(`${this.cacheKeyPrefix}${id}`);
@@ -49,11 +53,15 @@ class BugBountyService {
     report.reward = reviewData.reward;
     report.reviewedAt = new Date().toISOString();
 
-    await cacheService.set(`${this.cacheKeyPrefix}${reportId}`, report, 60 * 60 * 24 * 30);
+    await cacheService.set(
+      `${this.cacheKeyPrefix}${reportId}`,
+      report,
+      60 * 60 * 24 * 30
+    );
 
     broadcast({
       type: 'BUG_REPORT_REVIEWED',
-      data: report
+      data: report,
     });
 
     return report;

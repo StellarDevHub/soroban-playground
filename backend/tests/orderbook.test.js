@@ -5,8 +5,15 @@ import express from 'express';
 import request from 'supertest';
 import { jest } from '@jest/globals';
 
-const { placeOrder, cancelOrder, getOrder, getOrderBook, getTrades, getStats, _reset } =
-  await import('../src/services/orderBookService.js');
+const {
+  placeOrder,
+  cancelOrder,
+  getOrder,
+  getOrderBook,
+  getTrades,
+  getStats,
+  _reset,
+} = await import('../src/services/orderBookService.js');
 const { default: orderBookRoute } = await import('../src/routes/orderbook.js');
 const { errorHandler } = await import('../src/middleware/errorHandler.js');
 
@@ -22,33 +29,51 @@ beforeEach(() => _reset());
 describe('orderBookService', () => {
   describe('placeOrder', () => {
     it('creates a buy order', () => {
-      const { order } = placeOrder({ owner: 'alice', side: 'buy', price: 100, quantity: 10 });
+      const { order } = placeOrder({
+        owner: 'alice',
+        side: 'buy',
+        price: 100,
+        quantity: 10,
+      });
       expect(order.id).toBe(1);
       expect(order.status).toBe('open');
       expect(order.remaining).toBe(10);
     });
 
     it('throws on missing owner', () => {
-      expect(() => placeOrder({ side: 'buy', price: 100, quantity: 10 })).toThrow('owner required');
+      expect(() =>
+        placeOrder({ side: 'buy', price: 100, quantity: 10 })
+      ).toThrow('owner required');
     });
 
     it('throws on invalid side', () => {
-      expect(() => placeOrder({ owner: 'alice', side: 'hold', price: 100, quantity: 10 })).toThrow();
+      expect(() =>
+        placeOrder({ owner: 'alice', side: 'hold', price: 100, quantity: 10 })
+      ).toThrow();
     });
 
     it('throws on zero price', () => {
-      expect(() => placeOrder({ owner: 'alice', side: 'buy', price: 0, quantity: 10 })).toThrow();
+      expect(() =>
+        placeOrder({ owner: 'alice', side: 'buy', price: 0, quantity: 10 })
+      ).toThrow();
     });
 
     it('throws on zero quantity', () => {
-      expect(() => placeOrder({ owner: 'alice', side: 'buy', price: 100, quantity: 0 })).toThrow();
+      expect(() =>
+        placeOrder({ owner: 'alice', side: 'buy', price: 100, quantity: 0 })
+      ).toThrow();
     });
   });
 
   describe('matching', () => {
     it('fully matches buy against resting sell', () => {
       placeOrder({ owner: 'seller', side: 'sell', price: 100, quantity: 5 });
-      const { order, trades } = placeOrder({ owner: 'buyer', side: 'buy', price: 100, quantity: 5 });
+      const { order, trades } = placeOrder({
+        owner: 'buyer',
+        side: 'buy',
+        price: 100,
+        quantity: 5,
+      });
       expect(order.status).toBe('filled');
       expect(trades).toHaveLength(1);
       expect(trades[0].quantity).toBe(5);
@@ -57,7 +82,12 @@ describe('orderBookService', () => {
 
     it('partially fills when quantities differ', () => {
       placeOrder({ owner: 'seller', side: 'sell', price: 100, quantity: 10 });
-      const { order } = placeOrder({ owner: 'buyer', side: 'buy', price: 100, quantity: 4 });
+      const { order } = placeOrder({
+        owner: 'buyer',
+        side: 'buy',
+        price: 100,
+        quantity: 4,
+      });
       expect(order.status).toBe('filled');
       expect(getOrder(1).status).toBe('partially_filled');
       expect(getOrder(1).remaining).toBe(6);
@@ -65,14 +95,24 @@ describe('orderBookService', () => {
 
     it('does not match when prices do not cross', () => {
       placeOrder({ owner: 'seller', side: 'sell', price: 200, quantity: 5 });
-      const { order, trades } = placeOrder({ owner: 'buyer', side: 'buy', price: 100, quantity: 5 });
+      const { order, trades } = placeOrder({
+        owner: 'buyer',
+        side: 'buy',
+        price: 100,
+        quantity: 5,
+      });
       expect(order.status).toBe('open');
       expect(trades).toHaveLength(0);
     });
 
     it('executes at maker (resting) price', () => {
       placeOrder({ owner: 'seller', side: 'sell', price: 90, quantity: 5 });
-      const { trades } = placeOrder({ owner: 'buyer', side: 'buy', price: 100, quantity: 5 });
+      const { trades } = placeOrder({
+        owner: 'buyer',
+        side: 'buy',
+        price: 100,
+        quantity: 5,
+      });
       expect(trades[0].price).toBe(90);
     });
   });

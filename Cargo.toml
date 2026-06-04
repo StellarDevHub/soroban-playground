@@ -17,3 +17,16 @@ aws-config = "0.55"
 aws-sdk-s3 = "0.28"
 chrono = "0.4"
 tokio-util = { version = "0.7", features = ["io"] }
+
+[workspace]
+members = [
+    "contracts/debugging-utils",
+    "contracts/cross-contract-utils",
+    "contracts/insurance-oracle",
+    "contracts/erc-721",
+    "contracts/upgradeable",
+    "contracts/versioned",
+    "contracts/access-control",
+    "contracts/analysis-utils",
+    "contracts/property-testing",
+]

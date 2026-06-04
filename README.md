@@ -301,3 +301,57 @@ Add to `frontend/.env.local`:
 NEXT_PUBLIC_API_URL=http://localhost:5000
 NEXT_PUBLIC_QV_CONTRACT_ID=C...
 ```
+
+---
+
+## Price Feed Aggregator
+
+A production-ready on-chain price aggregator that combines multiple data sources into a single tamper-resistant price, essential for synthetic assets, stablecoins, and other DeFi applications.
+
+### How It Works
+
+Multiple reporters submit prices independently. The contract filters stale and inactive sources, removes statistical outliers, and applies the configured aggregation strategy (Median, Weighted Average, or Trimmed Mean) to produce a final price.
+
+### Architecture
+
+```
+contracts/price-feed-aggregator/   ← Soroban/Rust smart contract
+```
+
+### Smart Contract
+
+**Location:** `contracts/price-feed-aggregator/`
+
+**Functions:**
+
+| Function | Access | Description |
+|----------|--------|-------------|
+| `initialize(admin, asset, decimals?, max_price_age?, outlier_bps?, circuit_breaker_bps?, strategy?)` | Public (once) | Initialize contract |
+| `add_source(admin, reporter, description, weight?)` | Admin | Register a price source |
+| `remove_source(admin, source_id)` | Admin | Deactivate a source |
+| `set_weight(admin, source_id, weight)` | Admin | Update source weight (1–100) |
+| `update_price(reporter, source_id, price)` | Reporter | Submit a price update |
+| `get_price(source_id)` | Read | Raw price for one source |
+| `get_aggregated_price()` | Read | Aggregated price across all valid sources |
+| `pause(admin)` / `unpause(admin)` | Admin | Emergency pause |
+
+**Aggregation strategies:** `Median` (default), `WeightedAverage`, `TrimmedMean`
+
+**Security features:**
+- Circuit breaker — rejects single-update swings above `circuit_breaker_bps` (default 30%)
+- Outlier detection — excludes sources deviating > `outlier_bps` from the median (default 20%)
+- Stale price exclusion — ignores prices older than `max_price_age` (default 1 hour)
+- Per-source reporter authentication via `require_auth()`
+- Emergency pause mechanism
+
+**Events emitted:** `init`, `paused`, `unpaused`, `srcadd`, `srcrm`, `priceupd`
+
+### Building the Contract
+
+```bash
+cd contracts/price-feed-aggregator
+cargo build --target wasm32-unknown-unknown --release
+
+# Run tests
+cargo test
+```

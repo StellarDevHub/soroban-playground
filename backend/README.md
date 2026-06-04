@@ -33,12 +33,14 @@
 ## Cache Administration
 
 The backend now includes a multi-level compile cache with:
+
 - L1 in-memory cache for hot compile artifacts
 - L2 Redis cache for shared cache persistence and faster cold-start hits
 - L3 filesystem fallback for persisted WASM artifacts
 - Cache versioning, dependency-based invalidation, stampede prevention, and predictive warmers
 
 Admin cache endpoints:
+
 - `GET /api/admin/cache` — current cache state, version, hit/miss counters, Redis health
 - `POST /api/admin/cache/warm` — proactively warm cache for a list of hashes or top predictors
 - `POST /api/admin/cache/invalidate` — invalidate by hash, dependency, or bump namespace version
@@ -50,6 +52,7 @@ Admin cache endpoints:
 This backend supports file-based SQL migrations with rollback support and metadata tracking.
 
 Migration conventions:
+
 - Migration files live in `backend/migrations` by default
 - Each migration version requires both:
   - `V###__name.up.sql`
@@ -58,12 +61,14 @@ Migration conventions:
 - Up and down SQL are checksummed to detect modified applied migrations
 
 Admin migration endpoints:
+
 - `GET /api/admin/migrations` — migration dashboard showing available and applied migrations
 - `POST /api/admin/migrations/validate` — validates pairs, checksums, and forbidden transaction statements
 - `POST /api/admin/migrations/apply` — apply a given version or all pending migrations
 - `POST /api/admin/migrations/rollback` — rollback a given migration version
 
 Migration options:
+
 - `dryRun` — validate SQL without persisting schema changes
 - `allowDestructive` — permit operations flagged as potentially destructive
 

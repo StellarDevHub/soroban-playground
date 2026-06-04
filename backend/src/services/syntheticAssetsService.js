@@ -1,6 +1,6 @@
 /**
  * Synthetic Assets Service
- * 
+ *
  * Provides business logic for synthetic asset operations including:
  * - Contract interaction (mint, burn, trading)
  * - Price oracle management
@@ -10,8 +10,8 @@
  */
 
 import { invokeContract } from './invokeService.js';
-import { databaseService } from './databaseService.js';
 import { redisService } from './redisService.js';
+import { databaseService } from './databaseService.js';
 import { logger } from '../utils/logger.js';
 
 const CACHE_TTL = {
@@ -319,9 +319,10 @@ class SyntheticAssetsService {
   async getAssetPrice(assetSymbol) {
     try {
       const cached = await redisService.get(`price:${assetSymbol}`);
-      if (cached) {
-        return JSON.parse(cached);
-      }
+        if (cached !== null) {
+          // Cached values are stored as plain strings representing numbers
+          return Number(cached);
+        }
 
       const result = await invokeContract({
         contractId: this.contractId,
@@ -331,10 +332,10 @@ class SyntheticAssetsService {
       });
 
       await redisService.set(
-        `price:${assetSymbol}`,
-        JSON.stringify(result),
-        CACHE_TTL.ASSET_PRICE
-      );
+          `price:${assetSymbol}`,
+          String(result),
+          CACHE_TTL.ASSET_PRICE
+        );
 
       return result;
     } catch (error) {
@@ -444,12 +445,22 @@ class SyntheticAssetsService {
   /**
    * Update protocol parameters (admin only)
    */
-  async updateProtocolParams(minCollateralRatio, liquidationThreshold, liquidationBonus, feePercentage) {
+  async updateProtocolParams(
+    minCollateralRatio,
+    liquidationThreshold,
+    liquidationBonus,
+    feePercentage
+  ) {
     try {
       const result = await invokeContract({
         contractId: this.contractId,
         method: 'update_protocol_params',
-        params: [minCollateralRatio, liquidationThreshold, liquidationBonus, feePercentage],
+        params: [
+          minCollateralRatio,
+          liquidationThreshold,
+          liquidationBonus,
+          feePercentage,
+        ],
         auth: true,
       });
 
@@ -580,7 +591,18 @@ class SyntheticAssetsService {
       `INSERT INTO positions (position_id, user_address, asset_symbol, collateral_amount, 
        minted_amount, margin, leverage, direction, type, status, created_at) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
-      [positionId, userAddress, assetSymbol, collateralAmount, mintedAmount, margin, leverage, direction, type, 'OPEN']
+      [
+        positionId,
+        userAddress,
+        assetSymbol,
+        collateralAmount,
+        mintedAmount,
+        margin,
+        leverage,
+        direction,
+        type,
+        'OPEN',
+      ]
     );
   }
 
@@ -622,7 +644,7 @@ class SyntheticAssetsService {
     // Implement WebSocket broadcast
     // This will be connected to the WebSocket handler
     if (global.priceUpdateSubscribers) {
-      global.priceUpdateSubscribers.forEach(callback => {
+      global.priceUpdateSubscribers.forEach((callback) => {
         callback({ assetSymbol, price });
       });
     }
@@ -630,7 +652,7 @@ class SyntheticAssetsService {
 
   broadcastLiquidationAlert(positionId) {
     if (global.liquidationAlertSubscribers) {
-      global.liquidationAlertSubscribers.forEach(callback => {
+      global.liquidationAlertSubscribers.forEach((callback) => {
         callback({ positionId });
       });
     }

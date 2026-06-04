@@ -1,0 +1,7 @@
+[package]
+name = "payment_splitter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+soroban-sdk = "0.10.0"
