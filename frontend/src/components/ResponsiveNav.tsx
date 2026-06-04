@@ -1,39 +1,39 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
 import {
-  Code2,
-  BookOpen,
-  Coins,
-  Boxes,
-  Waves,
-  TrendingUp,
   Activity,
-  Users,
-  Fingerprint,
-  Wallet,
-  Shield,
   AlertTriangle,
-  Sliders,
-  Send,
+  BookOpen,
+  Boxes,
   Building2,
-  FileText,
-  Music,
-  Database,
-  Globe,
-  Trophy,
-  Target,
-  Orbit,
-  Menu,
-  X,
-  Compass,
-  Zap,
   ChevronDown,
+  Code2,
+  Coins,
+  Compass,
+  Database,
+  FileText,
+  Fingerprint,
+  Globe,
   LayoutGrid,
-  Search
+  Menu,
+  Music,
+  Orbit,
+  Search,
+  Send,
+  Shield,
+  Sliders,
+  Target,
+  TrendingUp,
+  Trophy,
+  Users,
+  Wallet,
+  Waves,
+  X,
+  Zap,
 } from "lucide-react";
 
 type NavItem = {
@@ -48,7 +48,7 @@ type NavGroup = {
   items: NavItem[];
 };
 
-export default function SidebarShell({ children }: { children: React.ReactNode }) {
+export default function ResponsiveNav({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const wallet = useFreighterWallet();
   const [isOpen, setIsOpen] = useState(false);
@@ -58,8 +58,23 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
     "DeFi Suite": true,
     "Governance & Trust": true,
     "Real World Assets": false,
-    "Gaming & Sports": false
+    "Gaming & Sports": false,
   });
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const [reducedMotion, setReducedMotion] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   const navigation: NavGroup[] = [
     {
@@ -67,13 +82,12 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
       items: [
         { name: "IDE Playground", href: "/playground", icon: Code2 },
         { name: "Compile Dashboard", href: "/compile-dashboard", icon: Zap },
-        { name: "Storage Browser", href: "/storage-browser", icon: Database },
         { name: "Docs & Reference", href: "/docs", icon: BookOpen },
         { name: "Audit Explorer", href: "/audit", icon: Shield },
         { name: "Search Utility", href: "/search", icon: Search },
         { name: "Ledger Migration", href: "/migration", icon: Send },
-        { name: "Rate Limits", href: "/rate-limits", icon: Sliders }
-      ]
+        { name: "Rate Limits", href: "/rate-limits", icon: Sliders },
+      ],
     },
     {
       groupName: "DeFi Suite",
@@ -82,8 +96,8 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
         { name: "Limit Order Book", href: "/orderbook", icon: Boxes },
         { name: "Stablecoin Peg", href: "/stablecoin", icon: Waves },
         { name: "Yield Optimizer", href: "/yield-optimizer", icon: TrendingUp },
-        { name: "NFT AMM Pool", href: "/nft-amm", icon: Activity }
-      ]
+        { name: "NFT AMM Pool", href: "/nft-amm", icon: Activity },
+      ],
     },
     {
       groupName: "Governance & Trust",
@@ -91,8 +105,8 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
         { name: "Governance Portal", href: "/governance/history", icon: Users },
         { name: "Quadratic Voting", href: "/quadratic-voting", icon: Fingerprint },
         { name: "Treasury Panel", href: "/treasury", icon: Wallet },
-        { name: "Bug Bounty Program", href: "/bug-bounty", icon: AlertTriangle }
-      ]
+        { name: "Bug Bounty Program", href: "/bug-bounty", icon: AlertTriangle },
+      ],
     },
     {
       groupName: "Real World Assets",
@@ -101,25 +115,25 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
         { name: "Patent Registry", href: "/patents", icon: FileText },
         { name: "Music Licensing", href: "/music-licensing", icon: Music },
         { name: "Data Marketplace", href: "/data-marketplace", icon: Database },
-        { name: "Content Publishing", href: "/content-publishing", icon: Globe }
-      ]
+        { name: "Content Publishing", href: "/content-publishing", icon: Globe },
+      ],
     },
     {
       groupName: "Gaming & Sports",
       items: [
         { name: "Sports Dashboard", href: "/sports", icon: Trophy },
-        { name: "Sports Prediction", href: "/sports-prediction", icon: Target }
-      ]
-    }
+        { name: "Sports Prediction", href: "/sports-prediction", icon: Target },
+      ],
+    },
   ];
 
   const toggleGroup = (groupName: string) => {
-    setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
+    setExpandedGroups((prev) => ({ ...prev, [groupName]: !prev[groupName] }));
   };
 
   const getActiveItemName = () => {
     for (const group of navigation) {
-      const active = group.items.find(item => item.href === pathname);
+      const active = group.items.find((item) => item.href === pathname);
       if (active) return active.name;
     }
     if (pathname.startsWith("/bug-bounty")) return "Bug Bounty Program";
@@ -140,23 +154,76 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
     return pathname.startsWith(href);
   };
 
+  const closeDrawer = useCallback(() => {
+    setIsOpen(false);
+    hamburgerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeDrawer();
+        return;
+      }
+
+      if (e.key === "Tab" && drawerRef.current) {
+        const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, closeDrawer]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
+
   return (
     <div className="flex min-h-screen bg-[#060c18] text-[#e6edf7] font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200">
       {/* Background Gradients */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-teal-500/10 blur-[120px]" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-orange-500/10 blur-[120px]" />
-        <div 
-          className="absolute inset-0 opacity-[0.03]" 
+        <div
+          className="absolute inset-0 opacity-[0.03]"
           style={{
-            backgroundImage: "linear-gradient(rgba(120, 140, 180, 0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 140, 180, 0.15) 1px, transparent 1px)",
-            backgroundSize: "32px 32px"
+            backgroundImage:
+              "linear-gradient(rgba(120, 140, 180, 0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 140, 180, 0.15) 1px, transparent 1px)",
+            backgroundSize: "32px 32px",
           }}
         />
       </div>
 
       {/* Desktop Sidebar */}
-      <aside 
+      <aside
         className={`fixed inset-y-0 left-0 z-20 hidden md:flex flex-col bg-slate-950/80 border-r border-slate-800/60 backdrop-blur-xl transition-all duration-300 ${
           collapsed ? "w-20" : "w-64"
         }`}
@@ -173,10 +240,11 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
               </span>
             )}
           </Link>
-          <button 
+          <button
             onClick={() => setCollapsed(!collapsed)}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             <LayoutGrid size={16} />
           </button>
@@ -190,17 +258,18 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
                 <button
                   onClick={() => toggleGroup(group.groupName)}
                   className="w-full flex items-center justify-between px-2.5 py-1 text-[10px] font-semibold text-slate-500 hover:text-slate-400 uppercase tracking-[0.2em] transition-colors"
+                  aria-expanded={expandedGroups[group.groupName]}
                 >
                   <span>{group.groupName}</span>
-                  <ChevronDown 
-                    size={10} 
+                  <ChevronDown
+                    size={10}
                     className={`transition-transform duration-200 ${
                       expandedGroups[group.groupName] ? "" : "-rotate-90"
                     }`}
                   />
                 </button>
               )}
-              
+
               {(!collapsed && expandedGroups[group.groupName]) || collapsed ? (
                 <div className="space-y-0.5">
                   {group.items.map((item) => {
@@ -216,15 +285,13 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
                         }`}
                         title={collapsed ? item.name : undefined}
                       >
-                        <item.icon 
+                        <item.icon
                           className={`shrink-0 transition-transform group-hover:scale-105 ${
                             active ? "text-teal-400" : "text-slate-400 group-hover:text-slate-200"
-                          }`} 
-                          size={16} 
+                          }`}
+                          size={16}
                         />
-                        {!collapsed && (
-                          <span className="truncate">{item.name}</span>
-                        )}
+                        {!collapsed && <span className="truncate">{item.name}</span>}
                         {!collapsed && item.badge && (
                           <span className="ml-auto px-1.5 py-0.5 text-[9px] rounded bg-teal-500/20 border border-teal-500/30 text-teal-300 font-semibold font-mono">
                             {item.badge}
@@ -247,11 +314,13 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                   Freighter Connected
                 </span>
-                <span className={`h-1.5 w-1.5 rounded-full ${
-                  wallet.status === "connected" ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
-                }`} />
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    wallet.status === "connected" ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
+                  }`}
+                />
               </div>
-              
+
               {wallet.status === "connected" && wallet.address ? (
                 <div>
                   <p className="font-mono text-xs text-emerald-400 truncate mb-1">
@@ -278,28 +347,45 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
 
       {/* Mobile Drawer Backdrop */}
       {isOpen && (
-        <div 
-          onClick={() => setIsOpen(false)}
+        <div
+          onClick={closeDrawer}
           className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
+          aria-hidden="true"
+          data-testid="drawer-backdrop"
         />
       )}
 
       {/* Mobile Sidebar Drawer */}
-      <aside 
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950/90 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col md:hidden transition-transform duration-300 ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
+      <aside
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation"
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950/90 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col md:hidden ${
+          reducedMotion
+            ? isOpen
+              ? "translate-x-0"
+              : "-translate-x-full"
+            : `transition-transform duration-300 ${
+                isOpen ? "translate-x-0" : "-translate-x-full"
+              }`
         }`}
       >
         <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800/60">
-          <Link href="/" className="flex items-center gap-2">
+          <Link
+            href="/"
+            onClick={closeDrawer}
+            className="flex items-center gap-2 min-h-[44px]"
+          >
             <Orbit size={18} className="text-teal-400 animate-spin-[duration:12s]" />
             <span className="font-semibold text-sm tracking-wider uppercase text-white">
               Soroban Playground
             </span>
           </Link>
-          <button 
-            onClick={() => setIsOpen(false)}
-            className="p-1 rounded-lg text-slate-400 hover:bg-white/5"
+          <button
+            onClick={closeDrawer}
+            className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:bg-white/5"
+            aria-label="Close navigation"
           >
             <X size={18} />
           </button>
@@ -318,7 +404,7 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
                     <Link
                       key={item.name}
                       href={item.href}
-                      onClick={() => setIsOpen(false)}
+                      onClick={closeDrawer}
                       className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium border border-transparent transition-all ${
                         active
                           ? "bg-teal-500/10 border-teal-500/20 text-teal-300"
@@ -341,11 +427,13 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                 Wallet Status
               </span>
-              <span className={`h-1.5 w-1.5 rounded-full ${
-                wallet.status === "connected" ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
-              }`} />
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  wallet.status === "connected" ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
+                }`}
+              />
             </div>
-            
+
             {wallet.status === "connected" && wallet.address ? (
               <p className="font-mono text-xs text-emerald-400 truncate">
                 {formatAddress(wallet.address)}
@@ -363,20 +451,24 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
       </aside>
 
       {/* Main Content Area */}
-      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 z-10 ${
-        collapsed ? "md:pl-20" : "md:pl-64"
-      }`}>
+      <div
+        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 z-10 ${
+          collapsed ? "md:pl-20" : "md:pl-64"
+        }`}
+      >
         {/* Top Navigation Header */}
         <header className="h-16 flex items-center justify-between px-4 sm:px-6 bg-slate-950/40 border-b border-slate-800/60 backdrop-blur-md sticky top-0 z-20">
           <div className="flex items-center gap-3">
             <button
+              ref={hamburgerRef}
               onClick={() => setIsOpen(true)}
-              className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-white/5 md:hidden"
-              aria-label="Open sidebar menu"
+              className="flex items-center justify-center min-w-[44px] min-h-[44px] -ml-2 rounded-lg text-slate-400 hover:bg-white/5 md:hidden"
+              aria-label="Open navigation"
+              aria-expanded={isOpen}
             >
               <Menu size={20} />
             </button>
-            
+
             {/* Page title / breadcrumb */}
             <div className="flex items-center gap-2">
               <span className="hidden sm:inline-flex text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-400 transition-colors">
@@ -421,9 +513,7 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
         </header>
 
         {/* Dynamic Children Panel */}
-        <main className="flex-1">
-          {children}
-        </main>
+        <main className="flex-1">{children}</main>
       </div>
     </div>
   );

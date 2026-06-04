@@ -19,6 +19,7 @@ Current example:
 
 - `hello-world/`: a minimal Soroban contract with its own README
 - `yield-optimizer/`: cross-protocol strategy optimizer with deposits, withdrawals, auto-compound, and pause controls
+- `registry-integration/`: a registry-aware contract example for contract discoverability and metadata management
 
 ## Recommended structure
 
