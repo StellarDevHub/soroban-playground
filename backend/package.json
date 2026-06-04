@@ -19,8 +19,7 @@
     "test:coverage": "jest --coverage",
     "test:unit": "jest tests/syntheticAssets.unit.test.js",
     "test:integration": "jest tests/syntheticAssets.integration.test.js",
-    "test:e2e": "jest tests/syntheticAssets.e2e.test.js"
-    "test": "jest",
+    "test:e2e": "jest tests/syntheticAssets.e2e.test.js",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:unit": "jest tests/*.test.js",
@@ -66,7 +65,7 @@
     "@babel/core": "^7.24.0",
     "@babel/plugin-syntax-import-meta": "^7.10.4",
     "@babel/plugin-transform-modules-commonjs": "^7.29.7",
-    "@babel/preset-env": "^7.24.0",
+    "@babel/preset-env": "^7.29.7",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
     "babel-jest": "^29.7.0",

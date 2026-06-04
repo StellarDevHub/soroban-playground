@@ -75,4 +75,8 @@ import musicLicensingRoutes from './musicLicensingRoutes.js';
 router.use('/music-licensing', musicLicensingRoutes);
 
 router.use('/warranty', warrantyRoutes);
+
+import pauseToggleRoutes from './pauseToggle.js';
+router.use('/pause-toggle', pauseToggleRoutes);
+
 export default router;
