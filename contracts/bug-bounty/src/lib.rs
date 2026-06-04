@@ -1,142 +1,285 @@
-#![no_std]
-mod test;
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec};
+//! # Bug Bounty Contract
+//!
+//! Manages vulnerability disclosure reports with severity-based rewards,
+//! lifecycle tracking, and an emergency pause mechanism.
+
+#![no_std]
+
+mod storage;
+mod test;
+mod types;
+
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
+
+use crate::storage::{
+    clear_open_report_flag, get_admin, get_pool_balance, get_report, get_report_count,
+    get_reward_for_severity, has_open_report, is_initialized, is_paused, set_admin,
+    set_open_report_flag, set_paused, set_pool_balance, set_report, set_report_count,
+    set_reward_for_severity,
+};
+use crate::types::{Error, InstanceKey, Report, ReportStatus, Severity};
 
 #[contract]
 pub struct BugBountyContract;
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum BountyStatus {
-    Open,
-    UnderReview,
-    Resolved,
-    Rejected,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Severity {
-    Critical,
-    High,
-    Medium,
-    Low,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BugReport {
-    pub id: u32,
-    pub reporter: Address,
-    pub title: String,
-    pub target: String,
-    pub severity: Severity,
-    pub status: BountyStatus,
-    pub reward: u128,
-}
-
-#[contracttype]
-pub enum DataKey {
-    Admin,
-    NextReportId,
-    Report(u32),
-    ReportsByReporter(Address),
-    IsPaused,
-}
-
-const EVENT_REPORT_SUBMITTED: Symbol = symbol_short!("SUBMIT");
-const EVENT_REPORT_REVIEWED: Symbol = symbol_short!("REVIEW");
-const EVENT_PAUSED: Symbol = symbol_short!("PAUSE");
-const EVENT_UNPAUSED: Symbol = symbol_short!("UNPAUSE");
-
 #[contractimpl]
 impl BugBountyContract {
-    /// Initialize the contract with an admin.
-    pub fn init(env: Env, admin: Address) {
-        if env.storage().instance().has(&DataKey::Admin) {
-            panic!("already initialized");
+    // ── Initialisation ────────────────────────────────────────────────────────
+
+    /// Initialise the contract with an admin and an initial pool deposit.
+    pub fn initialize(env: Env, admin: Address, initial_pool: i128) -> Result<(), Error> {
+        if is_initialized(&env) {
+            return Err(Error::AlreadyInitialized);
         }
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::NextReportId, &1u32);
-        env.storage().instance().set(&DataKey::IsPaused, &false);
+        admin.require_auth();
+        set_admin(&env, &admin);
+        set_pool_balance(&env, initial_pool);
+        set_report_count(&env, 0);
+        set_paused(&env, false);
+        env.events().publish((symbol_short!("init"),), admin);
+        Ok(())
     }
 
-    /// Submit a new bug report.
-    pub fn submit_bug(env: Env, reporter: Address, title: String, target: String, severity: Severity) -> u32 {
-        reporter.require_auth();
-        assert!(!Self::is_paused(&env), "Contract is paused");
+    // ── Admin controls ────────────────────────────────────────────────────────
 
-        let id = env.storage().instance().get(&DataKey::NextReportId).unwrap_or(1u32);
-        
-        let report = BugReport {
+    /// Pause or unpause the contract (admin only).
+    pub fn set_paused(env: Env, admin: Address, paused: bool) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        set_paused(&env, paused);
+        let tag = if paused {
+            symbol_short!("paused")
+        } else {
+            symbol_short!("unpaused")
+        };
+        env.events().publish((tag,), ());
+        Ok(())
+    }
+
+    /// Top up the reward pool (admin only).
+    pub fn fund_pool(env: Env, admin: Address, amount: i128) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        let balance = get_pool_balance(&env);
+        set_pool_balance(&env, balance + amount);
+        Ok(())
+    }
+
+    /// Override the default reward for a severity tier (admin only).
+    pub fn set_reward(env: Env, admin: Address, severity: Severity, amount: i128) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        if amount == 0 {
+            return Err(Error::ZeroReward);
+        }
+        set_reward_for_severity(&env, severity, amount);
+        Ok(())
+    }
+
+    // ── Reporter actions ──────────────────────────────────────────────────────
+
+    /// Submit a new vulnerability report.
+    pub fn submit_report(
+        env: Env,
+        reporter: Address,
+        title: String,
+        description_hash: String,
+        severity: Severity,
+    ) -> Result<u32, Error> {
+        Self::assert_not_paused(&env)?;
+        Self::assert_initialized_guard(&env)?;
+        reporter.require_auth();
+
+        if title.len() == 0 {
+            return Err(Error::EmptyTitle);
+        }
+        if description_hash.len() == 0 {
+            return Err(Error::EmptyDescriptionHash);
+        }
+        if has_open_report(&env, &reporter) {
+            return Err(Error::AlreadyHasOpenReport);
+        }
+
+        let id = get_report_count(&env) + 1;
+        let now = env.ledger().timestamp();
+
+        let report = Report {
             id,
             reporter: reporter.clone(),
-            title: title.clone(),
-            target,
+            title,
+            description_hash,
             severity,
-            status: BountyStatus::Open,
-            reward: 0,
+            status: ReportStatus::Pending,
+            reward_amount: 0,
+            submitted_at: now,
+            updated_at: now,
         };
 
-        env.storage().persistent().set(&DataKey::Report(id), &report);
-        env.storage().instance().set(&DataKey::NextReportId, &(id + 1));
+        set_report(&env, &report);
+        set_report_count(&env, id);
+        set_open_report_flag(&env, &reporter);
 
-        // Update reporter's list of reports
-        let mut user_reports: Vec<u32> = env.storage().persistent().get(&DataKey::ReportsByReporter(reporter.clone())).unwrap_or(Vec::new(&env));
-        user_reports.push_back(id);
-        env.storage().persistent().set(&DataKey::ReportsByReporter(reporter.clone()), &user_reports);
-
-        env.events().publish((EVENT_REPORT_SUBMITTED, reporter), id);
-        id
+        env.events()
+            .publish((symbol_short!("submitted"), reporter), id);
+        Ok(id)
     }
 
-    /// Review a bug report and assign a reward (Admin only).
-    pub fn review_bug(env: Env, admin: Address, id: u32, status: BountyStatus, reward: u128) {
-        admin.require_auth();
-        assert!(!Self::is_paused(&env), "Contract is paused");
-        
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
-        if admin != stored_admin {
-            panic!("unauthorized");
+    /// Withdraw a pending report (reporter only).
+    pub fn withdraw_report(env: Env, reporter: Address, report_id: u32) -> Result<(), Error> {
+        Self::assert_initialized_guard(&env)?;
+        reporter.require_auth();
+
+        let mut report = get_report(&env, report_id)?;
+        if report.reporter != reporter {
+            return Err(Error::Unauthorized);
+        }
+        if report.status != ReportStatus::Pending && report.status != ReportStatus::UnderReview {
+            return Err(Error::ReportAlreadyClosed);
         }
 
-        let mut report: BugReport = env.storage().persistent().get(&DataKey::Report(id)).expect("Report not found");
-        report.status = status.clone();
-        report.reward = reward;
+        report.status = ReportStatus::Withdrawn;
+        report.updated_at = env.ledger().timestamp();
+        set_report(&env, &report);
+        clear_open_report_flag(&env, &reporter);
 
-        env.storage().persistent().set(&DataKey::Report(id), &report);
-        env.events().publish((EVENT_REPORT_REVIEWED, id), (status, reward));
+        env.events()
+            .publish((symbol_short!("withdrawn"), reporter), report_id);
+        Ok(())
     }
 
-    /// Retrieve a bug report by ID.
-    pub fn get_report(env: Env, id: u32) -> BugReport {
-        env.storage().persistent().get(&DataKey::Report(id)).expect("Report not found")
-    }
+    // ── Admin review ──────────────────────────────────────────────────────────
 
-    /// Emergency pause (Admin only).
-    pub fn pause(env: Env, admin: Address) {
-        admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
-        if admin != stored_admin {
-            panic!("unauthorized");
+    /// Move a report to UnderReview (admin only).
+    pub fn start_review(env: Env, admin: Address, report_id: u32) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+
+        let mut report = get_report(&env, report_id)?;
+        if report.status != ReportStatus::Pending {
+            return Err(Error::InvalidStatus);
         }
-        env.storage().instance().set(&DataKey::IsPaused, &true);
-        env.events().publish((EVENT_PAUSED,), ());
+
+        report.status = ReportStatus::UnderReview;
+        report.updated_at = env.ledger().timestamp();
+        set_report(&env, &report);
+
+        env.events()
+            .publish((symbol_short!("review"), report_id), ());
+        Ok(())
     }
 
-    /// Unpause contract (Admin only).
-    pub fn unpause(env: Env, admin: Address) {
-        admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
-        if admin != stored_admin {
-            panic!("unauthorized");
+    /// Accept a report and assign a reward (admin only).
+    pub fn accept_report(env: Env, admin: Address, report_id: u32) -> Result<i128, Error> {
+        Self::assert_admin(&env, &admin)?;
+
+        let mut report = get_report(&env, report_id)?;
+        if report.status != ReportStatus::UnderReview {
+            return Err(Error::InvalidStatus);
         }
-        env.storage().instance().set(&DataKey::IsPaused, &false);
-        env.events().publish((EVENT_UNPAUSED,), ());
+
+        let reward = get_reward_for_severity(&env, report.severity);
+        let pool = get_pool_balance(&env);
+        if pool < reward {
+            return Err(Error::InsufficientPool);
+        }
+
+        report.status = ReportStatus::Accepted;
+        report.reward_amount = reward;
+        report.updated_at = env.ledger().timestamp();
+        set_report(&env, &report);
+        set_pool_balance(&env, pool - reward);
+
+        env.events()
+            .publish((symbol_short!("accepted"), report_id), reward);
+        Ok(reward)
     }
 
-    pub fn is_paused(env: &Env) -> bool {
-        env.storage().instance().get(&DataKey::IsPaused).unwrap_or(false)
+    /// Reject a report (admin only).
+    pub fn reject_report(env: Env, admin: Address, report_id: u32) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+
+        let mut report = get_report(&env, report_id)?;
+        if report.status != ReportStatus::Pending && report.status != ReportStatus::UnderReview {
+            return Err(Error::InvalidStatus);
+        }
+
+        report.status = ReportStatus::Rejected;
+        report.updated_at = env.ledger().timestamp();
+        set_report(&env, &report);
+        clear_open_report_flag(&env, &report.reporter);
+
+        env.events()
+            .publish((symbol_short!("rejected"), report_id), ());
+        Ok(())
+    }
+
+    /// Mark reward as paid out (admin only).
+    pub fn mark_paid(env: Env, admin: Address, report_id: u32) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+
+        let mut report = get_report(&env, report_id)?;
+        if report.status != ReportStatus::Accepted {
+            return Err(Error::NothingToClaim);
+        }
+
+        report.status = ReportStatus::Paid;
+        report.updated_at = env.ledger().timestamp();
+        set_report(&env, &report);
+        clear_open_report_flag(&env, &report.reporter);
+
+        env.events()
+            .publish((symbol_short!("paid"), report_id), report.reward_amount);
+        Ok(())
+    }
+
+    // ── Read-only queries ─────────────────────────────────────────────────────
+
+    pub fn get_report(env: Env, report_id: u32) -> Result<Report, Error> {
+        get_report(&env, report_id)
+    }
+
+    pub fn report_count(env: Env) -> u32 {
+        get_report_count(&env)
+    }
+
+    pub fn pool_balance(env: Env) -> i128 {
+        get_pool_balance(&env)
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        is_paused(&env)
+    }
+
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        get_admin(&env)
+    }
+
+    pub fn reward_for_severity(env: Env, severity: Severity) -> i128 {
+        get_reward_for_severity(&env, severity)
+    }
+
+    // ── Internal helpers ──────────────────────────────────────────────────────
+
+    fn assert_initialized_guard(env: &Env) -> Result<(), Error> {
+        if !is_initialized(env) {
+            return Err(Error::NotInitialized);
+        }
+        Ok(())
+    }
+
+    fn assert_not_paused(env: &Env) -> Result<(), Error> {
+        if is_paused(env) {
+            return Err(Error::ContractPaused);
+        }
+        Ok(())
+    }
+
+    fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
+        Self::assert_initialized_guard(env)?;
+        caller.require_auth();
+        let admin = get_admin(env)?;
+        if *caller != admin {
+            return Err(Error::Unauthorized);
+        }
+        Ok(())
     }
 }

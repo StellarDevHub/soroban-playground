@@ -68,7 +68,7 @@ function emitProgress(event) {
   });
 }
 
-function validateDeployContract(contract) {
+export function validateDeployContract(contract) {
   const errors = [];
   if (!contract.sourceAccount) {
     errors.push(

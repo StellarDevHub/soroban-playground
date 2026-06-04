@@ -1,9 +1,12 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address, Env, String};
 
 use crate::{DidRegistry, DidRegistryClient};
-use crate::types::{CredentialStatus, Error};
+use crate::types::{CredentialStatus, Error, ReputationTier};
 
 fn setup() -> (Env, Address, DidRegistryClient<'static>) {
     let env = Env::default();
@@ -19,6 +22,10 @@ fn did(env: &Env, addr: &Address) -> String {
     String::from_str(env, &format!("did:soroban:{}", addr.to_string()))
 }
 
+fn register(env: &Env, client: &DidRegistryClient, addr: &Address) {
+    client.register_identity(addr, &did(env, addr), &1u64);
+}
+
 // ── Initialize ────────────────────────────────────────────────────────────────
 
 #[test]
@@ -31,6 +38,19 @@ fn test_initialize() {
 fn test_double_initialize_fails() {
     let (env, admin, client) = setup();
     assert_eq!(client.try_initialize(&admin), Err(Ok(Error::AlreadyInitialized)));
+}
+
+#[test]
+fn test_not_initialized_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, DidRegistry);
+    let client = DidRegistryClient::new(&env, &id);
+    let user = Address::generate(&env);
+    assert_eq!(
+        client.try_get_identity(&user),
+        Err(Ok(Error::NotInitialized))
+    );
 }
 
 // ── Identity ──────────────────────────────────────────────────────────────────
@@ -49,6 +69,17 @@ fn test_register_identity() {
 }
 
 #[test]
+fn test_register_identity_sets_timestamps() {
+    let (env, _, client) = setup();
+    env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+    let user = Address::generate(&env);
+    client.register_identity(&user, &did(&env, &user), &1u64);
+    let identity = client.get_identity(&user);
+    assert_eq!(identity.created_at, 1_000_000);
+    assert_eq!(identity.updated_at, 1_000_000);
+}
+
+#[test]
 fn test_duplicate_registration_fails() {
     let (env, _, client) = setup();
     let user = Address::generate(&env);
@@ -64,6 +95,17 @@ fn test_update_metadata() {
     client.register_identity(&user, &did(&env, &user), &1u64);
     client.update_metadata(&user, &99u64);
     assert_eq!(client.get_identity(&user).metadata_hash, 99);
+}
+
+#[test]
+fn test_update_metadata_updates_timestamp() {
+    let (env, _, client) = setup();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    let user = Address::generate(&env);
+    client.register_identity(&user, &did(&env, &user), &1u64);
+    env.ledger().with_mut(|l| l.timestamp = 2_000);
+    client.update_metadata(&user, &99u64);
+    assert_eq!(client.get_identity(&user).updated_at, 2_000);
 }
 
 #[test]
@@ -100,8 +142,8 @@ fn test_issue_credential() {
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
 
-    client.register_identity(&issuer, &did(&env, &issuer), &1u64);
-    client.register_identity(&subject, &did(&env, &subject), &2u64);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
 
     let cred_id = client.issue_credential(&issuer, &subject, &100u64, &200u64, &0u64);
     assert_eq!(cred_id, 1);
@@ -119,7 +161,7 @@ fn test_issue_credential_unregistered_subject_fails() {
     let (env, _, client) = setup();
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
-    client.register_identity(&issuer, &did(&env, &issuer), &1u64);
+    register(&env, &client, &issuer);
 
     let result = client.try_issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
     assert_eq!(result, Err(Ok(Error::IdentityNotFound)));
@@ -130,8 +172,8 @@ fn test_issue_credential_deactivated_issuer_fails() {
     let (env, _, client) = setup();
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
-    client.register_identity(&issuer, &did(&env, &issuer), &1u64);
-    client.register_identity(&subject, &did(&env, &subject), &2u64);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
     client.deactivate_identity(&issuer);
 
     let result = client.try_issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
@@ -143,8 +185,8 @@ fn test_revoke_credential() {
     let (env, _, client) = setup();
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
-    client.register_identity(&issuer, &did(&env, &issuer), &1u64);
-    client.register_identity(&subject, &did(&env, &subject), &2u64);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
 
     let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
     client.revoke_credential(&cred_id);
@@ -156,8 +198,8 @@ fn test_double_revoke_fails() {
     let (env, _, client) = setup();
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
-    client.register_identity(&issuer, &did(&env, &issuer), &1u64);
-    client.register_identity(&subject, &did(&env, &subject), &2u64);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
 
     let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
     client.revoke_credential(&cred_id);
@@ -167,13 +209,165 @@ fn test_double_revoke_fails() {
     );
 }
 
+#[test]
+fn test_multiple_credentials_count() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    client.issue_credential(&issuer, &subject, &1u64, &1u64, &0u64);
+    client.issue_credential(&issuer, &subject, &2u64, &2u64, &0u64);
+    client.issue_credential(&issuer, &subject, &3u64, &3u64, &0u64);
+    assert_eq!(client.credential_count(), 3);
+}
+
+#[test]
+fn test_get_nonexistent_credential_fails() {
+    let (_, _, client) = setup();
+    assert_eq!(
+        client.try_get_credential(&99),
+        Err(Ok(Error::CredentialNotFound))
+    );
+}
+
+// ── Credential Verification ───────────────────────────────────────────────────
+
+#[test]
+fn test_verify_active_credential() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let verifier = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+    register(&env, &client, &verifier);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
+    let valid = client.verify_credential(&verifier, &cred_id);
+    assert!(valid);
+}
+
+#[test]
+fn test_verify_revoked_credential_returns_false() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let verifier = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+    register(&env, &client, &verifier);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
+    client.revoke_credential(&cred_id);
+    let valid = client.verify_credential(&verifier, &cred_id);
+    assert!(!valid);
+}
+
+#[test]
+fn test_verify_expired_credential_returns_false() {
+    let (env, _, client) = setup();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let verifier = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+    register(&env, &client, &verifier);
+
+    // Expires at 2_000
+    let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &2_000u64);
+
+    // Advance past expiry
+    env.ledger().with_mut(|l| l.timestamp = 3_000);
+    let valid = client.verify_credential(&verifier, &cred_id);
+    assert!(!valid);
+}
+
+#[test]
+fn test_verify_credential_deactivated_verifier_fails() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let verifier = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+    register(&env, &client, &verifier);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
+    client.deactivate_identity(&verifier);
+
+    let result = client.try_verify_credential(&verifier, &cred_id);
+    assert_eq!(result, Err(Ok(Error::IdentityDeactivated)));
+}
+
+#[test]
+fn test_verify_credential_no_expiry_is_valid() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let verifier = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+    register(&env, &client, &verifier);
+
+    // expires_at = 0 means no expiry
+    let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
+    env.ledger().with_mut(|l| l.timestamp += 1_000_000);
+    let valid = client.verify_credential(&verifier, &cred_id);
+    assert!(valid);
+}
+
+// ── Credential Expiry ─────────────────────────────────────────────────────────
+
+#[test]
+fn test_is_credential_expired_false_for_active() {
+    let (env, _, client) = setup();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &5_000u64);
+    assert!(!client.is_credential_expired(&cred_id));
+}
+
+#[test]
+fn test_is_credential_expired_true_after_expiry() {
+    let (env, _, client) = setup();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &2_000u64);
+    env.ledger().with_mut(|l| l.timestamp = 3_000);
+    assert!(client.is_credential_expired(&cred_id));
+}
+
+#[test]
+fn test_is_credential_expired_false_for_no_expiry() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &1u64, &2u64, &0u64);
+    env.ledger().with_mut(|l| l.timestamp += 999_999);
+    assert!(!client.is_credential_expired(&cred_id));
+}
+
 // ── Reputation ────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_adjust_reputation_positive() {
     let (env, _, client) = setup();
     let user = Address::generate(&env);
-    client.register_identity(&user, &did(&env, &user), &1u64);
+    register(&env, &client, &user);
 
     let score = client.adjust_reputation(&user, &10i32);
     assert_eq!(score, 10);
@@ -184,7 +378,7 @@ fn test_adjust_reputation_positive() {
 fn test_adjust_reputation_negative() {
     let (env, _, client) = setup();
     let user = Address::generate(&env);
-    client.register_identity(&user, &did(&env, &user), &1u64);
+    register(&env, &client, &user);
 
     client.adjust_reputation(&user, &20i32);
     let score = client.adjust_reputation(&user, &-5i32);
@@ -195,7 +389,7 @@ fn test_adjust_reputation_negative() {
 fn test_adjust_reputation_deactivated_fails() {
     let (env, _, client) = setup();
     let user = Address::generate(&env);
-    client.register_identity(&user, &did(&env, &user), &1u64);
+    register(&env, &client, &user);
     client.deactivate_identity(&user);
 
     assert_eq!(
@@ -205,15 +399,190 @@ fn test_adjust_reputation_deactivated_fails() {
 }
 
 #[test]
-fn test_multiple_credentials_count() {
+fn test_adjust_reputation_saturates_at_min() {
     let (env, _, client) = setup();
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
-    client.register_identity(&issuer, &did(&env, &issuer), &1u64);
-    client.register_identity(&subject, &did(&env, &subject), &2u64);
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
 
-    client.issue_credential(&issuer, &subject, &1u64, &1u64, &0u64);
-    client.issue_credential(&issuer, &subject, &2u64, &2u64, &0u64);
-    client.issue_credential(&issuer, &subject, &3u64, &3u64, &0u64);
-    assert_eq!(client.credential_count(), 3);
+    // Saturating sub: 0 - i32::MAX should not underflow
+    client.adjust_reputation(&user, &i32::MIN);
+    let score = client.get_identity(&user).reputation;
+    assert_eq!(score, i32::MIN);
+}
+
+// ── Reputation Tiers ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_reputation_tier_novice_default() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    assert_eq!(client.get_reputation_tier(&user), ReputationTier::Novice);
+}
+
+#[test]
+fn test_reputation_tier_unverified_negative() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.adjust_reputation(&user, &-1i32);
+    assert_eq!(client.get_reputation_tier(&user), ReputationTier::Unverified);
+}
+
+#[test]
+fn test_reputation_tier_trusted() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.adjust_reputation(&user, &100i32);
+    assert_eq!(client.get_reputation_tier(&user), ReputationTier::Trusted);
+}
+
+#[test]
+fn test_reputation_tier_verified() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.adjust_reputation(&user, &500i32);
+    assert_eq!(client.get_reputation_tier(&user), ReputationTier::Verified);
+}
+
+#[test]
+fn test_reputation_tier_expert() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.adjust_reputation(&user, &1000i32);
+    assert_eq!(client.get_reputation_tier(&user), ReputationTier::Expert);
+}
+
+// ── Boost / Penalize Reputation ───────────────────────────────────────────────
+
+#[test]
+fn test_boost_reputation() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+
+    let score = client.boost_reputation(&user, &50i32);
+    assert_eq!(score, 50);
+    assert_eq!(client.get_identity(&user).reputation, 50);
+}
+
+#[test]
+fn test_boost_reputation_zero_fails() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+
+    assert_eq!(
+        client.try_boost_reputation(&user, &0i32),
+        Err(Ok(Error::InvalidReputation))
+    );
+}
+
+#[test]
+fn test_boost_reputation_negative_fails() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+
+    assert_eq!(
+        client.try_boost_reputation(&user, &-10i32),
+        Err(Ok(Error::InvalidReputation))
+    );
+}
+
+#[test]
+fn test_boost_deactivated_identity_fails() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.deactivate_identity(&user);
+
+    assert_eq!(
+        client.try_boost_reputation(&user, &10i32),
+        Err(Ok(Error::IdentityDeactivated))
+    );
+}
+
+#[test]
+fn test_penalize_reputation() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.boost_reputation(&user, &100i32);
+
+    let score = client.penalize_reputation(&user, &30i32);
+    assert_eq!(score, 70);
+}
+
+#[test]
+fn test_penalize_reputation_zero_fails() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+
+    assert_eq!(
+        client.try_penalize_reputation(&user, &0i32),
+        Err(Ok(Error::InvalidReputation))
+    );
+}
+
+#[test]
+fn test_penalize_reputation_negative_fails() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+
+    assert_eq!(
+        client.try_penalize_reputation(&user, &-5i32),
+        Err(Ok(Error::InvalidReputation))
+    );
+}
+
+#[test]
+fn test_penalize_deactivated_identity_fails() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.deactivate_identity(&user);
+
+    assert_eq!(
+        client.try_penalize_reputation(&user, &10i32),
+        Err(Ok(Error::IdentityDeactivated))
+    );
+}
+
+// ── Meets Reputation Requirement ─────────────────────────────────────────────
+
+#[test]
+fn test_meets_reputation_requirement_true() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.adjust_reputation(&user, &100i32);
+
+    assert!(client.meets_reputation_requirement(&user, &50i32));
+    assert!(client.meets_reputation_requirement(&user, &100i32));
+}
+
+#[test]
+fn test_meets_reputation_requirement_false() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+    client.adjust_reputation(&user, &50i32);
+
+    assert!(!client.meets_reputation_requirement(&user, &100i32));
+}
+
+#[test]
+fn test_meets_reputation_requirement_zero_threshold() {
+    let (env, _, client) = setup();
+    let user = Address::generate(&env);
+    register(&env, &client, &user);
+
+    // Default reputation is 0, threshold 0 → meets
+    assert!(client.meets_reputation_requirement(&user, &0i32));
 }

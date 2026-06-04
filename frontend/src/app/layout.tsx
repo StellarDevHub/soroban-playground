@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { GraphQLProvider } from "../components/providers/GraphQLProvider";
-import SidebarShell from "../components/Sidebar";
+import ResponsiveNav from "../components/ResponsiveNav";
 
 export const metadata: Metadata = {
   title: "Stellar Soroban Playground",
@@ -18,9 +18,9 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="min-h-screen bg-[#060c18] text-[#e6edf7] antialiased">
         <GraphQLProvider>
-          <SidebarShell>
+          <ResponsiveNav>
             {children}
-          </SidebarShell>
+          </ResponsiveNav>
         </GraphQLProvider>
       </body>
     </html>

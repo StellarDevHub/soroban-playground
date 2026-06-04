@@ -60,9 +60,7 @@ class RedisService {
         connectTimeout: 5000,
         retryStrategy: (times) => {
           if (times > this.maxAttempts) {
-            console.error(
-              'Redis connection failed, switching to fallback mode'
-            );
+            console.error('Redis connection failed, switching to fallback mode');
             this.isFallbackMode = true;
             return null;
           }
@@ -199,7 +197,6 @@ class RedisService {
     const windowStart = now - windowMs;
 
     // Filter out expired timestamps and enforce a hard cap to prevent array bloat
-    // Even if the limit is high, we don't store more than what is needed to verify the current window
     const fresh = bucket.filter((ts) => ts > windowStart).slice(-limit);
 
     if (fresh.length < limit) {
@@ -217,6 +214,36 @@ class RedisService {
     };
   }
 
+  async get(key) {
+    if (this.isFallbackMode || !this.client) {
+      const val = this.localCache.get(key);
+      return val !== undefined ? val : null;
+    }
+    return await this.client.get(key);
+  }
+
+  async set(key, value, ttl) {
+    if (this.isFallbackMode || !this.client) {
+      this.localCache.set(key, value);
+      return 'OK';
+    }
+    return await this.client.set(key, value, 'EX', ttl);
+  }
+
+  async delete(key) {
+    if (this.isFallbackMode || !this.client) {
+      this.localCache.delete?.(key);
+      return 1;
+    }
+    return await this.client.del(key);
+  }
+
+  /**
+   * Log analytics data for endpoint usage.
+   * @param {string} endpoint - The API endpoint being accessed.
+   * @param {string} ip - IP address of the requester.
+   * @param {string} status - Status label (e.g., 'success', 'error').
+   */
   async logAnalytics(endpoint, ip, status) {
     const safeEndpoint = normalizeAnalyticsValue(endpoint, 'unknown');
     const safeIp = normalizeAnalyticsValue(ip, 'unknown');
@@ -264,5 +291,7 @@ class RedisService {
   }
 }
 
+// Export both default and named instance for compatibility
 const redisService = new RedisService();
 export default redisService;
+export { redisService };

@@ -629,7 +629,7 @@ export default function AdminDashboard() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-center text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center text-sm">
               <div className="rounded-lg bg-gray-800 p-3">
                 <p className="text-gray-500">Schemas</p>
                 <p className="mt-1 font-semibold">{eventMetrics.schemas?.versions || 0}</p>
