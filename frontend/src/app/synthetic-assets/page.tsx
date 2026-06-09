@@ -1,5 +1,6 @@
 "use client";
 import WarrantyPanel from '@/components/WarrantyPanel';
+import * as freighterApiModule from "@stellar/freighter-api";
 
 import {
   startTransition,
@@ -462,8 +463,7 @@ export default function Home() {
 
     try {
       const api =
-        freighterApi ||
-        ((await import("@stellar/freighter-api")) as FreighterModule);
+        freighterApi || (freighterApiModule as unknown as FreighterModule);
       setFreighterApi(api);
 
       const connection = await api.isConnected();

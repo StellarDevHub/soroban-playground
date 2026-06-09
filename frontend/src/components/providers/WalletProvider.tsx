@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import * as freighterApi from "@stellar/freighter-api";
 
 export type WalletType = "freighter" | "soroban-wallet" | "albedo";
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error" | "unavailable";
@@ -66,7 +67,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       let net = "";
 
       if (type === "freighter") {
-        const freighterApi = await import("@stellar/freighter-api");
         const allowedRes = await freighterApi.isAllowed();
         
         let isAllowed = allowedRes.isAllowed === true;
