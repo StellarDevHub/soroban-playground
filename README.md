@@ -140,6 +140,7 @@ This repository includes a smallest-complete implementation across contract, bac
 - Soroban contract example: `contracts/yield-optimizer`
 - Backend APIs: `backend/src/routes/optimizer.js`
 - Frontend dashboard: `frontend/src/app/yield-optimizer/page.tsx`
+- **Live Testnet Contract ID**: `CCQBGRD7SVNDXK6KWX2LYSADHXBQCYOJOU5D3DQIOUZ4E3RTLP544H2D`
 
 ## Patent Registry (Issue #350)
 
@@ -150,6 +151,7 @@ Decentralized patent registry with invention verification and licensing marketpl
 - Backend service: `backend/src/services/patentRegistryService.js`
 - Frontend service: `frontend/src/services/patentRegistryService.ts`
 - Frontend dashboard: `frontend/src/app/patent-registry/page.tsx`
+- **Live Testnet Contract ID**: `CAUNUHUXFT2PVWAJEFELNIKLVHHPQX3NPWWFUHMBIEFOR4ZPTN24CK7Q`
 
 Features:
 - Register patents with metadata URIs and hashes
@@ -237,6 +239,8 @@ MIT License.
 ## Quadratic Voting System
 
 A full-stack quadratic voting implementation built on Soroban.
+
+**Live Testnet Contract ID**: `CDKPQE3TWTBF3BLA2IZSFHLXRCTRCPWHFTGBVH6WWPDAEKT3FEJQVBP4`
 
 ### How Quadratic Voting Works
 
