@@ -56,6 +56,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (!isWalletDetected(type)) {
       setStatus("unavailable");
       setError(`${type} wallet extension not found.`);
+      if (!auto) {
+        window.alert(`${type} wallet extension is not installed or not detected in this browser. Please install the Freighter extension to connect.`);
+      }
       return;
     }
 
@@ -106,8 +109,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // Persist connection
       localStorage.setItem("preferred_wallet", type);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to connect wallet";
       setStatus("error");
-      setError(err instanceof Error ? err.message : "Failed to connect wallet");
+      setError(msg);
+      if (!auto) {
+        window.alert(`Wallet Connection Error: ${msg}`);
+      }
     }
   }, [isWalletDetected]);
 
