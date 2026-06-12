@@ -37,7 +37,7 @@
     "@opentelemetry/exporter-prometheus": "^0.54.2",
     "@opentelemetry/exporter-zipkin": "^2.7.1",
     "@opentelemetry/instrumentation-express": "^0.42.0",
-    "@opentelemetry/instrumentation-ioredis": "^0.43.0",
+    "@opentelemetry/instrumentation-ioredis": "^0.67.0",
     "cors": "^2.8.5",
     "dataloader": "^2.2.3",
     "dotenv": "^17.3.1",
