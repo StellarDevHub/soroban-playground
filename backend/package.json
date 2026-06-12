@@ -36,7 +36,7 @@
     "@opentelemetry/exporter-jaeger": "^1.28.0",
     "@opentelemetry/exporter-prometheus": "^0.54.2",
     "@opentelemetry/exporter-zipkin": "^2.7.1",
-    "@opentelemetry/instrumentation-express": "^0.42.0",
+    "@opentelemetry/instrumentation-express": "^0.67.0",
     "@opentelemetry/instrumentation-ioredis": "^0.43.0",
     "cors": "^2.8.5",
     "dataloader": "^2.2.3",
