@@ -59,7 +59,7 @@
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@babel/plugin-syntax-import-meta": "^7.10.4",
-    "@babel/plugin-transform-modules-commonjs": "^7.29.7",
+    "@babel/plugin-transform-modules-commonjs": "^8.0.1",
     "@babel/preset-env": "^7.29.7",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
