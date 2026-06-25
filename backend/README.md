@@ -89,3 +89,47 @@ Migration options:
   - Unknown errors default to `500` with a safe fallback.
   - In production, internal `500` details are hidden to avoid leaking sensitive internals.
   - Unknown routes return a structured `404` response using the same format.
+
+## Docker / production image
+
+The `Dockerfile` is a hardened multi-stage build:
+
+- **`deps` stage** installs production dependencies only (`npm ci --omit=dev`).
+  Native modules (`sqlite3`) are compiled here, so the build toolchain never
+  ships in the final image.
+- **`runtime` stage** is a patched `node:20-alpine` that runs as the non-root
+  `node` user, sets `NODE_ENV=production`, copies only the production
+  `node_modules` + `src` + `migrations` (tests/configs/dev tooling are excluded
+  via `.dockerignore`), uses `tini` as PID 1, and ships a `/api/health`
+  healthcheck.
+
+```bash
+docker build -t soroban-backend ./backend
+docker run --rm -p 5000:5000 soroban-backend
+```
+
+### Read-only filesystem
+
+The container can run with a read-only root filesystem; the compiler and logs
+need writable scratch space, mounted as tmpfs:
+
+```bash
+docker run --rm -p 5000:5000 \
+  --read-only \
+  --tmpfs /tmp \
+  --tmpfs /app/cache \
+  --tmpfs /app/logs \
+  soroban-backend
+```
+
+### Why not Distroless / <150MB
+
+The API compiles Soroban contracts **in-process** — `compileWorker` spawns
+`cargo build` at request time. The runtime therefore must contain the Rust
+toolchain (`rustc`/`cargo`/`wasm32-unknown-unknown`), which is several hundred
+MB and requires a shell. Google Distroless (no shell, no toolchain) and a
+`<150MB` image are fundamentally incompatible with that requirement. The image
+instead targets the achievable security posture: multi-stage build, no dev
+dependencies in the final layer, non-root execution, a patched Alpine base, and
+a read-only-fs run mode. Splitting compilation into a separate worker service
+would be the path to a Distroless API container, but that is out of scope here.

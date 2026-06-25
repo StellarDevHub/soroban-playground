@@ -1,6 +1,40 @@
+# Dependencies (reinstalled in the build)
 node_modules
 npm-debug.log
+npm-install.log
+
+# Docker / VCS
 Dockerfile
 .dockerignore
 .git
 .gitignore
+
+# Tests (never run in the production image)
+tests
+test
+**/*.test.js
+
+# Tooling, lint output and configs not needed at runtime
+.husky
+.vscode
+coverage
+nodemon.json
+jest.config.cjs
+babel.config.cjs
+eslint.config.js
+.eslintrc*
+.prettierrc*
+.prettierignore
+lint.txt
+lint_out.txt
+lint_output.txt
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Docs and local build artifacts
+*.md
+cache
+logs
