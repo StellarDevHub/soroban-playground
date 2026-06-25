@@ -16,17 +16,29 @@
 
 const ID_FIELD = 'id';
 
+// Sort fields are interpolated into SQL as identifiers (they cannot be bound as
+// parameters), so they must be validated against a strict allowlist pattern —
+// the same guard QueryBuilder applies to filter columns — to prevent injection.
+const SAFE_IDENTIFIER = /^[a-zA-Z0-9_]+$/;
+
+function assertSafeIdentifier(field) {
+  if (typeof field !== 'string' || !SAFE_IDENTIFIER.test(field)) {
+    throw new Error(`Invalid sort field: ${field}`);
+  }
+  return field;
+}
+
 /**
  * Normalizes a sort spec to `[{ field, direction }]` and guarantees a unique,
  * non-null tiebreaker (`id ASC`) is the last key so ordering — and therefore the
- * cursor — is always deterministic.
+ * cursor — is always deterministic. Throws on an unsafe field identifier.
  */
 export function normalizeSort(sort = []) {
   const list = Array.isArray(sort) ? sort : [];
   const normalized = list
     .filter((s) => s && s.field)
     .map((s) => ({
-      field: s.field,
+      field: assertSafeIdentifier(s.field),
       direction:
         String(s.direction || s.order || 'ASC').toUpperCase() === 'DESC'
           ? 'DESC'

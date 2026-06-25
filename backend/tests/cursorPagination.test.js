@@ -77,6 +77,21 @@ describe('normalizeSort & cursorForRow', () => {
     expect(normalizeSort()).toEqual([{ field: 'id', direction: 'ASC' }]);
   });
 
+  it('rejects unsafe field identifiers (SQL injection guard)', () => {
+    expect(() => normalizeSort([{ field: 'id; DROP TABLE items' }])).toThrow(
+      'Invalid sort field'
+    );
+    expect(() => normalizeSort([{ field: 'created_at)--' }])).toThrow(
+      'Invalid sort field'
+    );
+    expect(() =>
+      buildCursorClause({
+        sort: [{ field: 'a OR 1=1' }],
+        cursor: encodeCursor({ id: 1 }),
+      })
+    ).toThrow('Invalid sort field');
+  });
+
   it('tolerates a non-array sort and a field with no direction', () => {
     expect(normalizeSort('nonsense')).toEqual([
       { field: 'id', direction: 'ASC' },
