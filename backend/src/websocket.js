@@ -8,6 +8,9 @@ import { sharedOracleEventBus } from './services/oracle/oracleEvents.js';
 
 const clients = new Set();
 
+const HEARTBEAT_INTERVAL_MS = 30_000; // ping every 30 s
+const MAX_MISSED_PONGS = 2;           // terminate after 2 consecutive misses
+
 function safeSend(socket, message) {
   try {
     if (socket.readyState === socket.OPEN) {
@@ -66,12 +69,17 @@ export function setupWebsocketServer(httpServer) {
       return;
     }
 
+    socket.missedPongs = 0;
     clients.add(socket);
 
     safeSend(
       socket,
       safeStringify({ type: 'connected', timestamp: new Date().toISOString() })
     );
+
+    socket.on('pong', () => {
+      socket.missedPongs = 0;
+    });
 
     socket.on('error', (err) => {
       console.error('WS client error:', err.message);
@@ -103,6 +111,28 @@ export function setupWebsocketServer(httpServer) {
       safeSend(socket, message);
     }
   });
+
+  // Heartbeat: ping all clients every 30 s; terminate after 2 missed pongs
+  const heartbeatTimer = setInterval(() => {
+    for (const socket of clients) {
+      if (socket.missedPongs >= MAX_MISSED_PONGS) {
+        console.warn('WS heartbeat: terminating stale connection');
+        socket.terminate();
+        clients.delete(socket);
+        continue;
+      }
+      socket.missedPongs += 1;
+      try {
+        socket.ping();
+      } catch (err) {
+        console.error('WS ping error:', err.message);
+        socket.terminate();
+        clients.delete(socket);
+      }
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+
+  wss.on('close', () => clearInterval(heartbeatTimer));
 
   // Broadcast analytics every 2 seconds
   setInterval(async () => {
