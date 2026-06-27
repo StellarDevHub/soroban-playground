@@ -2,7 +2,7 @@ use soroban_sdk::{contracterror, contracttype, Address, String, Symbol};
 
 /// Errors that can occur in the contract
 #[contracterror]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Error {
     // Initialization errors
     AlreadyInitialized = 1,
@@ -62,7 +62,7 @@ pub struct SyntheticAsset {
 }
 
 /// Collateral position for minting synthetic assets
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct CollateralPosition {
     pub user: Address,

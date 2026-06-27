@@ -32,7 +32,7 @@ pub fn update_price_internal(
 
     // Check for excessive price deviation from previous price
     if let Ok(old_price_data) = get_price(env, asset_symbol) {
-        let deviation = calculate_price_deviation(old_price_data.price, new_price);
+        let deviation = calculate_price_deviation(old_price_data.price, new_price)?;
         if deviation > MAX_SINGLE_UPDATE_DEVIATION {
             return Err(Error::InvalidPrice);
         }

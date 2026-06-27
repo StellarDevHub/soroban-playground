@@ -76,11 +76,11 @@ pub fn calculate_liquidation_reward(
 
     // Apply bonus
     let bonus = (collateral_share * bonus_bps as i128) / 10000;
-    let reward = collateral_share + bonus;
+    let mut reward = collateral_share + bonus;
 
     // Ensure we don't give more collateral than exists
     if reward > total_collateral {
-        return Err(Error::InsufficientBalance);
+        reward = total_collateral;
     }
 
     Ok(reward)

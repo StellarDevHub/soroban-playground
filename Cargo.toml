@@ -29,4 +29,6 @@ members = [
     "contracts/access-control",
     "contracts/analysis-utils",
     "contracts/migration-utils",
+    "contracts/synthetic-assets",
+    "contracts/patent-registry",
 ]

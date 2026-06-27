@@ -2,6 +2,7 @@
 
 use soroban_sdk::{
     testutils::Address as _,
+    testutils::Ledger as _,
     token::{self, StellarAssetClient},
     Address, Env, String, Symbol,
 };
@@ -127,10 +128,10 @@ fn test_initialize_invalid_liquidation_threshold() {
 #[test]
 #[should_panic(expected = "Error(Contract, #24)")]
 fn test_storage_price_not_available() {
-    let (env, _client, _admin, _oracle, _collateral) = setup_env();
+    let (env, client, _admin, _oracle, _collateral) = setup_contract();
     let symbol = Symbol::new(&env, "MISSING");
 
-    crate::storage::get_price(&env, &symbol).unwrap();
+    client.get_asset_price(&symbol);
 }
 
 #[test]
@@ -178,13 +179,7 @@ fn test_get_validated_asset_price_stale() {
         &100000000i128,
     );
 
-    let old_ts = env.ledger().timestamp().saturating_sub(1000u64);
-    let price_data = crate::types::PriceData {
-        price: 100000000i128,
-        timestamp: old_ts,
-        confidence: 100u32,
-    };
-    crate::storage::set_price(&env, &symbol, &price_data);
+    env.ledger().with_mut(|l| l.timestamp += 1000);
 
     client.get_validated_asset_price(&symbol);
 }
@@ -192,10 +187,15 @@ fn test_get_validated_asset_price_stale() {
 #[test]
 #[should_panic(expected = "Error(Contract, #26)")]
 fn test_increment_position_counter_overflow() {
-    let (env, _client, _admin, _oracle, _collateral) = setup_env();
+    let (env, client, _admin, _oracle, _collateral) = setup_contract();
 
-    crate::storage::set_position_counter(&env, u64::MAX);
-    crate::storage::increment_position_counter(&env, 1).unwrap();
+    env.as_contract(&client.address, || {
+        crate::storage::set_position_counter(&env, u64::MAX);
+        let res = crate::storage::increment_position_counter(&env, 1);
+        if let Err(e) = res {
+            soroban_sdk::panic_with_error!(&env, e);
+        }
+    });
 }
 
 #[test]
@@ -438,6 +438,7 @@ fn test_is_liquidatable() {
     // Open at the minimum ratio, then move price so the position
     // lands exactly on the liquidation threshold.
     client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
+    client.update_price(&symbol, &110000000i128, &95u32);
     client.update_price(&symbol, &125000000i128, &95u32);
     
     let position_id = 1u64;
@@ -808,8 +809,9 @@ fn test_liquidation_reward_calculation() {
     
     client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
     
-    // Move price down to make position liquidatable
-    client.update_price(&symbol, &90000000i128, &95u32);
+    // Move price up to make position liquidatable
+    client.update_price(&symbol, &115000000i128, &95u32);
+    client.update_price(&symbol, &130000000i128, &95u32);
     
     let position_id = 1u64;
     
@@ -1085,8 +1087,9 @@ fn test_partial_liquidation() {
     
     client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
     
-    // Move price down to make position liquidatable
-    client.update_price(&symbol, &90000000i128, &95u32);
+    // Move price up to make position liquidatable
+    client.update_price(&symbol, &115000000i128, &95u32);
+    client.update_price(&symbol, &130000000i128, &95u32);
     
     let position_id = 1u64;
     
@@ -1120,7 +1123,8 @@ fn test_liquidation_full_repay() {
     
     client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
     
-    client.update_price(&symbol, &90000000i128, &95u32);
+    client.update_price(&symbol, &115000000i128, &95u32);
+    client.update_price(&symbol, &130000000i128, &95u32);
     
     let position_id = 1u64;
     
@@ -1129,7 +1133,7 @@ fn test_liquidation_full_repay() {
     
     // Position should be closed
     let result = client.try_get_position(&position_id);
-    assert_eq!(result, Err(Ok(Error::PositionNotFound)));
+    assert_eq!(result.unwrap_err().unwrap(), Error::PositionNotFound);
 }
 
 #[test]
@@ -1156,7 +1160,8 @@ fn test_liquidation_excessive_repay() {
     
     client.mint_synthetic(&user, &symbol, &3000000i128, &2000000i128);
     
-    client.update_price(&symbol, &90000000i128, &95u32);
+    client.update_price(&symbol, &115000000i128, &95u32);
+    client.update_price(&symbol, &130000000i128, &95u32);
     
     let position_id = 1u64;
     
@@ -1303,7 +1308,10 @@ fn test_trading_position_liquidation() {
     );
     
     // Move price down significantly to trigger liquidation
-    client.update_price(&symbol, &70000000i128, &95u32);
+    client.update_price(&symbol, &85000000i128, &95u32);
+    client.update_price(&symbol, &68000000i128, &95u32);
+    client.update_price(&symbol, &55000000i128, &95u32);
+    client.update_price(&symbol, &45000000i128, &95u32);
     
     // Position should be liquidated
     let is_safe = client.is_trade_position_safe(&position_id);
@@ -1338,7 +1346,9 @@ fn test_short_position_liquidation() {
     );
     
     // Move price up significantly to trigger liquidation for short
-    client.update_price(&symbol, &130000000i128, &95u32);
+    client.update_price(&symbol, &120000000i128, &95u32);
+    client.update_price(&symbol, &140000000i128, &95u32);
+    client.update_price(&symbol, &155000000i128, &95u32);
     
     let is_safe = client.is_trade_position_safe(&position_id);
     assert_eq!(is_safe, false);
@@ -1372,7 +1382,7 @@ fn test_burn_full_position() {
     
     // Position should be closed
     let result = client.try_get_position(&position_id);
-    assert_eq!(result, Err(Ok(Error::PositionNotFound)));
+    assert_eq!(result.unwrap_err().unwrap(), Error::PositionNotFound);
 }
 
 #[test]
