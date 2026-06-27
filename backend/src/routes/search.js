@@ -1,5 +1,6 @@
 import express from 'express';
 import searchService from '../services/searchService.js';
+import { responseCacheMiddleware } from '../middleware/cacheMiddleware.js';
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.use(async (req, res, next) => {
 });
 
 // Main search endpoint
-router.post('/projects', async (req, res) => {
+router.post('/projects', responseCacheMiddleware({ prefix: 'search:' }), async (req, res) => {
   try {
     const { query, filters = {}, pagination = {} } = req.body;
 
@@ -45,7 +46,7 @@ router.post('/projects', async (req, res) => {
 });
 
 // Autocomplete endpoint
-router.get('/autocomplete', async (req, res) => {
+router.get('/autocomplete', responseCacheMiddleware({ prefix: 'autocomplete:' }), async (req, res) => {
   try {
     const { q: query, limit = 10 } = req.query;
 
@@ -72,7 +73,7 @@ router.get('/autocomplete', async (req, res) => {
 });
 
 // Faceted filter counts endpoint
-router.get('/facets', async (req, res) => {
+router.get('/facets', responseCacheMiddleware({ prefix: 'facets:' }), async (req, res) => {
   try {
     const { q: query = '' } = req.query;
 
@@ -92,7 +93,7 @@ router.get('/facets', async (req, res) => {
 });
 
 // Popular searches endpoint
-router.get('/popular', async (req, res) => {
+router.get('/popular', responseCacheMiddleware({ prefix: 'popular:' }), async (req, res) => {
   try {
     const { limit = 10 } = req.query;
 

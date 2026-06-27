@@ -268,6 +268,67 @@ CREATE TABLE IF NOT EXISTS flag_cohorts (
     UNIQUE(flag_key, cohort_id)
 );
 
+-- CORS origin whitelist (issue #756)
+-- Dynamically-managed list of allowed origins that supplements env-var configuration.
+-- active=0 soft-deletes an entry without losing history.
+CREATE TABLE IF NOT EXISTS cors_whitelist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    origin TEXT NOT NULL UNIQUE,
+    active INTEGER NOT NULL DEFAULT 1,
+    added_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Webhook subscriptions (issue #746)
+-- Developer-registered endpoints that receive signed event payloads.
+CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+    id TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '[]',  -- JSON array of subscribed event types; [] means all
+    secret TEXT NOT NULL,               -- HMAC-SHA256 signing key (developer-supplied)
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Webhook delivery log (issue #746)
+-- Persists every dispatch attempt including retry history and response details.
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload TEXT NOT NULL,              -- JSON event payload
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'success', 'failed', 'retrying')),
+    attempt INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    response_status INTEGER,
+    response_body TEXT,
+    delivered_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status_next
+    ON webhook_deliveries (status, next_attempt_at)
+    WHERE status IN ('pending', 'retrying');
+-- Offline sync log for client transaction replay and conflict resolution (issue #764)
+CREATE TABLE IF NOT EXISTS sync_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK (operation IN ('insert', 'update', 'delete')),
+    payload TEXT NOT NULL DEFAULT '{}',
+    client_timestamp DATETIME NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'applied', 'conflict', 'error')),
+    error_message TEXT,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_logs_table_record ON sync_logs(table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_sync_logs_status ON sync_logs(status);
+CREATE INDEX IF NOT EXISTS idx_sync_logs_client_timestamp ON sync_logs(client_timestamp);
+
 -- Missing indexes for performance optimization
 CREATE INDEX IF NOT EXISTS idx_treasury_proposals_status ON treasury_proposals(status);
 CREATE INDEX IF NOT EXISTS idx_treasury_proposals_expires_at ON treasury_proposals(expires_at);
