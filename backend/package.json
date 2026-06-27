@@ -21,7 +21,8 @@
     "test:e2e": "NODE_PATH=../node_modules jest tests/syntheticAssets.e2e.test.js",
     "test:synthetic": "NODE_PATH=../node_modules jest tests/syntheticAssets.*.test.js",
     "test:all": "npm run test:unit && npm run test:synthetic",
-    "init-db": "node src/database/init.js"
+    "init-db": "node src/database/init.js",
+    "dlq": "node scripts/dlq.js"
   },
   "keywords": [
     "soroban",
@@ -31,8 +32,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1",
     "@opentelemetry/api": "^1.8.0",
     "@opentelemetry/auto-instrumentations-node": "^0.52.1",
     "@opentelemetry/exporter-jaeger": "^1.28.0",
@@ -41,6 +40,7 @@
     "@opentelemetry/instrumentation-express": "^0.42.0",
     "@opentelemetry/instrumentation-ioredis": "^0.43.0",
     "@stellar/stellar-sdk": "^12.3.0",
+    "bullmq": "^5.79.2",
     "cors": "^2.8.5",
     "dataloader": "^2.2.3",
     "dotenv": "^17.3.1",
@@ -57,6 +57,8 @@
     "sql.js": "^1.14.1",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "ws": "^8.18.3"
   },
   "devDependencies": {
