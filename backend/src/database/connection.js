@@ -45,53 +45,69 @@ async function openDatabase(options = {}) {
   await handle.run('PRAGMA synchronous = NORMAL');
 
   // Query Profiling & Slow Query Logging
-  const thresholdMs = process.env.SLOW_QUERY_THRESHOLD_MS ? parseInt(process.env.SLOW_QUERY_THRESHOLD_MS, 10) : 50;
+  const thresholdMs = process.env.SLOW_QUERY_THRESHOLD_MS
+    ? parseInt(process.env.SLOW_QUERY_THRESHOLD_MS, 10)
+    : 50;
   const methodsToWrap = ['run', 'get', 'all', 'exec'];
-  
-  methodsToWrap.forEach(method => {
+
+  methodsToWrap.forEach((method) => {
     const original = handle[method].bind(handle);
-    handle[method] = async function(...args) {
+    handle[method] = async function (...args) {
       const startTime = process.hrtime.bigint();
       const traceId = Math.random().toString(36).substring(2, 15);
-      
+
       try {
         return await original(...args);
       } finally {
         const endTime = process.hrtime.bigint();
         const durationMs = Number(endTime - startTime) / 1000000;
-        
+
         if (durationMs > thresholdMs) {
           const query = args[0];
           const params = args.slice(1);
-          
-          console.warn(JSON.stringify({
-            level: 'warn',
-            message: 'Slow query detected',
-            traceId,
-            durationMs,
-            query: typeof query === 'string' ? query : 'unknown',
-            params
-          }));
-          
-          if (typeof query === 'string' && query.trim().toUpperCase().match(/^(SELECT|UPDATE|DELETE|INSERT)/)) {
-             try {
-               const plan = await original(`EXPLAIN QUERY PLAN ${query}`, ...params);
-               console.warn(JSON.stringify({
-                 level: 'warn',
-                 message: 'Slow query plan',
-                 traceId,
-                 plan
-               }));
-             } catch (e) {
-               // ignore
-             }
+
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              message: 'Slow query detected',
+              traceId,
+              durationMs,
+              query: typeof query === 'string' ? query : 'unknown',
+              params,
+            })
+          );
+
+          if (
+            typeof query === 'string' &&
+            query
+              .trim()
+              .toUpperCase()
+              .match(/^(SELECT|UPDATE|DELETE|INSERT)/)
+          ) {
+            try {
+              const plan = await original(
+                `EXPLAIN QUERY PLAN ${query}`,
+                ...params
+              );
+              console.warn(
+                JSON.stringify({
+                  level: 'warn',
+                  message: 'Slow query plan',
+                  traceId,
+                  plan,
+                })
+              );
+            } catch (e) {
+              // ignore
+            }
           }
         }
       }
     };
   });
   const { withCacheBusting } = await import('./cacheInterceptor.js');
-  const wrappedHandle = withCacheBusting(handle);
+  const { wrapPreparedDatabase } = await import('./safeQuery.js');
+  const wrappedHandle = wrapPreparedDatabase(withCacheBusting(handle));
 
   const fs = await import('fs/promises');
   const rawSchema = await fs.readFile(schemaPath, 'utf-8').catch((error) => {
@@ -107,7 +123,7 @@ async function openDatabase(options = {}) {
     );
   });
 
-  return handle;
+  return wrappedHandle;
 }
 
 export async function initializeDatabase(options = {}) {

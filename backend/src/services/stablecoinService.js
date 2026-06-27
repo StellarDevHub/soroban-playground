@@ -1,5 +1,9 @@
 import { dbService } from './dbService.js';
 import cacheService from './cacheService.js';
+import {
+  cutoffTimestampDaysAgo,
+  sanitizePositiveInteger,
+} from '../database/safeQuery.js';
 
 const CACHE_PREFIX = 'stablecoin:';
 const CACHE_TTL = 60; // 1 minute
@@ -82,21 +86,26 @@ class StablecoinService {
   }
 
   async getPriceHistory(days = 30) {
-    const cacheKey = `${CACHE_PREFIX}price_history:${days}`;
+    const safeDays = sanitizePositiveInteger(days);
+    const cacheKey = `${CACHE_PREFIX}price_history:${safeDays}`;
     const cached = await cacheService.get(cacheKey);
     if (cached) return cached;
 
     const db = await dbService.getDb();
-    const history = await db.all(`
+    const cutoff = cutoffTimestampDaysAgo(safeDays);
+    const history = await db.all(
+      `
       SELECT price, target_price, timestamp
       FROM stablecoin_price_history
-      WHERE timestamp >= datetime('now', '-${days} days')
+      WHERE timestamp >= ?
       ORDER BY timestamp ASC
-    `);
+    `,
+      [cutoff]
+    );
 
     // If no data, generate simulated history
     if (history.length === 0) {
-      const simulated = this._generateSimulatedPriceHistory(days);
+      const simulated = this._generateSimulatedPriceHistory(safeDays);
       await cacheService.set(cacheKey, simulated, CACHE_TTL);
       return simulated;
     }
