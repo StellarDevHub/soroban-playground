@@ -18,6 +18,27 @@ export function createHttpError(statusCode, message, details) {
   return new HttpError(statusCode, message, details);
 }
 
+export class BadRequestError extends HttpError {
+  constructor(message = 'Bad Request', details) {
+    super(400, message, details);
+    this.name = 'BadRequestError';
+  }
+}
+
+export class UnauthorizedError extends HttpError {
+  constructor(message = 'Unauthorized', details) {
+    super(401, message, details);
+    this.name = 'UnauthorizedError';
+  }
+}
+
+export class NotFoundError extends HttpError {
+  constructor(message = 'Not Found', details) {
+    super(404, message, details);
+    this.name = 'NotFoundError';
+  }
+}
+
 export function asyncHandler(handler) {
   return (req, res, next) => {
     Promise.resolve(handler(req, res, next)).catch(next);
