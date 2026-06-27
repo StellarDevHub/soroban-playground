@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Files table
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     project_id INTEGER,
     uploader_id INTEGER NOT NULL,
     filename TEXT NOT NULL,
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS files (
 -- Projects table with full-text search support
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     category TEXT NOT NULL,
@@ -76,6 +78,7 @@ END;
 -- Search analytics table
 CREATE TABLE IF NOT EXISTS search_analytics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     query TEXT NOT NULL,
     filters_applied TEXT, -- JSON object of applied filters
     results_count INTEGER NOT NULL,
@@ -95,24 +98,32 @@ CREATE TABLE IF NOT EXISTS search_suggestions (
 
 -- Popular searches cache
 CREATE TABLE IF NOT EXISTS popular_searches (
-    query TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
+    query TEXT NOT NULL,
     search_count INTEGER DEFAULT 1,
-    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(tenant_id, query)
 );
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_projects_category ON projects(category);
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_projects_creator ON projects(creator_id);
+CREATE INDEX IF NOT EXISTS idx_projects_tenant ON projects(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_files_tenant ON files(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_projects_funding ON projects(current_funding);
 CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at);
 CREATE INDEX IF NOT EXISTS idx_projects_completion ON projects(completion_rate);
+CREATE INDEX IF NOT EXISTS idx_search_analytics_tenant_timestamp ON search_analytics(tenant_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_search_analytics_timestamp ON search_analytics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_search_suggestions_freq ON search_suggestions(frequency DESC);
+CREATE INDEX IF NOT EXISTS idx_popular_searches_tenant_count ON popular_searches(tenant_id, search_count DESC);
 
 -- API Keys table for rate limiting and authentication
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     key_hash TEXT NOT NULL UNIQUE, -- SHA-256 hash of the API key
     key_prefix TEXT NOT NULL, -- First 8 characters for lookup
     name TEXT NOT NULL,
@@ -142,6 +153,7 @@ CREATE TABLE IF NOT EXISTS organizations (
 -- Rate limit usage tracking
 CREATE TABLE IF NOT EXISTS rate_limit_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     api_key_id INTEGER NOT NULL,
     endpoint TEXT NOT NULL,
     request_count INTEGER NOT NULL DEFAULT 1,
@@ -166,6 +178,7 @@ CREATE TABLE IF NOT EXISTS tier_limits (
 -- Audit log for API access
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     api_key_id INTEGER,
     user_id INTEGER,
     action TEXT NOT NULL, -- 'request', 'key_generated', 'key_revoked', etc.
@@ -182,9 +195,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 -- Additional indexes for rate limiting tables
 CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix ON api_keys(key_prefix);
+CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_usage_tenant_window ON rate_limit_usage(tenant_id, window_start, window_end);
 CREATE INDEX IF NOT EXISTS idx_rate_limit_usage_api_key_window ON rate_limit_usage(api_key_id, window_start, window_end);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_limit_usage_unique ON rate_limit_usage(api_key_id, endpoint, window_start, window_end);
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_timestamp ON audit_log(tenant_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_api_key_timestamp ON audit_log(api_key_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
 
@@ -238,10 +255,11 @@ CREATE TABLE IF NOT EXISTS treasury_history (
 -- User favorites for template library sync
 CREATE TABLE IF NOT EXISTS favorites (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     wallet_address TEXT NOT NULL,
     favorites TEXT NOT NULL DEFAULT '[]', -- JSON array of template IDs
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(wallet_address)
+    UNIQUE(tenant_id, wallet_address)
 );
 
 -- Feature flags and cohort overrides (issue #754)
@@ -283,6 +301,7 @@ CREATE TABLE IF NOT EXISTS cors_whitelist (
 -- Developer-registered endpoints that receive signed event payloads.
 CREATE TABLE IF NOT EXISTS webhook_subscriptions (
     id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     url TEXT NOT NULL,
     events TEXT NOT NULL DEFAULT '[]',  -- JSON array of subscribed event types; [] means all
     secret TEXT NOT NULL,               -- HMAC-SHA256 signing key (developer-supplied)
@@ -295,6 +314,7 @@ CREATE TABLE IF NOT EXISTS webhook_subscriptions (
 -- Persists every dispatch attempt including retry history and response details.
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
     id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     subscription_id TEXT NOT NULL,
     event_type TEXT NOT NULL,
     payload TEXT NOT NULL,              -- JSON event payload
@@ -312,6 +332,10 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status_next
     ON webhook_deliveries (status, next_attempt_at)
     WHERE status IN ('pending', 'retrying');
+CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_tenant_active
+    ON webhook_subscriptions (tenant_id, active);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_tenant_created
+    ON webhook_deliveries (tenant_id, created_at);
 -- Offline sync log for client transaction replay and conflict resolution (issue #764)
 CREATE TABLE IF NOT EXISTS sync_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -338,4 +362,3 @@ CREATE INDEX IF NOT EXISTS idx_treasury_history_event_type ON treasury_history(e
 CREATE INDEX IF NOT EXISTS idx_feature_flags_enabled ON feature_flags(enabled);
 CREATE INDEX IF NOT EXISTS idx_flag_cohorts_flag_key ON flag_cohorts(flag_key);
 CREATE INDEX IF NOT EXISTS idx_flag_cohorts_cohort_id ON flag_cohorts(cohort_id);
-

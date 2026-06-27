@@ -38,6 +38,9 @@ export function responseCacheMiddleware(options = {}) {
 
     // Generate unique cache key
     const parts = [req.method, req.path];
+    if (req.tenant?.id) {
+      parts.push(`tenant:${req.tenant.id}`);
+    }
 
     // Add query parameters (sorted to avoid key mismatch on parameter order)
     const sortedQueryKeys = Object.keys(req.query).sort();
