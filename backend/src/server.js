@@ -49,6 +49,7 @@ import { setupSwagger } from './docs/swagger.js';
 import { startMemoryLeakDetector } from './services/memoryLeakDetector.js';
 import { contractEventIndexer } from './services/contractEventIndexer.js';
 import { runStartupMigrations } from './services/migrationService.js';
+import healthService from './services/healthService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,7 +71,7 @@ const httpsOptions = {
     'ECDHE-ECDSA-CHACHA20-POLY1305',
     'ECDHE-RSA-CHACHA20-POLY1305',
     'DHE-RSA-AES256-GCM-SHA384',
-    'DHE-RSA-AES128-GCM-SHA256'
+    'DHE-RSA-AES128-GCM-SHA256',
   ].join(':'),
   honorCipherOrder: true,
   ecdhCurve: 'X25519:P-256:P-384',
@@ -83,7 +84,10 @@ try {
     httpsOptions.key = fs.readFileSync(process.env.SSL_KEY_PATH);
     httpsOptions.cert = fs.readFileSync(process.env.SSL_CERT_PATH);
     hasCertificates = true;
-  } else if (fs.existsSync(path.join(__dirname, 'cert.pem')) && fs.existsSync(path.join(__dirname, 'key.pem'))) {
+  } else if (
+    fs.existsSync(path.join(__dirname, 'cert.pem')) &&
+    fs.existsSync(path.join(__dirname, 'key.pem'))
+  ) {
     httpsOptions.key = fs.readFileSync(path.join(__dirname, 'key.pem'));
     httpsOptions.cert = fs.readFileSync(path.join(__dirname, 'cert.pem'));
     hasCertificates = true;
@@ -93,7 +97,9 @@ try {
 }
 
 // Fallback to HTTP if no certs are provided, otherwise use HTTPS
-const server = hasCertificates ? https.createServer(httpsOptions, app) : http.createServer(app);
+const server = hasCertificates
+  ? https.createServer(httpsOptions, app)
+  : http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Load package.json for version info
@@ -121,7 +127,10 @@ app.use(compressionMiddleware);
 // Strict Transport Security (HSTS) headers
 // max-age=63072000 is 2 years, required for Qualys SSL Labs A+ and HSTS preload list
 app.use((req, res, next) => {
-  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader(
+    'Strict-Transport-Security',
+    'max-age=63072000; includeSubDomains; preload'
+  );
   next();
 });
 
@@ -226,38 +235,64 @@ function getRuntimeInfo() {
   };
 }
 
-// ─── Health Check Endpoint ────────────────────────────────────────────────────
-app.get('/', (_req, res) => {
-  res.status(200).send('Soroban Playground Backend API is running.');
-});
+// ─── Health Check Endpoints ───────────────────────────────────────────────────
 
-app.get('/api/health', (_req, res) => {
+function buildSystemMetrics() {
+  const memory = getMemoryInfo();
+  return {
+    version: packageJson.version ?? 'unknown',
+    service: packageJson.name ?? 'soroban-playground-backend',
+    cpu: getCpuUsage(),
+    memory,
+    runtime: getRuntimeInfo(),
+    memoryDegraded: memory.usedPercent > 95,
+  };
+}
+
+async function handleLivenessCheck(_req, res) {
+  const payload = healthService.getLivenessPayload();
+  return res.status(200).json({ success: true, data: payload });
+}
+
+async function handleDeepHealthCheck(req, res) {
   try {
-    const memory = getMemoryInfo();
-    const status = memory.usedPercent > 95 ? 'degraded' : 'ok';
+    const skipCache = req.query?.refresh === 'true';
+    const deep = await healthService.performDeepHealthCheck({ skipCache });
+    const metrics = buildSystemMetrics();
+    let status = deep.status;
+    if (metrics.memoryDegraded && status === 'ok') status = 'degraded';
+
     const payload = {
+      ...deep,
       status,
-      version: packageJson.version ?? 'unknown',
-      service: packageJson.name ?? 'soroban-playground-backend',
-      timestamp: new Date().toISOString(),
-      uptime: getUptimeInfo(),
-      cpu: getCpuUsage(),
-      memory,
-      runtime: getRuntimeInfo(),
+      ...metrics,
     };
-    return res.status(200).json({ success: true, data: payload });
+    delete payload.memoryDegraded;
+
+    const httpStatus = healthService.getHttpStatusForHealth(status);
+    return res
+      .status(httpStatus)
+      .json({ success: httpStatus < 500, data: payload });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(503).json({
       success: false,
       data: {
-        status: 'error',
+        status: 'unhealthy',
         version: packageJson.version ?? 'unknown',
         timestamp: new Date().toISOString(),
         error: err.message,
       },
     });
   }
+}
+
+app.get('/', (_req, res) => {
+  res.status(200).send('Soroban Playground Backend API is running.');
 });
+
+app.get('/health/live', handleLivenessCheck);
+app.get('/health', handleDeepHealthCheck);
+app.get('/api/health', handleDeepHealthCheck);
 
 // Error handlers (must be after routes)
 app.use(notFoundHandler);
@@ -321,7 +356,9 @@ initializeDatabase()
     // Start listening
     server.listen(PORT, () => {
       const protocol = hasCertificates ? 'https' : 'http';
-      console.log(`✅  Backend server running on ${protocol}://localhost:${PORT}`);
+      console.log(
+        `✅  Backend server running on ${protocol}://localhost:${PORT}`
+      );
     });
   })
   .catch((err) => {
