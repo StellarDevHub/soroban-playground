@@ -7,12 +7,7 @@ import { versions, DEFAULT_VERSION } from '../config/versions.js';
 
 export const versionTransformer = (requestedVersion) => {
   return (req, res, next) => {
-    // 1. Version Negotiation: Accept-Version header > URL version
-    const headerVersion = req.headers['accept-version'];
-    const version =
-      headerVersion && versions[headerVersion]
-        ? headerVersion
-        : requestedVersion || DEFAULT_VERSION;
+    const version = req.apiVersion || requestedVersion || DEFAULT_VERSION;
 
     req.apiVersion = version;
 
