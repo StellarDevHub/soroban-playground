@@ -1,10 +1,14 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
+import redisService from './redisService.js';
+
 const HORIZON = {
   testnet: 'https://horizon-testnet.stellar.org',
   mainnet: 'https://horizon.stellar.org',
 };
+
+const FEE_STATS_TTL_SECONDS = 15;
 
 const BASE_FEE = 100;
 const DEFAULT_MAX_FEE = parseInt(process.env.FEE_ENGINE_MAX_FEE || '10000', 10);
@@ -20,6 +24,20 @@ const DEFAULT_MAX_ATTEMPTS = parseInt(
 const feeStatsCache = {};
 
 export async function fetchFeeStats(network = 'testnet') {
+  const cacheKey = `fee_stats:${network}`;
+  const redisValue = await redisService.get(cacheKey);
+  if (redisValue !== null) {
+    if (typeof redisValue === 'string') {
+      try {
+        return JSON.parse(redisValue);
+      } catch {
+        // Ignore corrupted Redis payload and refresh from Horizon.
+      }
+    } else if (typeof redisValue === 'object') {
+      return redisValue;
+    }
+  }
+
   const cached = feeStatsCache[network];
   if (cached && cached.expiresAt > Date.now()) return cached.stats;
 
@@ -31,7 +49,13 @@ export async function fetchFeeStats(network = 'testnet') {
       `Horizon fee_stats HTTP ${res.status} for network=${network}`
     );
   const stats = await res.json();
-  feeStatsCache[network] = { stats, expiresAt: Date.now() + 10_000 };
+  feeStatsCache[network] = {
+    stats,
+    expiresAt: Date.now() + FEE_STATS_TTL_SECONDS * 1000,
+  };
+  redisService.set(cacheKey, JSON.stringify(stats), FEE_STATS_TTL_SECONDS).catch(
+    () => null
+  );
   return stats;
 }
 

@@ -71,6 +71,51 @@ export const requestLatency = new client.Histogram({
 });
 register.registerMetric(requestLatency);
 
+export const requestCount = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests processed by the backend',
+  labelNames: ['method', 'route', 'status'],
+});
+register.registerMetric(requestCount);
+
+export const requestRate = new client.Gauge({
+  name: 'http_request_rate_per_second',
+  help: 'Average HTTP request rate per second over the last minute',
+});
+register.registerMetric(requestRate);
+
+export const processCpuSecondsTotal = new client.Gauge({
+  name: 'process_cpu_seconds_total',
+  help: 'Total CPU time consumed by this process in seconds',
+});
+register.registerMetric(processCpuSecondsTotal);
+
+export const processMemoryRssBytes = new client.Gauge({
+  name: 'process_memory_rss_bytes',
+  help: 'Resident memory usage in bytes',
+});
+register.registerMetric(processMemoryRssBytes);
+
+const requestTimestamps = [];
+const REQUEST_RATE_WINDOW_MS = 60_000;
+
+export function recordHttpRequest(method, route, status) {
+  requestCount.inc({ method, route, status });
+  const now = Date.now();
+  requestTimestamps.push(now);
+  const cutoff = now - REQUEST_RATE_WINDOW_MS;
+  while (requestTimestamps.length > 0 && requestTimestamps[0] < cutoff) {
+    requestTimestamps.shift();
+  }
+  requestRate.set(requestTimestamps.length / (REQUEST_RATE_WINDOW_MS / 1000));
+}
+
+export function updateSystemMetrics() {
+  const usage = process.cpuUsage();
+  processCpuSecondsTotal.set((usage.user + usage.system) / 1e6);
+  processMemoryRssBytes.set(process.memoryUsage().rss);
+}
+
 // Oracle Queue Metrics
 export const oracleTasksEnqueued = new client.Counter({
   name: 'oracle_tasks_enqueued_total',
@@ -186,6 +231,7 @@ register.registerMetric(oracleProofWorkerHeartbeats);
 
 router.get('/', async (req, res) => {
   try {
+    updateSystemMetrics();
     res.set('Content-Type', register.contentType);
     const merged = await client.Registry.merge([
       register,
