@@ -10,6 +10,10 @@ import { typeDefs } from './schema.js';
 import { resolvers } from './resolvers.js';
 import { createLoaders } from './dataloaders.js';
 import { computeComplexity, getMaxComplexityForRole } from './complexity.js';
+import {
+  createPersistedQueryMiddleware,
+  createPersistedQueryRouter,
+} from './persistedQueries.js';
 
 // Build the executable schema once at startup
 const schema = createSchema({ typeDefs, resolvers });
@@ -123,5 +127,7 @@ query Health {
 
 export function setupGraphQL(app) {
   const yoga = createGraphQLServer();
+  app.use(yoga.graphqlEndpoint, createPersistedQueryRouter());
+  app.use(yoga.graphqlEndpoint, createPersistedQueryMiddleware());
   app.use(yoga.graphqlEndpoint, yoga);
 }

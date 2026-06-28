@@ -2815,6 +2815,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "soroban-patent-registry"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "soroban-playground-indexer"
 version = "0.1.0"
 dependencies = [
@@ -3241,6 +3248,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "synthetic-assets"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]
