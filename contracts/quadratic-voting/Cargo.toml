@@ -2,7 +2,7 @@
 name = "quadratic-voting"
 version = "0.1.0"
 edition = "2021"
-description = "Quadratic voting contract with whitelist, proposals, pause mechanism, and events"
+description = "Quadratic voting governance contract where voting power scales with square root of token balance"
 publish = false
 
 [lib]
