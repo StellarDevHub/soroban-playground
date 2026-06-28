@@ -66,7 +66,7 @@ export class NoncePoolRegistry {
     if (!this.#pools.has(sourceAccount)) {
       this.#pools.set(
         sourceAccount,
-        new NoncePool(sourceAccount, this.#fetchFn),
+        new NoncePool(sourceAccount, this.#fetchFn)
       );
     }
     return this.#pools.get(sourceAccount);

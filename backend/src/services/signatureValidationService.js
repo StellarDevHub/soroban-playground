@@ -25,7 +25,14 @@ class SignatureValidationService {
    * Builds a deterministic string representation of the request fields.
    * Fields are serialised in lexicographic key order to prevent ambiguity.
    */
-  _buildCanonicalMessage({ callerAddress, contractId, expiry, method, nonce, params }) {
+  _buildCanonicalMessage({
+    callerAddress,
+    contractId,
+    expiry,
+    method,
+    nonce,
+    params,
+  }) {
     return JSON.stringify({
       callerAddress,
       contractId,
@@ -45,7 +52,15 @@ class SignatureValidationService {
    * The expiry check and hash computation happen before the signature check so
    * that cheap operations gate the more expensive ED25519 verify call.
    */
-  async verify({ callerAddress, contractId, method, params, nonce, expiry, signature }) {
+  async verify({
+    callerAddress,
+    contractId,
+    method,
+    params,
+    nonce,
+    expiry,
+    signature,
+  }) {
     // 1. Reject stale requests immediately (no crypto work needed).
     //    Also reject requests whose expiry window exceeds the maximum to prevent
     //    clients from keeping nonce keys in Redis for an unbounded duration.
@@ -57,7 +72,16 @@ class SignatureValidationService {
     // 2. Hash the canonical message (fast, pre-screens replay before touching Redis)
     const msgHash = crypto
       .createHash('sha256')
-      .update(this._buildCanonicalMessage({ callerAddress, contractId, expiry, method, nonce, params }))
+      .update(
+        this._buildCanonicalMessage({
+          callerAddress,
+          contractId,
+          expiry,
+          method,
+          nonce,
+          params,
+        })
+      )
       .digest();
 
     // 3. Verify ED25519 signature using the Stellar public key

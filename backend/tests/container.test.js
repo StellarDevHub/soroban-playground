@@ -35,7 +35,9 @@ describe('Container – lifecycles', () => {
   it('SINGLETON returns the same instance across resolves', () => {
     const c = new Container();
     let calls = 0;
-    c.register('db', () => ({ id: ++calls }), { lifecycle: Lifecycle.SINGLETON });
+    c.register('db', () => ({ id: ++calls }), {
+      lifecycle: Lifecycle.SINGLETON,
+    });
 
     expect(c.resolve('db').id).toBe(1);
     expect(c.resolve('db').id).toBe(1); // still 1
@@ -83,7 +85,9 @@ describe('Container – lifecycles', () => {
   it('SCOPED throws when resolved outside a scope', () => {
     const c = new Container();
     c.register('scoped', () => ({}), { lifecycle: Lifecycle.SCOPED });
-    expect(() => c.resolve('scoped')).toThrow(/scoped but resolve\(\) was called outside/);
+    expect(() => c.resolve('scoped')).toThrow(
+      /scoped but resolve\(\) was called outside/
+    );
   });
 });
 
@@ -135,7 +139,9 @@ describe('Container – scope disposal', () => {
   it('dispose() clears scoped instances', () => {
     const c = new Container();
     let calls = 0;
-    c.register('conn', () => ({ id: ++calls }), { lifecycle: Lifecycle.SCOPED });
+    c.register('conn', () => ({ id: ++calls }), {
+      lifecycle: Lifecycle.SCOPED,
+    });
 
     const scope = c.createScope();
     expect(scope.resolve('conn').id).toBe(1);

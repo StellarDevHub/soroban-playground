@@ -19,7 +19,7 @@ router.get(
     const { name } = req.params;
     const instances = serviceRegistry.list(name);
     res.json({ success: true, data: instances });
-  }),
+  })
 );
 
 /** GET /api/registry/services/:name/resolve — round-robin lookup */
@@ -29,10 +29,12 @@ router.get(
     const { name } = req.params;
     const instance = serviceRegistry.lookup(name);
     if (!instance) {
-      return res.status(404).json({ error: `No healthy instances for service '${name}'` });
+      return res
+        .status(404)
+        .json({ error: `No healthy instances for service '${name}'` });
     }
     res.json({ success: true, data: instance });
-  }),
+  })
 );
 
 /** POST /api/registry/register — register a service instance */
@@ -41,11 +43,19 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, instanceId, host, port, metadata } = req.body;
     if (!name || !instanceId || !host || !port) {
-      return res.status(400).json({ error: 'name, instanceId, host, and port are required' });
+      return res
+        .status(400)
+        .json({ error: 'name, instanceId, host, and port are required' });
     }
-    serviceRegistry.register({ name, instanceId, host, port: Number(port), metadata });
+    serviceRegistry.register({
+      name,
+      instanceId,
+      host,
+      port: Number(port),
+      metadata,
+    });
     res.status(201).json({ success: true, data: { instanceId } });
-  }),
+  })
 );
 
 /** POST /api/registry/heartbeat — update heartbeat for an instance */
@@ -54,11 +64,13 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, instanceId } = req.body;
     if (!name || !instanceId) {
-      return res.status(400).json({ error: 'name and instanceId are required' });
+      return res
+        .status(400)
+        .json({ error: 'name and instanceId are required' });
     }
     serviceRegistry.heartbeat(name, instanceId);
     res.json({ success: true });
-  }),
+  })
 );
 
 /** DELETE /api/registry/services/:name/:instanceId — deregister */
@@ -68,7 +80,7 @@ router.delete(
     const { name, instanceId } = req.params;
     serviceRegistry.deregister(name, instanceId);
     res.json({ success: true });
-  }),
+  })
 );
 
 export default router;

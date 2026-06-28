@@ -69,14 +69,20 @@ describe('signatureValidationService.verify()', () => {
   it('returns { valid: true } for a correctly signed request', async () => {
     const payload = buildPayload();
     const signature = signPayload(payload);
-    const result = await signatureValidationService.verify({ ...payload, signature });
+    const result = await signatureValidationService.verify({
+      ...payload,
+      signature,
+    });
     expect(result).toEqual({ valid: true });
   });
 
   it('returns { valid: false, reason: "expired" } when expiry is in the past', async () => {
     const payload = buildPayload({ expiry: Date.now() - 1000 });
     const signature = signPayload(payload);
-    const result = await signatureValidationService.verify({ ...payload, signature });
+    const result = await signatureValidationService.verify({
+      ...payload,
+      signature,
+    });
     expect(result).toEqual({ valid: false, reason: 'expired' });
   });
 
@@ -84,7 +90,10 @@ describe('signatureValidationService.verify()', () => {
     // Prevents clients from keeping nonce keys in Redis indefinitely
     const payload = buildPayload({ expiry: Date.now() + 25 * 60 * 60 * 1000 });
     const signature = signPayload(payload);
-    const result = await signatureValidationService.verify({ ...payload, signature });
+    const result = await signatureValidationService.verify({
+      ...payload,
+      signature,
+    });
     expect(result).toEqual({ valid: false, reason: 'expired' });
   });
 
@@ -92,7 +101,10 @@ describe('signatureValidationService.verify()', () => {
     redisService.setNX.mockResolvedValue(null); // NX condition not met → key already exists
     const payload = buildPayload();
     const signature = signPayload(payload);
-    const result = await signatureValidationService.verify({ ...payload, signature });
+    const result = await signatureValidationService.verify({
+      ...payload,
+      signature,
+    });
     expect(result).toEqual({ valid: false, reason: 'replay' });
   });
 
@@ -130,7 +142,10 @@ describe('signatureValidationService.verify()', () => {
 
   it('does not store nonce when signature is invalid', async () => {
     const payload = buildPayload();
-    await signatureValidationService.verify({ ...payload, signature: 'badsig==' });
+    await signatureValidationService.verify({
+      ...payload,
+      signature: 'badsig==',
+    });
     expect(redisService.setNX).not.toHaveBeenCalled();
   });
 });
@@ -171,7 +186,10 @@ describe('validateStellarSignature middleware', () => {
 
   it('calls next(HttpError 401) when signature is invalid', async () => {
     const payload = buildPayload();
-    const { req, res, next } = makeReqRes({ ...payload, signature: 'badsig==' });
+    const { req, res, next } = makeReqRes({
+      ...payload,
+      signature: 'badsig==',
+    });
 
     validateStellarSignature(req, res, next);
     await new Promise((r) => setTimeout(r, 50));

@@ -9,7 +9,10 @@ const router = express.Router();
 
 // Stub fetch/submit functions — replace with real Stellar SDK calls in production
 const defaultFetchSequence = async (_account) => '1000';
-const defaultSubmitFn = async (envelope) => ({ hash: `0x${Date.now().toString(16)}`, envelope });
+const defaultSubmitFn = async (envelope) => ({
+  hash: `0x${Date.now().toString(16)}`,
+  envelope,
+});
 
 let submitter = new BatchSubmitter({
   fetchSequenceFn: defaultFetchSequence,
@@ -36,7 +39,7 @@ router.post(
     });
 
     res.status(200).json({ success: true, data: result });
-  }),
+  })
 );
 
 /** POST /api/batch/flush — flush all queued transactions immediately */
@@ -45,12 +48,14 @@ router.post(
   asyncHandler(async (_req, res) => {
     await submitter.flush();
     res.status(200).json({ success: true, message: 'Queue flushed' });
-  }),
+  })
 );
 
 /** GET /api/batch/status — queue depth */
 router.get('/status', (_req, res) => {
-  res.status(200).json({ success: true, data: { queueLength: submitter.queueLength } });
+  res
+    .status(200)
+    .json({ success: true, data: { queueLength: submitter.queueLength } });
 });
 
 export default router;

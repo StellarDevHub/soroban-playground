@@ -115,11 +115,14 @@ export class BatchSubmitter extends EventEmitter {
           resolve({ txId: tx.id, hash: result.hash });
         } catch (err) {
           // Resync pool in case of sequence error
-          await this.#registry.getPool(tx.sourceAccount).resync().catch(() => {});
+          await this.#registry
+            .getPool(tx.sourceAccount)
+            .resync()
+            .catch(() => {});
           this.emit('tx:failed', { txId: tx.id, error: err.message });
           reject(err);
         }
-      }),
+      })
     );
 
     this.emit('batch:submitted', { batchId, count: batch.length });

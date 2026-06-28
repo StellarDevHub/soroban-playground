@@ -33,7 +33,10 @@ jest.mock('../src/services/contractEventParser.js', () => ({
   registerHandler: jest.fn(),
 }));
 
-import { parseEvent, dispatchEvent } from '../src/services/contractEventParser.js';
+import {
+  parseEvent,
+  dispatchEvent,
+} from '../src/services/contractEventParser.js';
 
 // Mock DatabaseService to use an in-memory store
 const dbStore = { events: [], cursor: null };
@@ -92,7 +95,13 @@ beforeEach(() => {
 
 describe('ContractEventIndexer', () => {
   it('saves cursor (last_ledger) after a successful poll batch', async () => {
-    const raw = { contractId: 'CABC123', ledger: 42, topic: [], value: null, type: 'contract' };
+    const raw = {
+      contractId: 'CABC123',
+      ledger: 42,
+      topic: [],
+      value: null,
+      type: 'contract',
+    };
     mockGetEvents.mockResolvedValue({ events: [raw], latestLedger: 42 });
     parseEvent.mockReturnValue({
       contractId: 'CABC123',
@@ -122,12 +131,26 @@ describe('ContractEventIndexer', () => {
   });
 
   it('skips individual events that fail to parse without halting the loop', async () => {
-    const raw1 = { contractId: 'CABC123', ledger: 10, topic: [], value: null, type: 'contract' };
-    const raw2 = { contractId: 'CABC123', ledger: 11, topic: [], value: null, type: 'contract' };
+    const raw1 = {
+      contractId: 'CABC123',
+      ledger: 10,
+      topic: [],
+      value: null,
+      type: 'contract',
+    };
+    const raw2 = {
+      contractId: 'CABC123',
+      ledger: 11,
+      topic: [],
+      value: null,
+      type: 'contract',
+    };
     mockGetEvents.mockResolvedValue({ events: [raw1, raw2], latestLedger: 11 });
 
     parseEvent
-      .mockImplementationOnce(() => { throw new Error('XDR parse failure'); })
+      .mockImplementationOnce(() => {
+        throw new Error('XDR parse failure');
+      })
       .mockReturnValueOnce({
         contractId: 'CABC123',
         ledgerSequence: 11,
@@ -145,7 +168,13 @@ describe('ContractEventIndexer', () => {
   });
 
   it('inserts parsed events into contract_events table', async () => {
-    const raw = { contractId: 'CABC123', ledger: 5, topic: [], value: null, type: 'contract' };
+    const raw = {
+      contractId: 'CABC123',
+      ledger: 5,
+      topic: [],
+      value: null,
+      type: 'contract',
+    };
     mockGetEvents.mockResolvedValue({ events: [raw], latestLedger: 5 });
     parseEvent.mockReturnValue({
       contractId: 'CABC123',
@@ -165,7 +194,13 @@ describe('ContractEventIndexer', () => {
   });
 
   it('dispatches to registered handler for known contract type', async () => {
-    const raw = { contractId: 'CABC123', ledger: 7, topic: [], value: null, type: 'contract' };
+    const raw = {
+      contractId: 'CABC123',
+      ledger: 7,
+      topic: [],
+      value: null,
+      type: 'contract',
+    };
     mockGetEvents.mockResolvedValue({ events: [raw], latestLedger: 7 });
     const parsed = {
       contractId: 'CABC123',

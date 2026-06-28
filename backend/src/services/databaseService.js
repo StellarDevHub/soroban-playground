@@ -25,7 +25,8 @@ class DatabaseService {
 
   async connect() {
     const { default: sqlite3 } = await import('sqlite3');
-    const { withCacheBusting } = await import('../database/cacheInterceptor.js');
+    const { withCacheBusting } =
+      await import('../database/cacheInterceptor.js');
     return new Promise((resolve, reject) => {
       const dbInstance = new sqlite3.Database(this.dbPath, (err) => {
         if (err) reject(err);

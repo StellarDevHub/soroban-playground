@@ -8,5 +8,7 @@ module.exports = {
       { targets: { node: 'current' } },
     ],
   ],
-  plugins: [require(path.join(localModules, 'babel-plugin-transform-import-meta'))],
+  plugins: [
+    require(path.join(localModules, 'babel-plugin-transform-import-meta')),
+  ],
 };

@@ -10,13 +10,15 @@ const TABLE_CACHE_MAP = {
   tier_limits: ['tier_limits:'],
   treasury_proposals: ['treasury:'],
   feature_flags: ['features:'],
-  flag_cohorts: ['features:']
+  flag_cohorts: ['features:'],
 };
 
 export function extractTableName(sql) {
   if (!sql) return null;
   const query = sql.toString().replace(/\s+/g, ' ').trim().toUpperCase();
-  let match = query.match(/INSERT\s+(?:OR\s+(?:IGNORE|REPLACE)\s+)?INTO\s+([A-Z0-9_]+)/);
+  let match = query.match(
+    /INSERT\s+(?:OR\s+(?:IGNORE|REPLACE)\s+)?INTO\s+([A-Z0-9_]+)/
+  );
   if (match) return match[1].toLowerCase();
 
   match = query.match(/UPDATE\s+([A-Z0-9_]+)/);
@@ -37,7 +39,7 @@ export async function invalidateCacheForTable(tableName) {
     for (const prefix of prefixes) {
       await multiLevelCache.invalidatePattern(prefix);
     }
-    
+
     if (tableName === 'projects') {
       await cacheService.clearSearchCache();
     }
@@ -55,7 +57,7 @@ export function withCacheBusting(dbHandle) {
     const originalRun = dbHandle.run.bind(dbHandle);
     dbHandle.run = function (sql, params, callback) {
       const tableName = extractTableName(sql);
-      
+
       // Support Promise-based sqlite run
       if (callback === undefined && typeof params !== 'function') {
         return originalRun(sql, params).then(async (result) => {
@@ -63,18 +65,18 @@ export function withCacheBusting(dbHandle) {
           return result;
         });
       }
-      
+
       // Callback based sqlite3
       let cb = typeof params === 'function' ? params : callback;
       let args = typeof params === 'function' ? [] : params;
-      
+
       const wrappedCallback = async function (err) {
         if (!err && tableName) {
           await invalidateCacheForTable(tableName);
         }
         if (cb) cb.apply(this, arguments);
       };
-      
+
       return originalRun(sql, args, wrappedCallback);
     };
   }
@@ -87,7 +89,7 @@ export function withCacheBusting(dbHandle) {
       const tableName = extractTableName(sql);
       if (tableName) {
         // sql.js is synchronous, but we can fire and forget the cache invalidation
-        invalidateCacheForTable(tableName).catch(e => console.error(e));
+        invalidateCacheForTable(tableName).catch((e) => console.error(e));
       }
       return result;
     };

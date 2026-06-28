@@ -132,10 +132,13 @@ export function createIntrusionDetection(options = {}) {
     const ip = getClientIp(req);
 
     if (await isBlocked(ip)) {
-      console.warn(`[IDS] Blocked request from ${ip}: ${req.method} ${req.path}`);
+      console.warn(
+        `[IDS] Blocked request from ${ip}: ${req.method} ${req.path}`
+      );
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Your IP has been temporarily blocked due to suspicious activity.',
+        message:
+          'Your IP has been temporarily blocked due to suspicious activity.',
       });
     }
 
@@ -158,7 +161,8 @@ export function createIntrusionDetection(options = {}) {
       console.error(`[IDS] IP banned: ${ip} (score=${currentScore})`);
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Your IP has been temporarily blocked due to suspicious activity.',
+        message:
+          'Your IP has been temporarily blocked due to suspicious activity.',
       });
     }
 

@@ -36,7 +36,11 @@ export async function processSyncBatch(entries) {
       if (result === 'applied') applied++;
       else skipped++;
     } catch (err) {
-      errors.push({ index: i, record_id: entry?.record_id ?? null, reason: err.message });
+      errors.push({
+        index: i,
+        record_id: entry?.record_id ?? null,
+        reason: err.message,
+      });
     }
   }
 
@@ -44,16 +48,22 @@ export async function processSyncBatch(entries) {
 }
 
 function validateEntry(entry) {
-  if (!entry || typeof entry !== 'object') throw new Error('Entry must be an object');
-  if (!entry.table || typeof entry.table !== 'string') throw new Error('Missing or invalid table');
-  if (!entry.record_id || typeof entry.record_id !== 'string') throw new Error('Missing or invalid record_id');
+  if (!entry || typeof entry !== 'object')
+    throw new Error('Entry must be an object');
+  if (!entry.table || typeof entry.table !== 'string')
+    throw new Error('Missing or invalid table');
+  if (!entry.record_id || typeof entry.record_id !== 'string')
+    throw new Error('Missing or invalid record_id');
   if (!['insert', 'update', 'delete'].includes(entry.operation)) {
     throw new Error(`Invalid operation: ${entry.operation}`);
   }
   if (!entry.client_timestamp || isNaN(Date.parse(entry.client_timestamp))) {
     throw new Error('Missing or invalid client_timestamp (ISO 8601 required)');
   }
-  if (entry.operation !== 'delete' && (!entry.payload || typeof entry.payload !== 'object')) {
+  if (
+    entry.operation !== 'delete' &&
+    (!entry.payload || typeof entry.payload !== 'object')
+  ) {
     throw new Error('Payload required for insert/update operations');
   }
 }
@@ -75,7 +85,15 @@ async function applySyncEntry(db, entry) {
       await db.run(
         `INSERT INTO sync_logs (table_name, record_id, operation, payload, client_timestamp, status, error_message)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [table, record_id, operation, JSON.stringify(payload ?? {}), client_timestamp, SYNC_STATUS.CONFLICT, 'Skipped: newer record already applied']
+        [
+          table,
+          record_id,
+          operation,
+          JSON.stringify(payload ?? {}),
+          client_timestamp,
+          SYNC_STATUS.CONFLICT,
+          'Skipped: newer record already applied',
+        ]
       );
       return 'skipped';
     }
@@ -87,7 +105,14 @@ async function applySyncEntry(db, entry) {
   await db.run(
     `INSERT INTO sync_logs (table_name, record_id, operation, payload, client_timestamp, status)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [table, record_id, operation, JSON.stringify(payload ?? {}), client_timestamp, SYNC_STATUS.APPLIED]
+    [
+      table,
+      record_id,
+      operation,
+      JSON.stringify(payload ?? {}),
+      client_timestamp,
+      SYNC_STATUS.APPLIED,
+    ]
   );
 
   return 'applied';
@@ -121,10 +146,10 @@ async function applyOperation(db, table, record_id, operation, payload) {
     );
   } else if (operation === 'update') {
     const setClause = columns.map((c) => `${c} = ?`).join(', ');
-    await db.run(
-      `UPDATE ${table} SET ${setClause} WHERE id = ?`,
-      [...columns.map((c) => payload[c]), record_id]
-    );
+    await db.run(`UPDATE ${table} SET ${setClause} WHERE id = ?`, [
+      ...columns.map((c) => payload[c]),
+      record_id,
+    ]);
   }
 }
 
