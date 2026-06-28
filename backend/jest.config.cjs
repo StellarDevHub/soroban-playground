@@ -5,7 +5,7 @@ module.exports = {
   testMatch: ['**/tests/**/*.test.js', '**/tests/syntheticAssets.*.test.js'],
   modulePaths: [path.resolve(__dirname, '../node_modules')],
   transform: {
-    '^.+\\.js$': [
+    '^.+\\\\.js$': [
       'babel-jest',
       {
         configFile: path.resolve(__dirname, 'babel.config.cjs'),
