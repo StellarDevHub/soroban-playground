@@ -60,7 +60,9 @@
     "sql.js": "^1.14.1",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "commander": "^11.1.0",
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
