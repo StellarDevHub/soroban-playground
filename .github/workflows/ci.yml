@@ -2,9 +2,11 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
+  schedule:
+    - cron: "21 4 * * 1"
 
 jobs:
   frontend-build:
@@ -17,11 +19,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Build Frontend
         run: npm run build --workspace=frontend --if-present
@@ -36,8 +38,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -47,6 +49,64 @@ jobs:
 
       - name: Run Backend Format Check
         run: npm run format:check --workspace=backend --if-present
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit high/critical vulnerabilities
+        run: npm audit --workspaces --audit-level=high
+
+      - name: Run Snyk dependency scan
+        if: ${{ env.SNYK_TOKEN != '' }}
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ env.SNYK_TOKEN }}
+        with:
+          command: test
+          args: --all-projects --severity-threshold=high --sarif-file-output=snyk-dependencies.sarif
+
+      - name: Upload Snyk dependency report
+        if: ${{ env.SNYK_TOKEN != '' && always() }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-dependencies.sarif
+
+      - name: Build backend container for image scan
+        if: ${{ env.SNYK_TOKEN != '' }}
+        run: docker build -t soroban-playground-backend:ci backend
+
+      - name: Run Snyk container scan
+        if: ${{ env.SNYK_TOKEN != '' }}
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ env.SNYK_TOKEN }}
+        with:
+          image: soroban-playground-backend:ci
+          args: --severity-threshold=high --sarif-file-output=snyk-container.sarif
+
+      - name: Upload Snyk container report
+        if: ${{ env.SNYK_TOKEN != '' && always() }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-container.sarif
 
   rust-contracts:
     name: Rust / Soroban Contracts Build & Clippy

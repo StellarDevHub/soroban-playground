@@ -37,6 +37,18 @@ pub enum Error {
     DailyLimitExceeded = 14,
     /// Fee basis points out of range (max 1000 = 10%).
     InvalidFee = 15,
+    /// Validator address is not registered.
+    UnknownValidator = 16,
+    /// Validator has already voted on this proof.
+    AlreadyVoted = 17,
+    /// Proof hash is empty.
+    EmptyProofHash = 18,
+    /// Quorum must be at least 1.
+    InvalidQuorum = 19,
+    /// Proof has not reached quorum; cannot confirm via validator path.
+    ProofNotVerified = 20,
+    /// Proof is already finalized (quorum reached).
+    ProofAlreadyFinalized = 21,
 }
 
 /// Status of a bridge deposit.
@@ -99,10 +111,47 @@ pub enum InstanceKey {
     DailyVolumeTs,
 }
 
+/// Status of a cross-chain proof submitted by validators.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ProofStatus {
+    /// Votes are being collected; quorum not yet reached.
+    Pending = 0,
+    /// Quorum reached; proof is verified and can trigger bridge actions.
+    Verified = 1,
+}
+
+/// On-chain record of a validator quorum proof for a deposit.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ValidatorProof {
+    /// The agreed-upon proof hash (first submitted hash wins; subsequent votes must match).
+    pub proof_hash: Bytes,
+    /// Number of validator votes received for this hash.
+    pub vote_count: u32,
+    /// Whether the proof has reached the required quorum.
+    pub status: ProofStatus,
+}
+
+/// Instance-level storage keys for validator configuration.
+#[contracttype]
+pub enum ValidatorKey {
+    /// Required number of validator votes to finalise a proof.
+    Quorum,
+    /// Total number of registered validators.
+    ValidatorCount,
+}
+
 /// Persistent storage keys.
 #[contracttype]
 pub enum DataKey {
     Deposit(u32),
     Relayer(Address),
     Stats,
+    /// Whether an address is an active validator.
+    Validator(Address),
+    /// Quorum proof record for a deposit ID.
+    Proof(u32),
+    /// Whether a specific validator has already voted on a deposit proof.
+    ValidatorVote(u32, Address),
 }

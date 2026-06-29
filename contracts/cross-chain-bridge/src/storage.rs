@@ -1,9 +1,9 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Bytes, Env};
 
-use crate::types::{DataKey, Deposit, Error, InstanceKey, BridgeStats};
+use crate::types::{DataKey, Deposit, Error, InstanceKey, ValidatorKey, BridgeStats, ValidatorProof, ProofStatus};
 
 // ── Admin ────────────────────────────────────────────────────────────────────
 
@@ -173,4 +173,99 @@ pub fn get_stats(env: &Env) -> BridgeStats {
 
 pub fn set_stats(env: &Env, stats: &BridgeStats) {
     env.storage().persistent().set(&DataKey::Stats, stats);
+}
+
+// ── Validators ────────────────────────────────────────────────────────────────
+
+pub fn set_validator(env: &Env, validator: &Address, active: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Validator(validator.clone()), &active);
+}
+
+pub fn is_validator(env: &Env, validator: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Validator(validator.clone()))
+        .unwrap_or(false)
+}
+
+pub fn get_validator_quorum(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&ValidatorKey::Quorum)
+        .unwrap_or(2)
+}
+
+pub fn set_validator_quorum(env: &Env, quorum: u32) {
+    env.storage()
+        .instance()
+        .set(&ValidatorKey::Quorum, &quorum);
+}
+
+// ── Proof records ─────────────────────────────────────────────────────────────
+
+pub fn get_proof(env: &Env, deposit_id: u32) -> Option<ValidatorProof> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Proof(deposit_id))
+}
+
+pub fn set_proof(env: &Env, deposit_id: u32, proof: &ValidatorProof) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Proof(deposit_id), proof);
+}
+
+pub fn has_validator_voted(env: &Env, deposit_id: u32, validator: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::ValidatorVote(deposit_id, validator.clone()))
+        .unwrap_or(false)
+}
+
+pub fn record_validator_vote(env: &Env, deposit_id: u32, validator: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::ValidatorVote(deposit_id, validator.clone()), &true);
+}
+
+/// Submit a validator proof vote. Returns the updated proof record.
+/// First voter sets the canonical hash; subsequent voters must match it.
+/// Returns `Err` if the validator already voted, hash mismatches, or proof is finalized.
+pub fn submit_validator_vote(
+    env: &Env,
+    deposit_id: u32,
+    validator: &Address,
+    proof_hash: &Bytes,
+) -> Result<ValidatorProof, Error> {
+    if has_validator_voted(env, deposit_id, validator) {
+        return Err(Error::AlreadyVoted);
+    }
+
+    let mut proof = get_proof(env, deposit_id).unwrap_or(ValidatorProof {
+        proof_hash: proof_hash.clone(),
+        vote_count: 0,
+        status: ProofStatus::Pending,
+    });
+
+    if proof.status == ProofStatus::Verified {
+        return Err(Error::ProofAlreadyFinalized);
+    }
+
+    // All votes must be for the same hash (first submission wins).
+    if proof.vote_count > 0 && proof.proof_hash != *proof_hash {
+        return Err(Error::EmptyProofHash);
+    }
+
+    record_validator_vote(env, deposit_id, validator);
+    proof.vote_count += 1;
+
+    let quorum = get_validator_quorum(env);
+    if proof.vote_count >= quorum {
+        proof.status = ProofStatus::Verified;
+    }
+
+    set_proof(env, deposit_id, &proof);
+    Ok(proof)
 }

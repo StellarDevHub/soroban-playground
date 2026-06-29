@@ -55,6 +55,7 @@ import GovernancePortal, {
 } from "@/components/GovernancePortal";
 import SupplyChainPanel, { type ProductData as SupplyChainProduct, type ProductStatus as SupplyChainStatus, type QualityResult as SupplyChainQuality } from "@/components/SupplyChainPanel";
 import LotteryDashboard from "@/components/LotteryDashboard";
+import ShareSnippet from "@/components/ShareSnippet";
 import { useWallet } from "@/components/providers/WalletProvider";
 import { useTransactionTracker } from "@/hooks/useTransactionTracker";
 import {
@@ -2078,6 +2079,18 @@ export default function Home() {
     }
   };
 
+  const handleFormat = async () => {
+    try {
+      const rustfmt = await import("rustfmt");
+      // ensure we're accessing the format function properly, it might be a default export or named export
+      const formatted = rustfmt.format(code);
+      setCode(formatted);
+      appendLog("[editor] Code formatted successfully");
+    } catch (error) {
+      appendLog(`[error] Format failed: ${String(error)}`);
+    }
+  };
+
   return (
     <div className="min-h-screen px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-[1600px] flex-col overflow-hidden rounded-[28px] border border-white/8 bg-slate-950/60 shadow-[0_30px_120px_rgba(2,8,23,0.7)] backdrop-blur">
@@ -2172,15 +2185,25 @@ export default function Home() {
                       Edit `lib.rs`, then compile against the backend toolchain.
                     </p>
                   </div>
-                  <a
-                    href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
-                  >
-                    <BookOpen size={14} />
-                    Soroban Docs
-                  </a>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleFormat}
+                      className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-400/20"
+                    >
+                      <Code2 size={14} />
+                      Format
+                    </button>
+                    <a
+                      href="https://developers.stellar.org/docs/build/smart-contracts/getting-started"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-400/40 hover:text-cyan-200"
+                    >
+                      <BookOpen size={14} />
+                      Soroban Docs
+                    </a>
+                    <ShareSnippet code={code} apiBaseUrl={DEFAULT_API_BASE_URL} />
+                  </div>
                 </div>
                 <Editor code={code} setCode={setCode} />
               </section>

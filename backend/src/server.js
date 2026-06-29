@@ -13,6 +13,8 @@ import { fileURLToPath } from 'url';
 
 import config from './config/index.js';
 import { corsOptions } from './config/cors.js';
+import { applyServerTuning } from './config/http2Config.js';
+import { http2PushMiddleware } from './middleware/http2Push.js';
 import apiRouter from './routes/api.js';
 import { startCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
@@ -43,14 +45,16 @@ import applySecurityHeaders from './middleware/securityHeaders.js';
 import feeEngineRoute from './routes/feeEngine.js';
 import featureFlagsRoute from './routes/featureFlags.js';
 import featureFlagService from './services/featureFlagService.js';
-import { startMemoryLeakDetector } from './services/memoryLeakDetector.js';
-import { contractEventIndexer } from './services/contractEventIndexer.js';
-import { runStartupMigrations } from './services/migrationService.js';
+import { LedgerSyncService } from './services/ledgerSyncService.js';
+import snippetsRoute from './routes/snippets.js';
+import deployQueueRoute from './routes/deployQueue.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = http.createServer(app);
+applyServerTuning(server); // HTTP/2: keep-alive + headers-timeout tuning
 
 // TLS/SSL Hardening configuration
 const httpsOptions = {
@@ -120,6 +124,17 @@ app.use(morgan('combined'));
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
 app.use(compressionMiddleware);
+app.use(http2PushMiddleware);
+
+// Strict Transport Security (HSTS) headers
+// max-age=63072000 is 2 years, required for Qualys SSL Labs A+ and HSTS preload list
+app.use((req, res, next) => {
+  res.setHeader(
+    'Strict-Transport-Security',
+    'max-age=63072000; includeSubDomains; preload'
+  );
+  next();
+});
 
 // Latency tracking middleware
 app.use((req, res, next) => {
@@ -157,12 +172,19 @@ app.use('/api/yield-optimizer', yieldOptimizerRoute);
 app.use('/api/reit', reitRoute);
 app.use('/api/fee-engine', feeEngineRoute);
 app.use('/api/feature-flags', featureFlagsRoute);
+app.use('/api/webhooks', webhooksRoute);
+app.use('/api/cors-whitelist', corsAdminRoute);
 app.use('/api/v1/events', eventsV1Route);
+app.use('/api/registry', serviceRegistryRoute);
+app.use('/api/batch', batchSubmitterRoute);
 app.use('/api/credentials', credentialsRoute);
+app.use('/api/snippets', snippetsRoute);
+app.use('/api/deploy-queue', deployQueueRoute);
 app.use('/metrics', metricsRoute);
 
 // GraphQL Endpoint
 setupGraphQL(app);
+setupSwagger(app);
 
 // ─── Health Check Helpers ──────────────────────────────────────────────────────
 
@@ -290,24 +312,17 @@ function setupCredentialRotation() {
 
 // WebSocket + compile service + database init
 initializeDatabase()
-  .then(async () => {
+  .then((db) => {
     setupWebsocketServer(server);
     initializeCompileService().catch(console.error);
     oracleWorkerPool.start();
     startCleanupWorker();
     featureFlagService.initSubscriber();
+    startWebhookDispatcher();
     setupCredentialRotation();
-    startMemoryLeakDetector();
-
-    if (config.indexer.contractIds.length > 0) {
-      contractEventIndexer.start().catch(console.error);
+    if (process.env.LEDGER_SYNC_ENABLED === 'true') {
+      new LedgerSyncService({ db }).start();
     }
-
-    // Apply pending database migrations before accepting requests so the
-    // schema is always consistent when the server begins listening.
-    await runStartupMigrations().catch((err) =>
-      console.error('Startup migrations failed:', err.message)
-    );
 
     // Start listening
     server.listen(PORT, () => {

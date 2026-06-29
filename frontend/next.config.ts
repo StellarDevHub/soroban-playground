@@ -20,6 +20,7 @@ const nextConfig: NextConfig = {
     ];
   },
   webpack: (config, { isServer }) => {
+    config.experiments = { ...config.experiments, asyncWebAssembly: true };
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,

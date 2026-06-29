@@ -24,9 +24,7 @@ use crate::storage::{
     get_patent_count, is_initialized, is_paused, next_dispute_id, next_license_id, next_patent_id,
     set_admin, set_dispute, set_license, set_patent, set_paused,
 };
-use crate::types::{
-    Dispute, DisputeStatus, Error, License, LicenseType, Patent, PatentStatus,
-};
+use crate::types::{Dispute, DisputeStatus, Error, License, LicenseType, Patent, PatentStatus};
 
 #[contract]
 pub struct PatentRegistryContract;
@@ -116,8 +114,7 @@ impl PatentRegistryContract {
         };
         set_patent(&env, id, &patent);
 
-        env.events()
-            .publish((symbol_short!("filed"), inventor), id);
+        env.events().publish((symbol_short!("filed"), inventor), id);
 
         Ok(id)
     }
@@ -152,8 +149,7 @@ impl PatentRegistryContract {
         patent.status = PatentStatus::Revoked;
         set_patent(&env, patent_id, &patent);
 
-        env.events()
-            .publish((symbol_short!("revoked"),), patent_id);
+        env.events().publish((symbol_short!("revoked"),), patent_id);
 
         Ok(())
     }

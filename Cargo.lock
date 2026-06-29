@@ -2724,6 +2724,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "soroban-dutch-auction-contract"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "soroban-env-common"
 version = "21.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2812,6 +2819,13 @@ dependencies = [
  "soroban-env-common",
  "soroban-env-host",
  "thiserror",
+]
+
+[[package]]
+name = "soroban-patent-registry"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -3241,6 +3255,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "synthetic-assets"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]

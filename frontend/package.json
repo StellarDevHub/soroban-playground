@@ -31,6 +31,7 @@
     "react-dom": "19.2.6",
     "react-window": "^2.2.7",
     "reactflow": "^11.11.4",
+    "rustfmt": "^0.1.0",
     "rxjs": "^7.8.2",
     "ts-invariant": "^0.10.3",
     "vscode-languageserver-protocol": "^3.17.5",

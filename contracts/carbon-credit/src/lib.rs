@@ -1,169 +1,203 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
+//! # Carbon Credit Retirement Ledger
+//!
+//! Tracks environmental impact immutably: verified issuers mint credits,
+//! holders transfer or permanently retire them, and every retirement is
+//! recorded on-chain as an append-only ledger entry.
+
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Symbol, symbol_short, log, vec, Vec};
 
-#[contracttype]
-#[derive(Clone)]
-pub enum DataKey {
-    Admin,
-    Issuers(Address),
-    Balances(Address),
-    TotalSupply,
-    VerifiedIssuersCount,
-}
+mod storage;
+mod test;
+mod types;
 
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct IssuerInfo {
-    pub name: String,
-    pub verified: bool,
-    pub total_minted: i128,
-}
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
+
+use crate::storage::{
+    get_admin, get_balance, get_issuer_info, get_retirement, get_retirement_count,
+    get_total_retired, get_total_supply, is_initialized, save_retirement, set_admin, set_balance,
+    set_issuer_info, set_retirement_count, set_total_retired, set_total_supply,
+};
+use crate::types::{Error, IssuerInfo, RetirementRecord};
 
 #[contract]
 pub struct CarbonCreditContract;
 
 #[contractimpl]
 impl CarbonCreditContract {
-    pub fn init(env: Env, admin: Address) {
-        if env.storage().instance().has(&DataKey::Admin) {
-            panic!("Already initialized");
+    // ── Initialisation ────────────────────────────────────────────────────────
+
+    pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
+        if is_initialized(&env) {
+            return Err(Error::AlreadyInitialized);
         }
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::TotalSupply, &0i128);
-        env.storage().instance().set(&DataKey::VerifiedIssuersCount, &0u32);
-    }
-
-    pub fn register_issuer(env: Env, issuer: Address, name: String) {
-        issuer.require_auth();
-        let key = DataKey::Issuers(issuer.clone());
-        if env.storage().instance().has(&key) {
-            panic!("Issuer already registered");
-        }
-
-        let info = IssuerInfo {
-            name,
-            verified: false,
-            total_minted: 0,
-        };
-        env.storage().instance().set(&key, &info);
-    }
-
-    pub fn verify_issuer(env: Env, issuer: Address) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("Not initialized");
         admin.require_auth();
-
-        let key = DataKey::Issuers(issuer.clone());
-        let mut info: IssuerInfo = env.storage().instance().get(&key).expect("Issuer not found");
-        
-        if !info.verified {
-            info.verified = true;
-            env.storage().instance().set(&key, &info);
-            
-            let mut count: u32 = env.storage().instance().get(&DataKey::VerifiedIssuersCount).unwrap_or(0);
-            count += 1;
-            env.storage().instance().set(&DataKey::VerifiedIssuersCount, &count);
-        }
+        set_admin(&env, &admin);
+        set_total_supply(&env, 0);
+        set_total_retired(&env, 0);
+        set_retirement_count(&env, 0);
+        env.events().publish((symbol_short!("init"),), admin);
+        Ok(())
     }
 
-    pub fn mint(env: Env, issuer: Address, to: Address, amount: i128) {
+    // ── Issuer management ─────────────────────────────────────────────────────
+
+    /// Register as a credit issuer (unverified by default).
+    pub fn register_issuer(env: Env, issuer: Address, name: String) -> Result<(), Error> {
+        ensure_initialized(&env)?;
         issuer.require_auth();
-        
-        let key = DataKey::Issuers(issuer.clone());
-        let mut info: IssuerInfo = env.storage().instance().get(&key).expect("Issuer not registered");
-        
-        if !info.verified {
-            panic!("Issuer not verified");
+        if get_issuer_info(&env, &issuer).is_some() {
+            return Err(Error::IssuerAlreadyRegistered);
         }
-
-        if amount <= 0 {
-            panic!("Amount must be positive");
-        }
-
-        // Update user balance
-        let balance_key = DataKey::Balances(to.clone());
-        let mut balance: i128 = env.storage().instance().get(&balance_key).unwrap_or(0);
-        balance += amount;
-        env.storage().instance().set(&balance_key, &balance);
-
-        // Update issuer stats
-        info.total_minted += amount;
-        env.storage().instance().set(&key, &info);
-
-        // Update total supply
-        let mut total_supply: i128 = env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0);
-        total_supply += amount;
-        env.storage().instance().set(&DataKey::TotalSupply, &total_supply);
-
-        log!(&env, "Minted {} credits to {}", amount, to);
-    }
-
-    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
-        from.require_auth();
-
-        if amount <= 0 {
-            panic!("Amount must be positive");
-        }
-
-        let from_key = DataKey::Balances(from.clone());
-        let mut from_balance: i128 = env.storage().instance().get(&from_key).unwrap_or(0);
-
-        if from_balance < amount {
-            panic!("Insufficient balance");
-        }
-
-        from_balance -= amount;
-        env.storage().instance().set(&from_key, &from_balance);
-
-        let to_key = DataKey::Balances(to.clone());
-        let mut to_balance: i128 = env.storage().instance().get(&to_key).unwrap_or(0);
-        to_balance += amount;
-        env.storage().instance().set(&to_key, &to_balance);
-
-        log!(&env, "Transferred {} credits from {} to {}", amount, from, to);
-    }
-
-    pub fn retire(env: Env, user: Address, amount: i128) {
-        user.require_auth();
-
-        if amount <= 0 {
-            panic!("Amount must be positive");
-        }
-
-        let balance_key = DataKey::Balances(user.clone());
-        let mut balance: i128 = env.storage().instance().get(&balance_key).unwrap_or(0);
-
-        if balance < amount {
-            panic!("Insufficient balance to retire");
-        }
-
-        balance -= amount;
-        env.storage().instance().set(&balance_key, &balance);
-
-        // Update total supply (burn)
-        let mut total_supply: i128 = env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0);
-        total_supply -= amount;
-        env.storage().instance().set(&DataKey::TotalSupply, &total_supply);
-
-        log!(&env, "Retired {} credits by {}", amount, user);
-        
-        // Emit verification event for retirement
-        env.events().publish(
-            (symbol_short!("retire"), user),
-            amount
+        set_issuer_info(
+            &env,
+            &issuer,
+            &IssuerInfo {
+                name,
+                verified: false,
+                total_minted: 0,
+            },
         );
+        Ok(())
     }
+
+    /// Admin verifies an issuer, enabling them to mint credits.
+    pub fn verify_issuer(env: Env, admin: Address, issuer: Address) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
+        let mut info = get_issuer_info(&env, &issuer).ok_or(Error::IssuerNotFound)?;
+        info.verified = true;
+        set_issuer_info(&env, &issuer, &info);
+        env.events()
+            .publish((symbol_short!("verified"), issuer), ());
+        Ok(())
+    }
+
+    // ── Token operations ──────────────────────────────────────────────────────
+
+    /// Verified issuer mints `amount` credits to `to`.
+    pub fn mint(env: Env, issuer: Address, to: Address, amount: i128) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        issuer.require_auth();
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        let mut info = get_issuer_info(&env, &issuer).ok_or(Error::IssuerNotFound)?;
+        if !info.verified {
+            return Err(Error::IssuerNotVerified);
+        }
+        set_balance(&env, &to, get_balance(&env, &to) + amount);
+        info.total_minted += amount;
+        set_issuer_info(&env, &issuer, &info);
+        set_total_supply(&env, get_total_supply(&env) + amount);
+        env.events().publish((symbol_short!("mint"), to), amount);
+        Ok(())
+    }
+
+    /// Transfer `amount` credits from `from` to `to`.
+    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        from.require_auth();
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        let from_balance = get_balance(&env, &from);
+        if from_balance < amount {
+            return Err(Error::InsufficientBalance);
+        }
+        set_balance(&env, &from, from_balance - amount);
+        set_balance(&env, &to, get_balance(&env, &to) + amount);
+        env.events()
+            .publish((symbol_short!("transfer"), from), amount);
+        Ok(())
+    }
+
+    /// Permanently retire `amount` credits. Creates an immutable ledger entry
+    /// referencing `reason_hash` (e.g. an IPFS CID or project reference).
+    /// Returns the retirement record ID.
+    pub fn retire(
+        env: Env,
+        retiree: Address,
+        amount: i128,
+        reason_hash: String,
+    ) -> Result<u32, Error> {
+        ensure_initialized(&env)?;
+        retiree.require_auth();
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        let balance = get_balance(&env, &retiree);
+        if balance < amount {
+            return Err(Error::InsufficientBalance);
+        }
+        set_balance(&env, &retiree, balance - amount);
+        set_total_supply(&env, get_total_supply(&env) - amount);
+        set_total_retired(&env, get_total_retired(&env) + amount);
+
+        let id = get_retirement_count(&env) + 1;
+        set_retirement_count(&env, id);
+        save_retirement(
+            &env,
+            &RetirementRecord {
+                id,
+                retiree: retiree.clone(),
+                amount,
+                reason_hash,
+                retired_at: env.ledger().timestamp(),
+            },
+        );
+
+        env.events()
+            .publish((symbol_short!("retire"), retiree), amount);
+        Ok(id)
+    }
+
+    // ── Read-only queries ─────────────────────────────────────────────────────
 
     pub fn get_balance(env: Env, user: Address) -> i128 {
-        env.storage().instance().get(&DataKey::Balances(user)).unwrap_or(0)
+        get_balance(&env, &user)
     }
 
-    pub fn get_issuer_info(env: Env, issuer: Address) -> Option<IssuerInfo> {
-        env.storage().instance().get(&DataKey::Issuers(issuer))
+    pub fn get_issuer_info(env: Env, issuer: Address) -> Result<IssuerInfo, Error> {
+        get_issuer_info(&env, &issuer).ok_or(Error::IssuerNotFound)
     }
 
     pub fn total_supply(env: Env) -> i128 {
-        env.storage().instance().get(&DataKey::TotalSupply).unwrap_or(0)
+        get_total_supply(&env)
+    }
+
+    pub fn total_retired(env: Env) -> i128 {
+        get_total_retired(&env)
+    }
+
+    pub fn get_retirement(env: Env, id: u32) -> Result<RetirementRecord, Error> {
+        get_retirement(&env, id)
+    }
+
+    pub fn retirement_count(env: Env) -> u32 {
+        get_retirement_count(&env)
+    }
+
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        get_admin(&env)
     }
 }
 
-mod test;
+fn ensure_initialized(env: &Env) -> Result<(), Error> {
+    if !is_initialized(env) {
+        Err(Error::NotInitialized)
+    } else {
+        Ok(())
+    }
+}
+
+fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
+    ensure_initialized(env)?;
+    caller.require_auth();
+    let admin = get_admin(env)?;
+    if *caller != admin {
+        return Err(Error::Unauthorized);
+    }
+    Ok(())
+}
