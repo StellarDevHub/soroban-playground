@@ -8,10 +8,11 @@ const DEFAULTS = {
   APP_ENV: 'development',
   GLOBAL_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
   GLOBAL_RATE_LIMIT_MAX: 1000,
-  COMPILE_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
-  COMPILE_RATE_LIMIT_MAX: 1500,
+  COMPILE_RATE_LIMIT_WINDOW_MS: 60 * 1000,
+  COMPILE_RATE_LIMIT_MAX: 10,
   COMPILE_COMMAND: 'cargo build --target wasm32-unknown-unknown --release',
   COMPILE_TIMEOUT_MS: 120000,
+  COMPILE_MAX_SOURCE_BYTES: 1024 * 1024,
   COMPILE_TEMP_DIR_PREFIX: '.tmp_compile_',
   WASM_TARGET_SUBPATH: 'target/wasm32-unknown-unknown/release',
   WASM_FILENAME: 'soroban_contract.wasm',
@@ -190,6 +191,13 @@ export function createConfig(env = process.env, options = {}) {
         'COMPILE_TIMEOUT_MS',
         warnings,
         { min: 1 }
+      ),
+      maxSourceBytes: toInt(
+        env.COMPILE_MAX_SOURCE_BYTES,
+        DEFAULTS.COMPILE_MAX_SOURCE_BYTES,
+        'COMPILE_MAX_SOURCE_BYTES',
+        warnings,
+        { min: 1024 }
       ),
       tempDirPrefix: cleanString(
         env.COMPILE_TEMP_DIR_PREFIX,

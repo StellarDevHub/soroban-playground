@@ -16,6 +16,11 @@ import {
   invokeProgressBus,
 } from '../services/invokeService.js';
 import { getCached, setCached, invalidateCache } from './cache.js';
+import { checkGraphQLPermission } from '../middleware/auth.js';
+import { getDatabase } from '../database/connection.js';
+import { QueryBuilder } from '../services/queryBuilder.js';
+
+const projectQueryBuilder = new QueryBuilder('projects');
 
 // ── JSON scalar ───────────────────────────────────────────────────────────────
 const JSONScalar = {
@@ -102,6 +107,31 @@ export const resolvers = {
   JSON: JSONScalar,
 
   Query: {
+    projects: checkGraphQLPermission('project:read')(async (_parent, _args, context) => {
+      const db = getDatabase();
+      const { sql, params } = projectQueryBuilder.buildFullQuery({ limit: 100 }, context.user, 'read');
+      const rows = await db.all(sql, params);
+      return rows.map(r => ({
+        ...r,
+        tags: r.tags ? JSON.parse(r.tags) : []
+      }));
+    }),
+
+    project: checkGraphQLPermission('project:read')(async (_parent, { id }, context) => {
+      const db = getDatabase();
+      const project = await db.get('SELECT * FROM projects WHERE id = ?', [id]);
+      if (!project) return null;
+
+      if (context.user.role !== 'admin' && project.creator_id !== context.user.id) {
+        throw new Error('Forbidden: You do not own this project');
+      }
+
+      return {
+        ...project,
+        tags: project.tags ? JSON.parse(project.tags) : []
+      };
+    }),
+
     health: () => 'ok',
 
     compileStats: async (_parent, _args, context) => {
@@ -182,6 +212,84 @@ export const resolvers = {
   },
 
   Mutation: {
+    createProject: checkGraphQLPermission('project:create')(async (_parent, args, context) => {
+      const db = getDatabase();
+      const creatorId = context.user.id;
+      const creatorName = context.user.username;
+      const tagsJson = JSON.stringify(args.tags || []);
+
+      const result = await db.run(
+        `INSERT INTO projects (title, description, category, status, creator_id, creator_name, funding_goal, tags)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [args.title, args.description, args.category, args.status, creatorId, creatorName, args.funding_goal, tagsJson]
+      );
+
+      return {
+        id: result.lastID,
+        title: args.title,
+        description: args.description,
+        category: args.category,
+        status: args.status,
+        creator_id: creatorId,
+        creator_name: creatorName,
+        funding_goal: args.funding_goal,
+        current_funding: 0,
+        completion_rate: 0,
+        tags: args.tags || []
+      };
+    }),
+
+    updateProject: checkGraphQLPermission('project:update')(async (_parent, args, context) => {
+      const db = getDatabase();
+      const project = await db.get('SELECT * FROM projects WHERE id = ?', [args.id]);
+      if (!project) throw new Error('Project not found');
+
+      if (context.user.role !== 'admin' && project.creator_id !== context.user.id) {
+        throw new Error('Forbidden: You do not own this project');
+      }
+
+      const updatedTitle = args.title !== undefined ? args.title : project.title;
+      const updatedDesc = args.description !== undefined ? args.description : project.description;
+      const updatedCat = args.category !== undefined ? args.category : project.category;
+      const updatedStatus = args.status !== undefined ? args.status : project.status;
+      const updatedGoal = args.funding_goal !== undefined ? args.funding_goal : project.funding_goal;
+      const updatedTags = args.tags !== undefined ? JSON.stringify(args.tags) : project.tags;
+
+      await db.run(
+        `UPDATE projects
+         SET title = ?, description = ?, category = ?, status = ?, funding_goal = ?, tags = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [updatedTitle, updatedDesc, updatedCat, updatedStatus, updatedGoal, updatedTags, args.id]
+      );
+
+      return {
+        id: args.id,
+        title: updatedTitle,
+        description: updatedDesc,
+        category: updatedCat,
+        status: updatedStatus,
+        creator_id: project.creator_id,
+        creator_name: project.creator_name,
+        funding_goal: updatedGoal,
+        current_funding: project.current_funding,
+        completion_rate: project.completion_rate,
+        tags: args.tags !== undefined ? args.tags : (project.tags ? JSON.parse(project.tags) : [])
+      };
+    }),
+
+    deleteProject: checkGraphQLPermission('project:delete')(async (_parent, { id }, context) => {
+      const db = getDatabase();
+      const project = await db.get('SELECT * FROM projects WHERE id = ?', [id]);
+      if (!project) throw new Error('Project not found');
+
+      if (context.user.role !== 'admin' && project.creator_id !== context.user.id) {
+        throw new Error('Forbidden: You do not own this project');
+      }
+
+      await db.run('DELETE FROM projects WHERE id = ?', [id]);
+      return true;
+    }),
+
     compile: async (_parent, { input }, context) => {
       await invalidateCache();
       const result = await compileQueued({

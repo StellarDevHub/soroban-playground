@@ -39,11 +39,15 @@ export function broadcastTreasuryEvent(event) {
   }
 }
 
+let wssInstance = null;
+
 export function setupWebsocketServer(httpServer) {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
   });
+
+  wssInstance = wss;
 
   wss.on('error', (err) => {
     console.error('WebSocketServer error:', err.message);
@@ -177,6 +181,16 @@ export function setupWebsocketServer(httpServer) {
   }, 2000);
 
   return wss;
+}
+
+export function closeWebsocketServer() {
+  if (wssInstance) {
+    for (const socket of clients) {
+      socket.terminate();
+    }
+    clients.clear();
+    wssInstance.close();
+  }
 }
 
 export function broadcast(payload) {

@@ -46,4 +46,41 @@ describe('CallPanel', () => {
 
     expect(onInvoke).toHaveBeenCalledWith('hello', { name: 'Ayomide' });
   });
+
+  it('renders ABI-driven fields for typed inputs and submits them', () => {
+    const onInvoke = jest.fn();
+
+    render(
+      <CallPanel
+        onInvoke={onInvoke}
+        isInvoking={false}
+        contractId={'C'.repeat(56)}
+        abi={[
+          {
+            name: 'set_profile',
+            inputs: [
+              { name: 'name', type: 'string' },
+              { name: 'amount', type: 'u64' },
+              { name: 'active', type: 'bool' },
+            ],
+          },
+        ]}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/name/i), {
+      target: { value: 'Ada' },
+    });
+    fireEvent.change(screen.getByLabelText(/amount/i), {
+      target: { value: '100' },
+    });
+    fireEvent.click(screen.getByLabelText(/active/i));
+    fireEvent.click(screen.getByRole('button', { name: /invoke function/i }));
+
+    expect(onInvoke).toHaveBeenCalledWith('set_profile', {
+      name: 'Ada',
+      amount: 100,
+      active: true,
+    });
+  });
 });

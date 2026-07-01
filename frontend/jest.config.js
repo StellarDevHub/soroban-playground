@@ -6,8 +6,16 @@ const config = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   transform: {
-    '^.+\\.(ts|tsx)$': 'babel-jest',
-    '^.+\\.js$': 'babel-jest',
+    '^.+\\.(ts|tsx)$': ['babel-jest', {
+      presets: [
+        ['@babel/preset-react', { runtime: 'automatic' }],
+        '@babel/preset-typescript',
+      ],
+      plugins: ['@babel/plugin-transform-modules-commonjs'],
+    }],
+    '^.+\\.js$': ['babel-jest', {
+      plugins: ['@babel/plugin-transform-modules-commonjs'],
+    }],
   },
   transformIgnorePatterns: [
     '/node_modules/(?!(lucide-react)/)',

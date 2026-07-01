@@ -36,11 +36,18 @@ pub fn set_voting_period(env: &Env, v: u64) {
     env.storage().instance().set(&InstanceKey::VotingPeriod, &v);
 }
 
-pub fn get_max_credits(env: &Env) -> i128 {
-    env.storage().instance().get(&InstanceKey::MaxCreditsPerUser).unwrap_or(100)
+pub fn get_total_supply(env: &Env) -> i128 {
+    env.storage().instance().get(&InstanceKey::TotalSupply).unwrap_or(0)
 }
-pub fn set_max_credits(env: &Env, v: i128) {
-    env.storage().instance().set(&InstanceKey::MaxCreditsPerUser, &v);
+pub fn set_total_supply(env: &Env, v: i128) {
+    env.storage().instance().set(&InstanceKey::TotalSupply, &v);
+}
+
+pub fn get_quorum_bps(env: &Env) -> i128 {
+    env.storage().instance().get(&InstanceKey::QuorumBps).unwrap_or(400)
+}
+pub fn set_quorum_bps(env: &Env, v: i128) {
+    env.storage().instance().set(&InstanceKey::QuorumBps, &v);
 }
 
 pub fn set_proposal(env: &Env, p: &Proposal) {
@@ -57,11 +64,11 @@ pub fn set_whitelisted(env: &Env, addr: &Address, v: bool) {
     env.storage().persistent().set(&DataKey::Whitelisted(addr.clone()), &v);
 }
 
-pub fn get_user_credits(env: &Env, voter: &Address, proposal_id: u32) -> i128 {
-    env.storage().persistent().get(&DataKey::UserCredits(voter.clone(), proposal_id)).unwrap_or(0)
+pub fn get_balance(env: &Env, addr: &Address) -> i128 {
+    env.storage().persistent().get(&DataKey::Balance(addr.clone())).unwrap_or(0)
 }
-pub fn set_user_credits(env: &Env, voter: &Address, proposal_id: u32, v: i128) {
-    env.storage().persistent().set(&DataKey::UserCredits(voter.clone(), proposal_id), &v);
+pub fn set_balance(env: &Env, addr: &Address, v: i128) {
+    env.storage().persistent().set(&DataKey::Balance(addr.clone()), &v);
 }
 
 pub fn has_voted(env: &Env, proposal_id: u32, voter: &Address) -> bool {

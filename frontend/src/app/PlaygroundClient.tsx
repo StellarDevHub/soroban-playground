@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCompileStore } from "@/state/compileStore";
 import {
   Activity,
   BookOpen,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import MobileEditor from "@/components/MobileEditor";
+import { preloadMonacoEditor } from "@/lib/editorLoadScheduler";
 
 const Editor = dynamic(() => import("@/components/Editor"), {
   ssr: false,
@@ -67,6 +69,7 @@ import {
   createInitialStorageTimelineState,
   storageTimelineReducer,
 } from "@/state/storageTimeline";
+import { parseContractAbiFromSource } from "@/utils/contractAbi";
 
 const DEFAULT_CODE = `#![no_std]
 use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
@@ -253,6 +256,10 @@ function createMockInvocationPayload(
 }
 
 export default function Home() {
+  useEffect(() => {
+    return preloadMonacoEditor();
+  }, []);
+
   const [code, setCode] = useState(DEFAULT_CODE);
   const [logs, setLogs] = useState<string[]>([
     `Soroban Playground ready.`,
@@ -340,6 +347,7 @@ export default function Home() {
   const [lastArtifactName, setLastArtifactName] =
     useState<string>("contract.wasm");
   const [lastDeployMessage, setLastDeployMessage] = useState<string>();
+  const [contractAbi, setContractAbi] = useState<Array<{ name: string; inputs?: Array<{ name: string; type: string }> }>>([]);
 
   const activeSnapshot = useMemo(
     () =>
@@ -397,6 +405,10 @@ export default function Home() {
   const appendLog = (msg: string) => {
     setLogs((prev) => [...prev, msg]);
   };
+
+  useEffect(() => {
+    setContractAbi(parseContractAbiFromSource(code));
+  }, [code]);
 
   useEffect(() => {
     let cancelled = false;
@@ -476,10 +488,22 @@ export default function Home() {
               `[deploy:${payload.status ?? "update"}] ${payload.detail ?? "progress"}`,
             );
           } else if (payload.type === "compile-progress") {
+            // Update Zustand store
+            const { updateProgress } = useCompileStore.getState();
+            updateProgress({
+              status: payload.status,
+              message: payload.message || undefined,
+              progress: payload.progress || undefined,
+              queueLength: payload.queueLength,
+              activeWorkers: payload.activeWorkers,
+              estimatedWaitTimeMs: payload.estimatedWaitTimeMs,
+            });
+
             setCompileStats((prev) => ({
               ...prev,
               queueLength: payload.queueLength ?? prev.queueLength,
               activeWorkers: payload.activeWorkers ?? prev.activeWorkers,
+              estimatedWaitTimeMs: payload.estimatedWaitTimeMs ?? prev.estimatedWaitTimeMs,
             }));
             appendLog(
               `[compile:${payload.status ?? "update"}] queue=${payload.queueLength ?? 0} workers=${payload.activeWorkers ?? 0}`,
@@ -546,6 +570,9 @@ export default function Home() {
     setSelectedGraphNodeId(undefined);
     appendLog("[compile] Sending source to backend...");
 
+    // Start compilation in Zustand store
+    useCompileStore.getState().startCompile();
+
     try {
       const payload = await requestJson<CompileResponse>("/api/compile", {
         code,
@@ -554,13 +581,16 @@ export default function Home() {
 
       setHasCompiled(true);
       setLastArtifactName(payload.artifact?.name ?? "contract.wasm");
-      setCompileSummary(
-        `${payload.message} · ${payload.artifact?.name ?? "artifact"} · ${
-          payload.artifact?.sizeBytes
-            ? `${(payload.artifact.sizeBytes / 1024).toFixed(1)} KB`
-            : "size unavailable"
-        } · ${payload.cached ? "cache hit" : "fresh build"}`,
-      );
+      const summaryMsg = `${payload.message} · ${payload.artifact?.name ?? "artifact"} · ${
+        payload.artifact?.sizeBytes
+          ? `${(payload.artifact.sizeBytes / 1024).toFixed(1)} KB`
+          : "size unavailable"
+      } · ${payload.cached ? "cache hit" : "fresh build"}`;
+      setCompileSummary(summaryMsg);
+
+      // Complete compilation in Zustand store
+      useCompileStore.getState().successCompile(summaryMsg);
+
       try {
         const statsRes = await fetch(`${DEFAULT_API_BASE_URL}/api/compile/stats`);
         if (statsRes.ok) {
@@ -579,6 +609,9 @@ export default function Home() {
       const message = formatApiError(error);
       setCompileError(message);
       appendLog(`[error] Compile failed: ${message}`);
+      
+      // Fail compilation in Zustand store
+      useCompileStore.getState().failCompile(message);
     } finally {
       setIsCompiling(false);
     }
@@ -606,6 +639,7 @@ export default function Home() {
       });
 
       setContractId(payload.contractId);
+      setContractAbi([]);
       setLastDeployMessage(payload.message);
       setStorage({
         contractName: payload.contractName,
@@ -700,7 +734,7 @@ export default function Home() {
 
   const handleInvoke = async (
     funcName: string,
-    args: Record<string, string>,
+    args: Record<string, unknown>,
   ) => {
     if (!contractId) {
       appendLog("[warn] Deploy a contract before invoking a function.");
@@ -718,7 +752,7 @@ export default function Home() {
         status: string;
         contractId: string;
         functionName: string;
-        args: Record<string, string>;
+        args: Record<string, unknown>;
         output: string;
         message: string;
         invokedAt: string;
@@ -2272,6 +2306,7 @@ export default function Home() {
               onInvoke={handleInvoke}
               isInvoking={isInvoking}
               contractId={contractId}
+              abi={contractAbi}
             />
             <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
               <div className="mb-3 flex items-center justify-between">

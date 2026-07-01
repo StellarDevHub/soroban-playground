@@ -11,6 +11,64 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Roles table
+CREATE TABLE IF NOT EXISTS roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Permissions table
+CREATE TABLE IF NOT EXISTS permissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Role Permissions join table
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role_id INTEGER NOT NULL,
+    permission_id INTEGER NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+);
+
+-- Insert default roles
+INSERT OR IGNORE INTO roles (name, description) VALUES
+('admin', 'Administrator with full access'),
+('developer', 'Developer who can manage own projects'),
+('guest', 'Guest user with read-only access');
+
+-- Insert default permissions
+INSERT OR IGNORE INTO permissions (name, description) VALUES
+('project:create', 'Create new projects'),
+('project:read', 'Read own projects'),
+('project:update', 'Update own projects'),
+('project:delete', 'Delete own projects'),
+('project:read_all', 'Read all projects (admin)'),
+('project:write_all', 'Modify/Delete all projects (admin)');
+
+-- Map permissions to roles
+-- admin gets all permissions
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p WHERE r.name = 'admin';
+
+-- developer gets create, read, update, delete
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'developer' AND p.name IN ('project:create', 'project:read', 'project:update', 'project:delete');
+
+-- guest gets read
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'guest' AND p.name IN ('project:read');
+
+
 -- Files table
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

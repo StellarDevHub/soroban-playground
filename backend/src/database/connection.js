@@ -99,11 +99,12 @@ async function openDatabase(options = {}) {
     };
   });
   const { withCacheBusting } = await import('./cacheInterceptor.js');
-  const wrappedHandle = withCacheBusting(handle);
+  const { wrapPreparedDatabase } = await import('./safeQuery.js');
+  const wrappedHandle = wrapPreparedDatabase(withCacheBusting(handle));
 
   // Schema execution moved to knex migrations
 
-  return handle;
+  return wrappedHandle;
 }
 
 export async function initializeDatabase(options = {}) {

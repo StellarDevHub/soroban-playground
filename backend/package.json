@@ -26,7 +26,8 @@
     "migrate:rollback": "knex migrate:rollback",
     "persisted-query:warm": "node scripts/warm-persisted-queries.js",
     "load:http": "k6 run load-tests/http.js",
-    "load:ws": "k6 run load-tests/websocket.js"
+    "load:ws": "k6 run load-tests/websocket.js",
+    "dlq": "node scripts/dlq.js"
   },
   "keywords": [
     "soroban",
@@ -44,6 +45,7 @@
     "@opentelemetry/instrumentation-express": "^0.42.0",
     "@opentelemetry/instrumentation-ioredis": "^0.43.0",
     "@stellar/stellar-sdk": "^12.3.0",
+    "bullmq": "^5.79.2",
     "cors": "^2.8.5",
     "dataloader": "^2.2.3",
     "dotenv": "^17.3.1",

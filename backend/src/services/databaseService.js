@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { validateParameterizedQuery } from '../database/safeQuery.js';
 
 /**
  * DatabaseService provides a lightweight wrapper around SQLite3 with async helpers.
@@ -54,6 +55,7 @@ class DatabaseService {
 
   /** Run a SQL statement that does not return rows (e.g., INSERT, UPDATE). */
   async run(sql, params = []) {
+    validateParameterizedQuery(sql, params);
     return new Promise((resolve, reject) => {
       this.db.run(sql, params, function (err) {
         if (err) reject(err);
@@ -64,6 +66,7 @@ class DatabaseService {
 
   /** Retrieve a single row. */
   async get(sql, params = []) {
+    validateParameterizedQuery(sql, params);
     return new Promise((resolve, reject) => {
       this.db.get(sql, params, (err, row) => {
         if (err) reject(err);
@@ -74,6 +77,7 @@ class DatabaseService {
 
   /** Retrieve all matching rows. */
   async all(sql, params = []) {
+    validateParameterizedQuery(sql, params);
     return new Promise((resolve, reject) => {
       this.db.all(sql, params, (err, rows) => {
         if (err) reject(err);

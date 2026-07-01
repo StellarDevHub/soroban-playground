@@ -1,4 +1,8 @@
 import { getDatabase } from '../database/connection.js';
+import {
+  cutoffTimestampDaysAgo,
+  resolveMappedSort,
+} from '../database/safeQuery.js';
 
 class SearchService {
   constructor() {
@@ -149,7 +153,7 @@ class SearchService {
       }
 
       // Add sorting based on ranking algorithm
-      const sortMapping = {
+      const SORT_OPTIONS = {
         relevance:
           'search_rank DESC, field_weight DESC, p.completion_rate DESC',
         funding: 'p.current_funding DESC',
@@ -158,7 +162,7 @@ class SearchService {
         title: 'p.title ASC',
       };
 
-      searchQuery += ` ORDER BY ${sortMapping[sortBy] || sortMapping['relevance']}`;
+      searchQuery += ` ORDER BY ${resolveMappedSort(sortBy, SORT_OPTIONS)}`;
       searchQuery += ` LIMIT ? OFFSET ?`;
       queryParams.push(limit, offset);
 
@@ -423,17 +427,21 @@ class SearchService {
   // Get search analytics
   async getSearchAnalytics(days = 7) {
     try {
-      return await this.db.all(`
+      const cutoff = cutoffTimestampDaysAgo(days);
+      return await this.db.all(
+        `
         SELECT 
           DATE(timestamp) as date,
           COUNT(*) as search_count,
           AVG(response_time_ms) as avg_response_time,
           AVG(results_count) as avg_results
         FROM search_analytics
-        WHERE timestamp >= datetime('now', '-${days} days')
+        WHERE timestamp >= ?
         GROUP BY DATE(timestamp)
         ORDER BY date DESC
-      `);
+      `,
+        [cutoff]
+      );
     } catch (error) {
       console.error('Analytics error:', error);
       return [];
