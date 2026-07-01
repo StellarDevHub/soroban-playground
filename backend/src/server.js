@@ -21,7 +21,7 @@ import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { setupWebsocketServer, closeWebsocketServer } from './websocket.js';
 import { initializeCompileService } from './services/compileService.js';
 import adminRoute from './routes/admin.js';
-import metricsRoute, { requestLatency } from './routes/metrics.js';
+import metricsRoute, { requestLatency, recordHttpRequest } from './routes/metrics.js';
 import oracleRoute from './routes/oracle.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
@@ -148,14 +148,16 @@ app.use((req, res, next) => {
     const diff = process.hrtime(start);
     const time = diff[0] + diff[1] / 1e9;
     try {
+      const route = req.route ? req.route.path : req.path;
       requestLatency.observe(
         {
           method: req.method,
-          route: req.route ? req.route.path : req.path,
+          route,
           status: res.statusCode,
         },
         time
       );
+      recordHttpRequest(req.method, route, res.statusCode);
     } catch {
       // metrics are best-effort
     }
