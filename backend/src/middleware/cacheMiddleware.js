@@ -28,7 +28,9 @@ export function responseCacheMiddleware(options = {}) {
 
     // Check for developer/client cache bypass
     const hasBypassHeader = req.headers[bypassHeader] === 'true';
-    const hasNoCacheControl = req.headers['cache-control'] === 'no-cache' || req.headers['cache-control'] === 'no-store';
+    const hasNoCacheControl =
+      req.headers['cache-control'] === 'no-cache' ||
+      req.headers['cache-control'] === 'no-store';
     const hasPragmaNoCache = req.headers['pragma'] === 'no-cache';
 
     if (hasBypassHeader || hasNoCacheControl || hasPragmaNoCache) {
@@ -42,7 +44,9 @@ export function responseCacheMiddleware(options = {}) {
     // Add query parameters (sorted to avoid key mismatch on parameter order)
     const sortedQueryKeys = Object.keys(req.query).sort();
     if (sortedQueryKeys.length > 0) {
-      const queryParts = sortedQueryKeys.map((key) => `${key}=${req.query[key]}`);
+      const queryParts = sortedQueryKeys.map(
+        (key) => `${key}=${req.query[key]}`
+      );
       parts.push(`query:${queryParts.join('&')}`);
     }
 

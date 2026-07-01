@@ -4,10 +4,11 @@
 
 import { createRequire } from 'module';
 const nodeRequire = createRequire(import.meta.url);
-const { createYoga, createSchema } = nodeRequire('graphql-yoga');
+const { createYoga } = nodeRequire('graphql-yoga');
 const { GraphQLError } = nodeRequire('graphql');
 import { typeDefs } from './schema.js';
 import { resolvers } from './resolvers.js';
+import { buildGraphQLSchema } from './authorization.js';
 import { createLoaders } from './dataloaders.js';
 import { computeComplexity, getMaxComplexityForRole } from './complexity.js';
 import {
@@ -17,7 +18,7 @@ import {
 import authService from '../services/authService.js';
 
 // Build the executable schema once at startup
-const schema = createSchema({ typeDefs, resolvers });
+const schema = buildGraphQLSchema({ typeDefs, resolvers });
 
 /**
  * Extracts a minimal user context from the request for field-level auth.

@@ -469,3 +469,166 @@ cargo build --target wasm32-unknown-unknown --release
 # Run tests
 cargo test
 ```
+
+
+---
+
+## Prediction Market (Issue #843)
+
+Decentralized prediction market allowing users to buy YES/NO shares on binary or scalar events, resolved on-chain by a designated Oracle.
+
+**Live Testnet Contract ID**: *(deploy with `stellar contract deploy` and set `NEXT_PUBLIC_PM_CONTRACT_ID`)*
+
+### How It Works
+
+Users stake XLM on YES or NO outcomes. When the Oracle resolves the market, winners claim a proportional share of the total pool:
+
+```
+payout = stake × total_pool / winning_pool
+```
+
+Cancelled markets refund all stakes in full.
+
+### Architecture
+
+```
+contracts/prediction-market/   ← Soroban/Rust smart contract
+backend/src/routes/predictionMarket.js  ← REST API routes
+frontend/src/app/prediction-market/page.tsx  ← Next.js page
+frontend/src/components/PredictionMarketPanel.tsx  ← React UI
+```
+
+### Smart Contract
+
+**Location:** `contracts/prediction-market/`
+
+**Functions:**
+
+| Function | Access | Description |
+|----------|--------|-------------|
+| `initialize(admin)` | Public (once) | Initialize contract with admin |
+| `create_market(creator, question, market_type, deadline, oracle)` | Any (auth) | Create a Binary or Scalar market |
+| `place_bet(trader, market_id, outcome, stake)` | Any (auth) | Buy YES (1) or NO (0) shares |
+| `resolve_market(market_id, winning_outcome)` | Oracle only | Resolve market via oracle auth |
+| `cancel_market(market_id)` | Admin/Creator | Cancel and enable refunds |
+| `calculate_payout(market_id, trader)` | Read | Compute payout for a trader |
+| `get_market(market_id)` | Read | Fetch market data |
+| `get_position(market_id, trader)` | Read | Fetch a trader's position |
+| `market_count()` | Read | Total markets created |
+
+**Market Types:** `Binary` (YES/NO), `Scalar` (numeric range)
+
+**Market Statuses:** `Open`, `Resolved`, `Cancelled`
+
+**Events emitted:** `init`, `mkt_crt`, `bet`, `resolved`, `mkt_can`
+
+**Security patterns:**
+- Oracle-only resolution via `require_auth()` on the market's oracle address
+- Admin/creator cancellation with `require_auth()`
+- Checks-effects-interactions ordering
+- Expired deadline enforced on bet placement
+
+### Building the Contract
+
+```bash
+cd contracts/prediction-market
+cargo build --target wasm32-unknown-unknown --release
+
+# Run tests
+cargo test
+```
+
+### Deploying to Testnet
+
+```bash
+# Build WASM
+cargo build --target wasm32-unknown-unknown --release
+
+# Deploy
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/soroban_prediction_market.wasm \
+  --source <YOUR_ACCOUNT> \
+  --network testnet
+
+# Initialize (replace CONTRACT_ID and ADMIN_ADDRESS)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source <YOUR_ACCOUNT> \
+  --network testnet \
+  -- initialize \
+  --admin <ADMIN_ADDRESS>
+```
+
+### Backend API
+
+Base URL: `http://localhost:5000/api/prediction-market`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/initialize` | Initialize contract |
+| POST | `/markets` | Create a new market |
+| GET | `/markets?contractId=` | List all markets |
+| GET | `/markets/:id?contractId=` | Get single market |
+| POST | `/markets/:id/bet` | Place YES/NO bet |
+| POST | `/markets/:id/resolve` | Resolve via oracle |
+| POST | `/markets/:id/cancel` | Cancel market |
+| GET | `/markets/:id/payout/:trader?contractId=` | Calculate payout |
+| GET | `/markets/:id/position/:trader?contractId=` | Get trader position |
+| GET | `/count?contractId=` | Get market count |
+
+**Example: Create a market**
+```bash
+curl -X POST http://localhost:5000/api/prediction-market/markets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contractId": "C...",
+    "creator": "G...",
+    "question": "Will BTC exceed $100k by end of 2025?",
+    "marketType": 0,
+    "resolutionDeadline": 1767225600,
+    "oracle": "G..."
+  }'
+```
+
+**Example: Place a bet**
+```bash
+curl -X POST http://localhost:5000/api/prediction-market/markets/1/bet \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contractId": "C...",
+    "trader": "G...",
+    "outcome": 1,
+    "stake": 500
+  }'
+# outcome: 1 = YES, 0 = NO
+```
+
+**Example: Resolve via oracle**
+```bash
+curl -X POST http://localhost:5000/api/prediction-market/markets/1/resolve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contractId": "C...",
+    "winningOutcome": 1
+  }'
+```
+
+### Frontend
+
+Navigate to `http://localhost:3000/prediction-market` to access the dashboard.
+
+Features:
+- Browse all open, resolved, and cancelled markets
+- Create Binary (YES/NO) or Scalar markets with custom oracle and deadline
+- Place YES/NO bets with real-time probability bars
+- Resolve markets (oracle) or cancel (admin/creator)
+- Calculate and display payout for resolved markets
+- Full-refund display for cancelled markets
+- WCAG 2.1 AA accessible (ARIA labels, roles, live regions)
+
+### Environment Variables
+
+Add to `frontend/.env.local`:
+```
+NEXT_PUBLIC_PM_CONTRACT_ID=C...
+```

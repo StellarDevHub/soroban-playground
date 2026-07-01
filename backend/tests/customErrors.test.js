@@ -80,7 +80,11 @@ describe('Custom error classes (#736)', () => {
 
   describe('errorHandler middleware', () => {
     it('returns 400 JSON for BadRequestError', async () => {
-      const app = buildApp(asyncHandler(() => { throw new BadRequestError('bad input'); }));
+      const app = buildApp(
+        asyncHandler(() => {
+          throw new BadRequestError('bad input');
+        })
+      );
       const res = await request(app).get('/test');
       expect(res.status).toBe(400);
       expect(res.body.message).toBe('bad input');
@@ -88,14 +92,22 @@ describe('Custom error classes (#736)', () => {
     });
 
     it('returns 401 JSON for UnauthorizedError', async () => {
-      const app = buildApp(asyncHandler(() => { throw new UnauthorizedError(); }));
+      const app = buildApp(
+        asyncHandler(() => {
+          throw new UnauthorizedError();
+        })
+      );
       const res = await request(app).get('/test');
       expect(res.status).toBe(401);
       expect(res.body.statusCode).toBe(401);
     });
 
     it('returns 404 JSON for NotFoundError', async () => {
-      const app = buildApp(asyncHandler(() => { throw new NotFoundError('not here'); }));
+      const app = buildApp(
+        asyncHandler(() => {
+          throw new NotFoundError('not here');
+        })
+      );
       const res = await request(app).get('/test');
       expect(res.status).toBe(404);
       expect(res.body.message).toBe('not here');
@@ -111,7 +123,11 @@ describe('Custom error classes (#736)', () => {
     });
 
     it('returns 500 for unknown errors', async () => {
-      const app = buildApp(asyncHandler(() => { throw new Error('boom'); }));
+      const app = buildApp(
+        asyncHandler(() => {
+          throw new Error('boom');
+        })
+      );
       const res = await request(app).get('/test');
       expect(res.status).toBe(500);
     });

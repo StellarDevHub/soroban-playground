@@ -21,7 +21,11 @@ describe('NoncePool', () => {
   it('increments sequence atomically on each acquire', async () => {
     const fetch = jest.fn().mockResolvedValue('500');
     const pool = new NoncePool('GABC', fetch);
-    const [s1, s2, s3] = await Promise.all([pool.acquire(), pool.acquire(), pool.acquire()]);
+    const [s1, s2, s3] = await Promise.all([
+      pool.acquire(),
+      pool.acquire(),
+      pool.acquire(),
+    ]);
     const seqs = [s1, s2, s3].map(Number).sort((a, b) => a - b);
     expect(seqs).toEqual([501, 502, 503]);
   });
@@ -36,12 +40,13 @@ describe('NoncePool', () => {
   });
 
   it('resyncs sequence from ledger on resync()', async () => {
-    const fetch = jest.fn()
+    const fetch = jest
+      .fn()
       .mockResolvedValueOnce('100')
       .mockResolvedValueOnce('200');
     const pool = new NoncePool('GABC', fetch);
     await pool.acquire(); // init to 100, seq = 101
-    await pool.resync();  // fetch again → 200
+    await pool.resync(); // fetch again → 200
     const seq = await pool.acquire();
     expect(seq).toBe(201n);
   });
@@ -101,8 +106,12 @@ describe('BatchSubmitter', () => {
 
     const results = await Promise.all(
       Array.from({ length: 5 }, (_, i) =>
-        s.submit({ id: `tx${i}`, sourceAccount: 'GABC', buildEnvelope: (seq) => ({ seq }) }),
-      ),
+        s.submit({
+          id: `tx${i}`,
+          sourceAccount: 'GABC',
+          buildEnvelope: (seq) => ({ seq }),
+        })
+      )
     );
 
     expect(results).toHaveLength(5);
@@ -132,7 +141,11 @@ describe('BatchSubmitter', () => {
     const submit = jest.fn().mockRejectedValue(new Error('permanent'));
     const s = makeSubmitter(submit, { retryAttempts: 2, retryDelayMs: 5 });
     await expect(
-      s.submit({ id: 'tx1', sourceAccount: 'GABC', buildEnvelope: (seq) => ({ seq }) }),
+      s.submit({
+        id: 'tx1',
+        sourceAccount: 'GABC',
+        buildEnvelope: (seq) => ({ seq }),
+      })
     ).rejects.toThrow('permanent');
     expect(submit).toHaveBeenCalledTimes(2);
   });
@@ -141,7 +154,11 @@ describe('BatchSubmitter', () => {
     const submit = jest.fn().mockResolvedValue({ hash: 'h' });
     const s = makeSubmitter(submit, { maxWaitMs: 60000 }); // very long timer
     const promises = Array.from({ length: 3 }, (_, i) =>
-      s.submit({ id: `tx${i}`, sourceAccount: 'GABC', buildEnvelope: (seq) => ({ seq }) }),
+      s.submit({
+        id: `tx${i}`,
+        sourceAccount: 'GABC',
+        buildEnvelope: (seq) => ({ seq }),
+      })
     );
     expect(s.queueLength).toBe(3);
     await s.flush();
@@ -155,8 +172,16 @@ describe('BatchSubmitter', () => {
     const s = makeSubmitter(submit, { maxBatchSize: 2 });
     const events = [];
     s.on('batch:submitted', (e) => events.push(e));
-    await s.submit({ id: 't1', sourceAccount: 'GABC', buildEnvelope: (seq) => ({ seq }) });
-    await s.submit({ id: 't2', sourceAccount: 'GABC', buildEnvelope: (seq) => ({ seq }) });
+    await s.submit({
+      id: 't1',
+      sourceAccount: 'GABC',
+      buildEnvelope: (seq) => ({ seq }),
+    });
+    await s.submit({
+      id: 't2',
+      sourceAccount: 'GABC',
+      buildEnvelope: (seq) => ({ seq }),
+    });
     // maxBatchSize reached, flush triggered automatically
     await new Promise((r) => setTimeout(r, 50));
     expect(events.length).toBeGreaterThan(0);
@@ -183,11 +208,13 @@ describe('POST /api/batch/submit', () => {
   });
 
   it('returns 200 and hash for a valid submission', async () => {
-    const res = await request(app).post('/api/batch/submit').send({
-      id: 'route-tx1',
-      sourceAccount: 'GABC',
-      payload: { type: 'invoke', contractId: 'C123' },
-    });
+    const res = await request(app)
+      .post('/api/batch/submit')
+      .send({
+        id: 'route-tx1',
+        sourceAccount: 'GABC',
+        payload: { type: 'invoke', contractId: 'C123' },
+      });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data).toHaveProperty('txId', 'route-tx1');

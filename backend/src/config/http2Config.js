@@ -24,9 +24,7 @@ export const PUSH_RULES = [
   },
   {
     match: /^\/graphql/,
-    assets: [
-      { path: '/static/graphiql.css', contentType: 'text/css' },
-    ],
+    assets: [{ path: '/static/graphiql.css', contentType: 'text/css' }],
   },
 ];
 

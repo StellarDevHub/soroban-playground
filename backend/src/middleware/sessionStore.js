@@ -29,7 +29,12 @@ export class RedisSessionStore {
   }
 
   async set(sid, data) {
-    await this._redis.set(this._key(sid), JSON.stringify(data), 'EX', this._ttl);
+    await this._redis.set(
+      this._key(sid),
+      JSON.stringify(data),
+      'EX',
+      this._ttl
+    );
   }
 
   async destroy(sid) {
@@ -136,7 +141,10 @@ export function createSessionMiddleware(redis, options = {}) {
 function parseCookies(cookieHeader = '') {
   return cookieHeader.split(';').reduce((acc, part) => {
     const [k, ...v] = part.trim().split('=');
-    if (k) acc[decodeURIComponent(k.trim())] = decodeURIComponent(v.join('=').trim());
+    if (k)
+      acc[decodeURIComponent(k.trim())] = decodeURIComponent(
+        v.join('=').trim()
+      );
     return acc;
   }, {});
 }

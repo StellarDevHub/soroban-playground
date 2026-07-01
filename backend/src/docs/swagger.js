@@ -55,6 +55,6 @@ export function setupSwagger(app) {
         filter: true,
         tryItOutEnabled: true,
       },
-    }),
+    })
   );
 }

@@ -1,0 +1,24 @@
+[package]
+name = "subscription-manager"
+version = "0.1.0"
+edition = "2021"
+description = "Subscription Billing Manager: recurring on-chain payments for Web3 apps on Soroban"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "21.0.6"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.6", features = ["testutils"] }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true

@@ -26,6 +26,22 @@ const nextConfig: NextConfig = {
         ...config.resolve.fallback,
         fs: false,
       };
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          ...config.optimization?.splitChunks,
+          cacheGroups: {
+            ...config.optimization?.splitChunks?.cacheGroups,
+            monacoEditor: {
+              test: /[\\/]node_modules[\\/](@monaco-editor|monaco-editor)[\\/]/,
+              name: "monaco-editor",
+              chunks: "all",
+              priority: 30,
+              enforce: true,
+            },
+          },
+        },
+      };
     }
 
     return config;

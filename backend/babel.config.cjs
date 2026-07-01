@@ -1,12 +1,13 @@
 const path = require('path');
 const localModules = path.resolve(__dirname, '../node_modules');
 
+function resolveBabelModule(name) {
+  return require.resolve(name, { paths: [__dirname, localModules] });
+}
+
 module.exports = {
   presets: [
-    [
-      require(path.join(localModules, '@babel/preset-env')),
-      { targets: { node: 'current' } },
-    ],
+    [resolveBabelModule('@babel/preset-env'), { targets: { node: 'current' } }],
   ],
-  plugins: [require(path.join(localModules, 'babel-plugin-transform-import-meta'))],
+  plugins: [resolveBabelModule('babel-plugin-transform-import-meta')],
 };

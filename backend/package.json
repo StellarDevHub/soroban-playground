@@ -10,7 +10,6 @@
     "lint:check": "npx eslint . --ext .js,.cjs,.mjs,.ts",
     "format:check": "npx prettier --check . --ignore-path .prettierignore",
     "format:write": "npx prettier --write . --ignore-path .prettierignore",
-    "prepare": "npm run build",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "NODE_PATH=../node_modules jest",
@@ -21,10 +20,14 @@
     "test:e2e": "NODE_PATH=../node_modules jest tests/syntheticAssets.e2e.test.js",
     "test:synthetic": "NODE_PATH=../node_modules jest tests/syntheticAssets.*.test.js",
     "test:all": "npm run test:unit && npm run test:synthetic",
-    "init-db": "node src/database/init.js",
+    "init-db": "SEED_SAMPLE_DATA=false knex migrate:latest && node src/database/init.js --no-seed",
+    "migrate:make": "knex migrate:make",
+    "migrate:latest": "knex migrate:latest",
+    "migrate:rollback": "knex migrate:rollback",
     "persisted-query:warm": "node scripts/warm-persisted-queries.js",
     "load:http": "k6 run load-tests/http.js",
-    "load:ws": "k6 run load-tests/websocket.js"
+    "load:ws": "k6 run load-tests/websocket.js",
+    "dlq": "node scripts/dlq.js"
   },
   "keywords": [
     "soroban",
@@ -55,6 +58,7 @@
     "graphql-yoga": "^5.21.0",
     "helmet": "^8.1.0",
     "ioredis": "^5.10.1",
+    "knex": "^3.3.0",
     "lru-cache": "^11.3.5",
     "morgan": "^1.10.1",
     "prom-client": "^15.1.3",

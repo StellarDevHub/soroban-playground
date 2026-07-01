@@ -3,16 +3,31 @@
  */
 import express from 'express';
 import request from 'supertest';
-import { RedisSessionStore, createSessionMiddleware } from '../src/middleware/sessionStore.js';
+import {
+  RedisSessionStore,
+  createSessionMiddleware,
+} from '../src/middleware/sessionStore.js';
 
 function makeRedis() {
   const store = new Map();
   const expiries = new Map();
   return {
-    async get(key) { return store.get(key) ?? null; },
-    async set(key, value, mode, ttl) { store.set(key, value); expiries.set(key, ttl); },
-    async del(key) { store.delete(key); expiries.delete(key); return 1; },
-    async expire(key, ttl) { expiries.set(key, ttl); return 1; },
+    async get(key) {
+      return store.get(key) ?? null;
+    },
+    async set(key, value, mode, ttl) {
+      store.set(key, value);
+      expiries.set(key, ttl);
+    },
+    async del(key) {
+      store.delete(key);
+      expiries.delete(key);
+      return 1;
+    },
+    async expire(key, ttl) {
+      expiries.set(key, ttl);
+      return 1;
+    },
     _store: store,
     _expiries: expiries,
   };
@@ -129,7 +144,9 @@ describe('createSessionMiddleware (#765)', () => {
       res.json(req.session);
     });
 
-    const res = await request(app).get('/check').set('X-Session-Id', 'header-sid');
+    const res = await request(app)
+      .get('/check')
+      .set('X-Session-Id', 'header-sid');
     expect(res.body.data).toBe('loaded');
   });
 });

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+
 #![no_std]
 
 mod storage;
@@ -6,13 +9,21 @@ mod types;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Symbol, Vec};
 
 use crate::storage::{
     get_admin, get_market, get_market_count, get_position, increment_market_count, is_initialized,
     set_admin, set_market, set_position,
 };
 use crate::types::{Error, Market, MarketStatus, MarketType, Position};
+
+// ── Event topic symbols ────────────────────────────────────────────────────────
+// Published via env.events().publish((topic,), data)
+const EVT_INIT: Symbol = symbol_short!("init");
+const EVT_CREATED: Symbol = symbol_short!("mkt_crt");
+const EVT_BET: Symbol = symbol_short!("bet");
+const EVT_RESOLVED: Symbol = symbol_short!("resolved");
+const EVT_CANCELLED: Symbol = symbol_short!("mkt_can");
 
 #[contract]
 pub struct PredictionMarket;
@@ -26,6 +37,9 @@ impl PredictionMarket {
         }
         admin.require_auth();
         set_admin(&env, &admin);
+
+        // Event: (init,) => admin
+        env.events().publish((EVT_INIT,), admin);
         Ok(())
     }
 
@@ -56,7 +70,7 @@ impl PredictionMarket {
 
         let market = Market {
             id,
-            creator,
+            creator: creator.clone(),
             question,
             market_type: mtype,
             status: MarketStatus::Open,
@@ -69,6 +83,12 @@ impl PredictionMarket {
         };
 
         set_market(&env, &market);
+
+        // Event: (mkt_crt,) => [id, creator, deadline]
+        let topics = (EVT_CREATED,);
+        let data: Vec<u32> = Vec::from_array(&env, [id]);
+        env.events().publish(topics, (id, creator, resolution_deadline));
+
         Ok(id)
     }
 
@@ -103,7 +123,7 @@ impl PredictionMarket {
         // Update or create position
         let position = match get_position(&env, market_id, &trader) {
             Some(mut pos) => {
-                // Allow updating stake on same outcome; reject switching sides
+                // Allow accumulating stake on same outcome; reject switching sides
                 if pos.outcome != outcome {
                     return Err(Error::InvalidOutcome);
                 }
@@ -127,6 +147,10 @@ impl PredictionMarket {
 
         set_position(&env, &position);
         set_market(&env, &market);
+
+        // Event: (bet,) => (market_id, trader, outcome, stake)
+        env.events().publish((EVT_BET,), (market_id, trader, outcome, stake));
+
         Ok(())
     }
 
@@ -154,10 +178,14 @@ impl PredictionMarket {
         market.status = MarketStatus::Resolved;
         market.winning_outcome = Some(winning_outcome);
         set_market(&env, &market);
+
+        // Event: (resolved,) => (market_id, winning_outcome)
+        env.events().publish((EVT_RESOLVED,), (market_id, winning_outcome));
+
         Ok(())
     }
 
-    /// Cancel a market (admin or creator only, before resolution deadline).
+    /// Cancel a market (admin or creator only, before resolution).
     pub fn cancel_market(env: Env, market_id: u32) -> Result<(), Error> {
         ensure_initialized(&env)?;
 
@@ -165,11 +193,11 @@ impl PredictionMarket {
         let mut market = get_market(&env, market_id)?;
 
         // Admin or creator can cancel
-        let caller_is_admin = admin == market.creator;
-        if !caller_is_admin {
-            admin.require_auth();
-        } else {
+        if admin == market.creator {
             market.creator.require_auth();
+        } else {
+            // Try admin auth first, then creator
+            admin.require_auth();
         }
 
         if market.status != MarketStatus::Open {
@@ -178,11 +206,16 @@ impl PredictionMarket {
 
         market.status = MarketStatus::Cancelled;
         set_market(&env, &market);
+
+        // Event: (mkt_can,) => market_id
+        env.events().publish((EVT_CANCELLED,), market_id);
+
         Ok(())
     }
 
     /// Calculate payout for a trader on a resolved market.
     /// Returns the payout amount (stake * total_pool / winning_pool).
+    /// On cancellation returns the full stake (refund).
     pub fn calculate_payout(env: Env, market_id: u32, trader: Address) -> Result<i128, Error> {
         let market = get_market(&env, market_id)?;
 
@@ -202,7 +235,7 @@ impl PredictionMarket {
             .ok_or(Error::PositionNotFound)?;
 
         if pos.outcome != winning_outcome {
-            return Ok(0); // Lost
+            return Ok(0); // Lost — no payout
         }
 
         let total_pool = market.total_yes_stake + market.total_no_stake;
@@ -216,7 +249,7 @@ impl PredictionMarket {
             return Ok(0);
         }
 
-        // payout = stake * total_pool / winning_pool
+        // payout = stake * total_pool / winning_pool  (proportional share)
         Ok(pos.stake * total_pool / winning_pool)
     }
 

@@ -63,7 +63,7 @@ router.post(
 
     const job = enqueueDeployJob({ wasmPath, contractName, network });
     return res.status(202).json({ success: true, job });
-  }),
+  })
 );
 
 /**
@@ -98,7 +98,7 @@ router.get(
     const job = getDeployJob(req.params.id);
     if (!job) return next(createHttpError(404, 'Job not found'));
     return res.json({ success: true, job });
-  }),
+  })
 );
 
 /**
@@ -124,7 +124,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const stats = getQueueStats();
     return res.json({ success: true, stats });
-  }),
+  })
 );
 
 export default router;

@@ -62,6 +62,24 @@ describe('POST /api/compile', () => {
     expect(res.body.artifact.name).toBe('abc.wasm');
   });
 
+  it('rejects oversized source code payloads', async () => {
+    const oversized = 'a'.repeat(1024 * 1024 + 1);
+    const res = await request(app).post('/api/compile').send({
+      code: oversized,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({
+      message: expect.stringContaining('Code exceeds max size'),
+      statusCode: 400,
+      details: expect.objectContaining({
+        maxSourceBytes: 1024 * 1024,
+      }),
+    });
+    expect(res.body.details.actualBytes).toBeGreaterThan(res.body.details.maxSourceBytes);
+    expect(compileQueued).not.toHaveBeenCalled();
+  });
+
   it('returns batch compile results', async () => {
     compileBatch.mockResolvedValue([
       {

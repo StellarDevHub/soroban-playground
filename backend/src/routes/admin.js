@@ -226,10 +226,15 @@ router.get('/rate-limits/stats', async (req, res) => {
 router.post('/reset-database', async (req, res) => {
   try {
     const { users = 50, projects = 200, files = 500 } = req.body;
-    const dbPath = process.env.MIGRATION_DB_PATH || path.join(__dirname, '../../data/soroban_playground.sqlite');
+    const dbPath =
+      process.env.MIGRATION_DB_PATH ||
+      path.join(__dirname, '../../data/soroban_playground.sqlite');
 
     await seedDatabase({ dbPath, users, projects, files });
-    res.json({ success: true, message: 'Database reset and seeded successfully' });
+    res.json({
+      success: true,
+      message: 'Database reset and seeded successfully',
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -4,6 +4,16 @@ import { jest } from '@jest/globals';
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
+const mockRedisService = {
+  get: jest.fn(),
+  set: jest.fn(),
+};
+
+jest.unstable_mockModule('../src/services/redisService.js', () => ({
+  __esModule: true,
+  default: mockRedisService,
+}));
+
 const {
   fetchFeeStats,
   calculateFee,
@@ -40,6 +50,8 @@ describe('fetchFeeStats', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     _clearCacheForTesting();
+    mockRedisService.get.mockResolvedValue(null);
+    mockRedisService.set.mockResolvedValue('OK');
   });
 
   it('returns parsed fee stats from Horizon', async () => {
@@ -53,6 +65,17 @@ describe('fetchFeeStats', () => {
       'https://horizon.stellar.org/fee_stats',
       expect.objectContaining({ signal: expect.anything() })
     );
+  });
+
+  it('caches fee stats in Redis and reuses the cached payload', async () => {
+    const cachedStats = makeFeeStats('250');
+    mockRedisService.get.mockResolvedValueOnce(JSON.stringify(cachedStats));
+
+    const stats = await fetchFeeStats('testnet');
+
+    expect(stats.fee_charged.p90).toBe('250');
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockRedisService.get).toHaveBeenCalledWith('fee_stats:testnet');
   });
 
   it('throws on non-ok Horizon response', async () => {

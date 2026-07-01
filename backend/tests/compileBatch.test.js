@@ -61,4 +61,16 @@ describe('POST /api/compile batch', () => {
     expect(res.body.results).toHaveLength(1);
     expect(compileBatch).toHaveBeenCalled();
   });
+
+  it('rejects oversized contract code in a batch', async () => {
+    const res = await request(app)
+      .post('/api/compile/batch')
+      .send({
+        contracts: [{ code: 'a'.repeat(1024 * 1024 + 1) }],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('Invalid code for contract at index 0');
+    expect(compileBatch).not.toHaveBeenCalled();
+  });
 });

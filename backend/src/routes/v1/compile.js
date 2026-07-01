@@ -10,16 +10,41 @@ import {
   compileBatch,
   getCompileSnapshot,
 } from '../../services/compileService.js';
+import config from '../../config/index.js';
 
 const router = express.Router();
+const CODE_ENCODING = 'utf8';
+
+function validateSourceCode(code) {
+  if (typeof code !== 'string' || !code.trim()) {
+    return {
+      ok: false,
+      error: 'No code provided',
+    };
+  }
+
+  const bytes = Buffer.byteLength(code, CODE_ENCODING);
+  if (bytes > config.compile.maxSourceBytes) {
+    return {
+      ok: false,
+      error: `Code exceeds max size of ${config.compile.maxSourceBytes} bytes`,
+      details: { maxSourceBytes: config.compile.maxSourceBytes, actualBytes: bytes },
+    };
+  }
+
+  return { ok: true };
+}
 
 router.post(
   '/',
   rateLimitMiddleware('compile'),
   asyncHandler(async (req, res, next) => {
     const { code, dependencies } = req.body || {};
-    if (!code) {
-      return next(createHttpError(400, 'No code provided'));
+    const codeValidation = validateSourceCode(code);
+    if (!codeValidation.ok) {
+      return next(
+        createHttpError(400, codeValidation.error, codeValidation.details)
+      );
     }
 
     const depValidation = sanitizeDependenciesInput(dependencies);
@@ -67,11 +92,24 @@ router.post(
     if (!Array.isArray(contracts) || contracts.length === 0) {
       return next(createHttpError(400, 'contracts must be a non-empty array'));
     }
-    const jobs = contracts.slice(0, 4).map((contract, index) => ({
-      requestId: `batch-compile-${Date.now()}-${index}`,
-      code: contract.code,
-      dependencies: contract.dependencies || {},
-    }));
+    const jobs = [];
+    for (const [index, contract] of contracts.slice(0, 4).entries()) {
+      const codeValidation = validateSourceCode(contract?.code);
+      if (!codeValidation.ok) {
+        return next(
+          createHttpError(
+            400,
+            `Invalid code for contract at index ${index}: ${codeValidation.error}`,
+            codeValidation.details
+          )
+        );
+      }
+      jobs.push({
+        requestId: `batch-compile-${Date.now()}-${index}`,
+        code: contract.code,
+        dependencies: contract.dependencies || {},
+      });
+    }
     const results = await compileBatch(jobs);
     return res.json({
       success: true,

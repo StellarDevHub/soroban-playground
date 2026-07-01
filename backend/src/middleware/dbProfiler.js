@@ -87,15 +87,13 @@ export function createDbProfilerMiddleware(db) {
       if (IS_PROD) return;
 
       const dupSigs = Object.entries(metrics.bySignature).filter(
-        ([, v]) => v.count >= DUPLICATE_QUERY_WARN_THRESHOLD,
+        ([, v]) => v.count >= DUPLICATE_QUERY_WARN_THRESHOLD
       );
 
       if (dupSigs.length > 0) {
         console.warn(
           `[dbProfiler] Possible N+1 on ${req.method} ${req.path}: ` +
-            dupSigs
-              .map(([sig, v]) => `"${sig}" ×${v.count}`)
-              .join(', '),
+            dupSigs.map(([sig, v]) => `"${sig}" ×${v.count}`).join(', ')
         );
       }
     });

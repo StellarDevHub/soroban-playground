@@ -192,6 +192,10 @@ export const typeDefs = /* GraphQL */ `
   # ── Complexity directive ──────────────────────────────────────────────────────
   directive @complexity(value: Int!, multipliers: [String!]) on FIELD_DEFINITION
 
+  # ── Authorization directives ────────────────────────────────────────────────
+  directive @auth(requires: [String!]) on FIELD_DEFINITION | FIELD | OBJECT | QUERY | MUTATION | SUBSCRIPTION
+  directive @hasRole(role: String!) on FIELD_DEFINITION | FIELD | OBJECT | QUERY | MUTATION | SUBSCRIPTION
+
   # ── Root types ────────────────────────────────────────────────────────────────
   type Query {
     # Projects
@@ -209,6 +213,8 @@ export const typeDefs = /* GraphQL */ `
     # Invoke — admin only
     invokeLog(contractId: String!, first: Int, after: String): JSON
       @complexity(value: 5)
+      @auth(requires: ["authenticated"])
+      @hasRole(role: "admin")
 
     # Health
     health: String! @complexity(value: 1)
@@ -242,8 +248,11 @@ export const typeDefs = /* GraphQL */ `
     compile(input: CompileInput!): CompileResult! @complexity(value: 10)
     compileBatch(contracts: [BatchContractInput!]!): BatchCompileResult!
       @complexity(value: 20)
+      @auth(requires: ["authenticated"])
     deploy(input: DeployInput!): DeployResult! @complexity(value: 10)
+      @auth(requires: ["authenticated"])
     invoke(input: InvokeInput!): InvokeResult! @complexity(value: 10)
+      @auth(requires: ["authenticated"])
   }
 
   type Subscription {

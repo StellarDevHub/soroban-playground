@@ -68,15 +68,16 @@ export async function createSubscription({ url, events = [], secret }) {
   if (!url || !secret) throw new Error('url and secret are required');
   const db = getDatabase();
   const id = newId();
-  const eventsJson = JSON.stringify(
-    Array.isArray(events) ? events : [events]
-  );
+  const eventsJson = JSON.stringify(Array.isArray(events) ? events : [events]);
   await db.run(
     `INSERT INTO webhook_subscriptions (id, url, events, secret)
      VALUES (?, ?, ?, ?)`,
     [id, url, eventsJson, secret]
   );
-  return db.get('SELECT id, url, events, active, created_at FROM webhook_subscriptions WHERE id = ?', [id]);
+  return db.get(
+    'SELECT id, url, events, active, created_at FROM webhook_subscriptions WHERE id = ?',
+    [id]
+  );
 }
 
 export async function listSubscriptions() {

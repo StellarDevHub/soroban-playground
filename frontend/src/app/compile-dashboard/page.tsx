@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useCompileStore } from '@/state/compileStore';
 import { gql } from '@apollo/client';
 import { useQuery } from '@apollo/client/react';
 import { 
@@ -125,6 +126,7 @@ export default function CompileDashboard() {
 
   const stats = data?.compileStats;
   const history: HistoryItem[] = data?.compileHistory || [];
+  const compileStore = useCompileStore();
 
   const formatBytes = (bytes: number) => {
     if (!bytes) return '0 B';
@@ -162,6 +164,23 @@ export default function CompileDashboard() {
             </button>
           </div>
         </div>
+
+        {/* Real-time Compilation Status Banner */}
+        {compileStore.isCompiling && (
+          <div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl flex items-center justify-between animate-pulse">
+            <div className="flex items-center gap-3">
+              <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-ping" />
+              <div>
+                <p className="text-sm font-semibold text-blue-400">Compiler Active: {compileStore.status.toUpperCase()}</p>
+                <p className="text-xs text-gray-400">{compileStore.message}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-gray-400 font-mono">
+              <span>Queue: {compileStore.queueLength}</span>
+              <span>Active Workers: {compileStore.activeWorkers}</span>
+            </div>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

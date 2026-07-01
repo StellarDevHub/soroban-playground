@@ -34,9 +34,7 @@ describe('Response Cache Middleware', () => {
   it('should pass through and cache on cache miss', async () => {
     redisService.get.mockResolvedValue(null);
 
-    const res = await request(app)
-      .get('/test-endpoint')
-      .query({ q: 'test' });
+    const res = await request(app).get('/test-endpoint').query({ q: 'test' });
 
     expect(res.status).toBe(200);
     expect(res.headers['x-cache']).toBe('MISS');
@@ -53,9 +51,7 @@ describe('Response Cache Middleware', () => {
     const cachedData = JSON.stringify({ message: 'cached' });
     redisService.get.mockResolvedValue(cachedData);
 
-    const res = await request(app)
-      .get('/test-endpoint')
-      .query({ q: 'test' });
+    const res = await request(app).get('/test-endpoint').query({ q: 'test' });
 
     expect(res.status).toBe(200);
     expect(res.headers['x-cache']).toBe('HIT');

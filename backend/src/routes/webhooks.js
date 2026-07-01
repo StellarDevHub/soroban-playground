@@ -34,10 +34,16 @@ router.post(
       throw createHttpError(400, 'url must be a valid http(s) URL');
     }
     if (!secret || typeof secret !== 'string' || secret.length < 16) {
-      throw createHttpError(400, 'secret must be a string of at least 16 characters');
+      throw createHttpError(
+        400,
+        'secret must be a string of at least 16 characters'
+      );
     }
     if (!Array.isArray(events)) {
-      throw createHttpError(400, 'events must be an array of event type strings');
+      throw createHttpError(
+        400,
+        'events must be an array of event type strings'
+      );
     }
 
     const sub = await createSubscription({ url, events, secret });
@@ -51,7 +57,10 @@ router.delete(
   asyncHandler(async (req, res) => {
     const removed = await deleteSubscription(req.params.id);
     if (!removed) {
-      throw createHttpError(404, `Webhook subscription '${req.params.id}' not found`);
+      throw createHttpError(
+        404,
+        `Webhook subscription '${req.params.id}' not found`
+      );
     }
     res.json({ success: true, message: 'Subscription deleted' });
   })

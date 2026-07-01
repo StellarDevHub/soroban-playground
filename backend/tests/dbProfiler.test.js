@@ -72,9 +72,7 @@ describe('createDbProfilerMiddleware (#755)', () => {
     expect(sigs[0].count).toBe(4);
 
     // Should have warned about N+1
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('N+1'),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('N+1'));
     consoleSpy.mockRestore();
   });
 

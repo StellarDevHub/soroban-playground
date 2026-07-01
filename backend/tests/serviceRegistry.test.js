@@ -3,7 +3,10 @@
 
 import express from 'express';
 import request from 'supertest';
-import { ServiceRegistry, registerSelf } from '../src/services/serviceRegistry.js';
+import {
+  ServiceRegistry,
+  registerSelf,
+} from '../src/services/serviceRegistry.js';
 import registryRouter from '../src/routes/serviceRegistry.js';
 
 // ── ServiceRegistry unit tests ────────────────────────────────────────────────
@@ -20,7 +23,12 @@ describe('ServiceRegistry', () => {
   });
 
   it('registers an instance and lists it', () => {
-    registry.register({ name: 'svc', instanceId: 'i1', host: 'localhost', port: 3001 });
+    registry.register({
+      name: 'svc',
+      instanceId: 'i1',
+      host: 'localhost',
+      port: 3001,
+    });
     const list = registry.list('svc');
     expect(list).toHaveLength(1);
     expect(list[0].instanceId).toBe('i1');
@@ -34,7 +42,12 @@ describe('ServiceRegistry', () => {
   });
 
   it('lookup returns a healthy instance', () => {
-    registry.register({ name: 'svc', instanceId: 'i1', host: 'localhost', port: 3001 });
+    registry.register({
+      name: 'svc',
+      instanceId: 'i1',
+      host: 'localhost',
+      port: 3001,
+    });
     const result = registry.lookup('svc');
     expect(result).not.toBeNull();
     expect(result.instanceId).toBe('i1');
@@ -63,13 +76,15 @@ describe('ServiceRegistry', () => {
   });
 
   it('throws if heartbeat is called for unknown instance', () => {
-    expect(() => registry.heartbeat('svc', 'no-such')).toThrow(/Unknown instance/);
+    expect(() => registry.heartbeat('svc', 'no-such')).toThrow(
+      /Unknown instance/
+    );
   });
 
   it('throws if required register fields are missing', () => {
-    expect(() => registry.register({ name: 'svc', instanceId: 'i1', host: 'h' })).toThrow(
-      /required/,
-    );
+    expect(() =>
+      registry.register({ name: 'svc', instanceId: 'i1', host: 'h' })
+    ).toThrow(/required/);
   });
 
   it('prunes stale instance after TTL expires', async () => {
@@ -160,13 +175,17 @@ describe('Service Registry HTTP routes', () => {
   });
 
   it('GET /api/registry/services/e2e-svc/resolve returns the instance', async () => {
-    const res = await request(app).get('/api/registry/services/e2e-svc/resolve');
+    const res = await request(app).get(
+      '/api/registry/services/e2e-svc/resolve'
+    );
     expect(res.status).toBe(200);
     expect(res.body.data.instanceId).toBe('e2e-1');
   });
 
   it('GET /api/registry/services/unknown/resolve returns 404', async () => {
-    const res = await request(app).get('/api/registry/services/unknown/resolve');
+    const res = await request(app).get(
+      '/api/registry/services/unknown/resolve'
+    );
     expect(res.status).toBe(404);
   });
 
@@ -180,12 +199,16 @@ describe('Service Registry HTTP routes', () => {
   });
 
   it('DELETE /api/registry/services/:name/:id deregisters instance', async () => {
-    const res = await request(app).delete('/api/registry/services/e2e-svc/e2e-1');
+    const res = await request(app).delete(
+      '/api/registry/services/e2e-svc/e2e-1'
+    );
     expect(res.status).toBe(200);
   });
 
   it('POST /api/registry/register returns 400 for missing fields', async () => {
-    const res = await request(app).post('/api/registry/register').send({ name: 'x' });
+    const res = await request(app)
+      .post('/api/registry/register')
+      .send({ name: 'x' });
     expect(res.status).toBe(400);
   });
 });

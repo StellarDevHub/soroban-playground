@@ -1,7 +1,14 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-import { createCipheriv, createDecipheriv, randomBytes, createSign, createVerify, generateKeyPairSync } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  createSign,
+  createVerify,
+  generateKeyPairSync,
+} from 'crypto';
 
 const AES_ALGORITHM = 'aes-256-gcm';
 const AES_IV_LENGTH = 12; // 96-bit IV recommended for GCM
@@ -24,8 +31,12 @@ export function generateSessionKey() {
  */
 export function aesEncrypt(plaintext, key) {
   const iv = randomBytes(AES_IV_LENGTH);
-  const cipher = createCipheriv(AES_ALGORITHM, key, iv, { authTagLength: AES_TAG_LENGTH });
-  const data = Buffer.isBuffer(plaintext) ? plaintext : Buffer.from(plaintext, 'utf8');
+  const cipher = createCipheriv(AES_ALGORITHM, key, iv, {
+    authTagLength: AES_TAG_LENGTH,
+  });
+  const data = Buffer.isBuffer(plaintext)
+    ? plaintext
+    : Buffer.from(plaintext, 'utf8');
   const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
   return {
     iv: iv.toString('base64'),
@@ -89,7 +100,14 @@ export function signRequest(privateKeyPem, method, path, timestamp, bodyHash) {
  * Verify a request signature.
  * @returns {boolean}
  */
-export function verifySignature(publicKeyPem, method, path, timestamp, bodyHash, signature) {
+export function verifySignature(
+  publicKeyPem,
+  method,
+  path,
+  timestamp,
+  bodyHash,
+  signature
+) {
   try {
     const payload = `${method}:${path}:${timestamp}:${bodyHash}`;
     const verifier = createVerify('SHA256');

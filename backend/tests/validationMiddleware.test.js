@@ -1,4 +1,7 @@
-import { validateBody, validateQuery } from '../src/middleware/validationMiddleware.js';
+import {
+  validateBody,
+  validateQuery,
+} from '../src/middleware/validationMiddleware.js';
 import { v } from '../src/utils/schemaValidator.js';
 import {
   authLoginSchema,
@@ -10,8 +13,14 @@ import {
 
 function makeRes() {
   const res = { _status: null, _body: null };
-  res.status = jest.fn((s) => { res._status = s; return res; });
-  res.json = jest.fn((b) => { res._body = b; return res; });
+  res.status = jest.fn((s) => {
+    res._status = s;
+    return res;
+  });
+  res.json = jest.fn((b) => {
+    res._body = b;
+    return res;
+  });
   return res;
 }
 
@@ -42,7 +51,11 @@ describe('validateBody middleware', () => {
   it('returns 422 for invalid email', () => {
     const mw = validateBody(schema);
     const res = makeRes();
-    mw(makeReq({ email: 'not-an-email', password: 'securepass' }), res, jest.fn());
+    mw(
+      makeReq({ email: 'not-an-email', password: 'securepass' }),
+      res,
+      jest.fn()
+    );
     expect(res._status).toBe(422);
     expect(res._body.details[0].field).toBe('email');
   });
@@ -50,7 +63,15 @@ describe('validateBody middleware', () => {
   it('rejects undeclared fields in strict mode', () => {
     const mw = validateBody(schema);
     const res = makeRes();
-    mw(makeReq({ email: 'user@example.com', password: 'securepass', extra: 'field' }), res, jest.fn());
+    mw(
+      makeReq({
+        email: 'user@example.com',
+        password: 'securepass',
+        extra: 'field',
+      }),
+      res,
+      jest.fn()
+    );
     expect(res._status).toBe(422);
     expect(res._body.details.some((d) => d.field === 'extra')).toBe(true);
   });
@@ -60,7 +81,10 @@ describe('validateBody middleware', () => {
     const next = jest.fn();
     const req = makeReq({ email: 'user@example.com', password: 'securepass' });
     mw(req, makeRes(), next);
-    expect(req.body).toEqual({ email: 'user@example.com', password: 'securepass' });
+    expect(req.body).toEqual({
+      email: 'user@example.com',
+      password: 'securepass',
+    });
   });
 });
 
@@ -132,7 +156,10 @@ describe('templateCreateSchema', () => {
   });
 
   it('rejects empty name', () => {
-    const { errors } = templateCreateSchema.validate({ name: '', content: 'code' });
+    const { errors } = templateCreateSchema.validate({
+      name: '',
+      content: 'code',
+    });
     expect(errors.some((e) => e.path === 'name')).toBe(true);
   });
 });
@@ -144,7 +171,10 @@ describe('projectCreateSchema', () => {
   });
 
   it('rejects unknown network', () => {
-    const { errors } = projectCreateSchema.validate({ name: 'P', network: 'devnet' });
+    const { errors } = projectCreateSchema.validate({
+      name: 'P',
+      network: 'devnet',
+    });
     expect(errors.some((e) => e.path === 'network')).toBe(true);
   });
 });

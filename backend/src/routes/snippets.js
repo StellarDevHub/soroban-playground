@@ -61,7 +61,7 @@ router.post(
     const snippet = saveSnippet({ code, language, title }, baseUrl);
 
     return res.status(201).json({ success: true, snippet });
-  }),
+  })
 );
 
 /**
@@ -96,7 +96,7 @@ router.get(
     const snippet = getSnippet(req.params.id);
     if (!snippet) return next(createHttpError(404, 'Snippet not found'));
     return res.json({ success: true, snippet });
-  }),
+  })
 );
 
 export default router;

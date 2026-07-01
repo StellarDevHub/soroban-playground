@@ -3,19 +3,24 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
+import {
+  assertSandboxedOutputPath,
+  createBuildSandboxPaths,
+  createSandboxEnv,
+} from './buildSandbox.js';
+import { trackChildProcess, terminateChildProcess } from './childProcessManager.js';
 
 parentPort.on('message', async (job) => {
   const startedAt = Date.now();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'soroban-compile-'));
-  const sourceRoot = path.join(tempDir, 'src');
-  await fs.mkdir(sourceRoot, { recursive: true });
-  await fs.mkdir(path.join(process.cwd(), 'cache', 'cargo-target'), {
-    recursive: true,
-  });
+  const sandbox = createBuildSandboxPaths(tempDir);
+  await fs.mkdir(sandbox.sourceRoot, { recursive: true });
+  await fs.mkdir(sandbox.cargoHome, { recursive: true });
+  await fs.mkdir(sandbox.cargoTargetDir, { recursive: true });
 
   try {
-    await fs.writeFile(path.join(tempDir, 'Cargo.toml'), job.cargoToml, 'utf8');
-    await fs.writeFile(path.join(sourceRoot, 'lib.rs'), job.code, 'utf8');
+    await fs.writeFile(path.join(sandbox.crateRoot, 'Cargo.toml'), job.cargoToml, 'utf8');
+    await fs.writeFile(path.join(sandbox.sourceRoot, 'lib.rs'), job.code, 'utf8');
 
     parentPort.postMessage({
       type: 'progress',
@@ -28,15 +33,13 @@ parentPort.on('message', async (job) => {
       },
     });
 
-    const result = await runCargoBuild(tempDir, job.timeoutMs);
-    const wasmPath = path.join(
-      process.cwd(),
-      'cache',
-      'cargo-target',
-      'wasm32-unknown-unknown',
-      'release',
-      'soroban_contract.wasm'
+    const result = await runCargoBuild(
+      sandbox.crateRoot,
+      createSandboxEnv(process.env, sandbox),
+      job.timeoutMs
     );
+    assertSandboxedOutputPath(sandbox, sandbox.wasmOutPath);
+    const wasmPath = sandbox.wasmOutPath;
     const cachePath = path.join(job.cacheRoot, `${job.hash}.wasm`);
     const stats = await fs.stat(wasmPath);
     await fs.copyFile(wasmPath, cachePath);
@@ -79,21 +82,19 @@ parentPort.on('message', async (job) => {
   }
 });
 
-function runCargoBuild(cwd, timeoutMs) {
+function runCargoBuild(cwd, env, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const child = spawn(
+    const child = trackChildProcess(
+      spawn(
       'cargo',
       ['build', '--target', 'wasm32-unknown-unknown', '--release'],
       {
         cwd,
         shell: false,
         windowsHide: true,
-        env: {
-          ...process.env,
-          RUST_MIN_STACK: '268435456',
-          CARGO_TARGET_DIR: path.join(process.cwd(), 'cache', 'cargo-target'),
-        },
+        env,
       }
+      )
     );
 
     let stdout = '';
@@ -101,7 +102,7 @@ function runCargoBuild(cwd, timeoutMs) {
     let memoryPeakBytes = 0;
 
     const timer = setTimeout(() => {
-      child.kill('SIGKILL');
+      terminateChildProcess(child);
       reject(new Error('Compilation timed out'));
     }, timeoutMs);
 

@@ -12,12 +12,22 @@ import {
 
 function makeRes() {
   const res = { _status: null, _body: null };
-  res.status = jest.fn((s) => { res._status = s; return res; });
-  res.json = jest.fn((b) => { res._body = b; return res; });
+  res.status = jest.fn((s) => {
+    res._status = s;
+    return res;
+  });
+  res.json = jest.fn((b) => {
+    res._body = b;
+    return res;
+  });
   return res;
 }
 
-function makeEncryptedReq(payload, sessionKey, { privateKey = null, nonce = 'unique-nonce-001', timestamp = null } = {}) {
+function makeEncryptedReq(
+  payload,
+  sessionKey,
+  { privateKey = null, nonce = 'unique-nonce-001', timestamp = null } = {}
+) {
   const ts = timestamp || new Date().toISOString();
   const encrypted = aesEncrypt(JSON.stringify(payload), sessionKey);
   const sessionKeyHeader = sessionKey.toString('base64');
@@ -61,7 +71,11 @@ describe('createEncryptionMiddleware', () => {
     it('passes through when enforceEncryption=false and no X-Encrypted header', async () => {
       const mw = createEncryptionMiddleware({ enforceEncryption: false });
       const next = jest.fn();
-      await mw({ headers: {}, body: {}, method: 'GET', path: '/api' }, makeRes(), next);
+      await mw(
+        { headers: {}, body: {}, method: 'GET', path: '/api' },
+        makeRes(),
+        next
+      );
       expect(next).toHaveBeenCalledTimes(1);
     });
   });
@@ -71,8 +85,14 @@ describe('createEncryptionMiddleware', () => {
       const mw = createEncryptionMiddleware({});
       const res = makeRes();
       const req = {
-        method: 'POST', path: '/test',
-        headers: { 'x-encrypted': 'true', 'x-request-timestamp': new Date().toISOString(), 'x-request-nonce': 'n1', 'x-request-signature': 's1' },
+        method: 'POST',
+        path: '/test',
+        headers: {
+          'x-encrypted': 'true',
+          'x-request-timestamp': new Date().toISOString(),
+          'x-request-nonce': 'n1',
+          'x-request-signature': 's1',
+        },
         body: {},
       };
       await mw(req, res, jest.fn());
@@ -85,7 +105,10 @@ describe('createEncryptionMiddleware', () => {
     it('rejects a request with an expired timestamp', async () => {
       const mw = createEncryptionMiddleware({});
       const oldTimestamp = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 min ago
-      const req = makeEncryptedReq({ data: 'hello' }, sessionKey, { timestamp: oldTimestamp, nonce: 'unique-old-nonce' });
+      const req = makeEncryptedReq({ data: 'hello' }, sessionKey, {
+        timestamp: oldTimestamp,
+        nonce: 'unique-old-nonce',
+      });
       const res = makeRes();
       await mw(req, res, jest.fn());
       expect(res._status).toBe(400);
@@ -94,8 +117,12 @@ describe('createEncryptionMiddleware', () => {
 
     it('rejects duplicate nonces', async () => {
       const mw = createEncryptionMiddleware({});
-      const req1 = makeEncryptedReq({ data: 'first' }, sessionKey, { nonce: 'dup-nonce-xyz' });
-      const req2 = makeEncryptedReq({ data: 'second' }, sessionKey, { nonce: 'dup-nonce-xyz' });
+      const req1 = makeEncryptedReq({ data: 'first' }, sessionKey, {
+        nonce: 'dup-nonce-xyz',
+      });
+      const req2 = makeEncryptedReq({ data: 'second' }, sessionKey, {
+        nonce: 'dup-nonce-xyz',
+      });
 
       await mw(req1, makeRes(), jest.fn());
       const res2 = makeRes();
@@ -110,7 +137,9 @@ describe('createEncryptionMiddleware', () => {
       const mw = createEncryptionMiddleware({ enforceEncryption: false });
       const next = jest.fn();
       const payload = { userId: 42, action: 'transfer' };
-      const req = makeEncryptedReq(payload, sessionKey, { nonce: 'nonce-success-1' });
+      const req = makeEncryptedReq(payload, sessionKey, {
+        nonce: 'nonce-success-1',
+      });
 
       await mw(req, makeRes(), next);
       expect(next).toHaveBeenCalledTimes(1);
@@ -122,7 +151,8 @@ describe('createEncryptionMiddleware', () => {
       const mw = createEncryptionMiddleware({});
       const res = makeRes();
       const req = {
-        method: 'POST', path: '/test',
+        method: 'POST',
+        path: '/test',
         headers: {
           'x-encrypted': 'true',
           'x-session-key': sessionKey.toString('base64'),
