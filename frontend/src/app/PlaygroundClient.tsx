@@ -67,6 +67,7 @@ import {
   createInitialStorageTimelineState,
   storageTimelineReducer,
 } from "@/state/storageTimeline";
+import { parseContractAbiFromSource } from "@/utils/contractAbi";
 
 const DEFAULT_CODE = `#![no_std]
 use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
@@ -340,6 +341,7 @@ export default function Home() {
   const [lastArtifactName, setLastArtifactName] =
     useState<string>("contract.wasm");
   const [lastDeployMessage, setLastDeployMessage] = useState<string>();
+  const [contractAbi, setContractAbi] = useState<Array<{ name: string; inputs?: Array<{ name: string; type: string }> }>>([]);
 
   const activeSnapshot = useMemo(
     () =>
@@ -397,6 +399,10 @@ export default function Home() {
   const appendLog = (msg: string) => {
     setLogs((prev) => [...prev, msg]);
   };
+
+  useEffect(() => {
+    setContractAbi(parseContractAbiFromSource(code));
+  }, [code]);
 
   useEffect(() => {
     let cancelled = false;
@@ -606,6 +612,7 @@ export default function Home() {
       });
 
       setContractId(payload.contractId);
+      setContractAbi([]);
       setLastDeployMessage(payload.message);
       setStorage({
         contractName: payload.contractName,
@@ -700,7 +707,7 @@ export default function Home() {
 
   const handleInvoke = async (
     funcName: string,
-    args: Record<string, string>,
+    args: Record<string, unknown>,
   ) => {
     if (!contractId) {
       appendLog("[warn] Deploy a contract before invoking a function.");
@@ -718,7 +725,7 @@ export default function Home() {
         status: string;
         contractId: string;
         functionName: string;
-        args: Record<string, string>;
+        args: Record<string, unknown>;
         output: string;
         message: string;
         invokedAt: string;
@@ -2272,6 +2279,7 @@ export default function Home() {
               onInvoke={handleInvoke}
               isInvoking={isInvoking}
               contractId={contractId}
+              abi={contractAbi}
             />
             <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
               <div className="mb-3 flex items-center justify-between">
