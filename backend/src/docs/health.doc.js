@@ -26,6 +26,17 @@
  *     responses:
  *       200:
  *         description: Process is alive
+ * /health/ready:
+ *   get:
+ *     summary: Readiness probe
+ *     description: Returns 200 when critical dependencies are ready, otherwise 503.
+ *     tags:
+ *       - System
+ *     responses:
+ *       200:
+ *         description: Service is ready to accept traffic
+ *       503:
+ *         description: Service is not ready
  * /api/health:
  *   get:
  *     summary: System Health and Metrics

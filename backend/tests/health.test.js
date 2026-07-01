@@ -44,27 +44,11 @@ function installHealthyCheckers() {
   dependencyCheckers.sorobanRpc = healthySorobanRpc;
 }
 
+import healthRouter from '../src/routes/health.js';
+
 function createHealthApp() {
   const app = express();
-  app.get('/health/live', (_req, res) => {
-    res.status(200).json({ success: true, data: getLivenessPayload() });
-  });
-  app.get('/health', async (req, res) => {
-    try {
-      const deep = await performDeepHealthCheck({
-        skipCache: req.query?.refresh === 'true',
-      });
-      const httpStatus = getHttpStatusForHealth(deep.status);
-      res.status(httpStatus).json({ success: httpStatus < 500, data: deep });
-    } catch (err) {
-      res
-        .status(503)
-        .json({
-          success: false,
-          data: { status: 'unhealthy', error: err.message },
-        });
-    }
-  });
+  app.use('/health', healthRouter);
   return app;
 }
 
@@ -205,4 +189,3 @@ describe('Health Service', () => {
       expect(res.body.data.status).toBe('unhealthy');
     });
   });
-});

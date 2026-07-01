@@ -6,7 +6,6 @@ import http from 'http';
 import https from 'https';
 import cors from 'cors';
 import morgan from 'morgan';
-import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -53,6 +52,7 @@ import { contractEventIndexer } from './services/contractEventIndexer.js';
 import { runStartupMigrations } from './services/migrationService.js';
 import healthService from './services/healthService.js';
 import { LedgerSyncService } from './services/ledgerSyncService.js';
+import healthRouter, { healthHandler } from './routes/health.js';
 import snippetsRoute from './routes/snippets.js';
 import deployQueueRoute from './routes/deployQueue.js';
 import backupRoute from './routes/backup.js';
@@ -124,22 +124,6 @@ server = hasCertificates
   ? https.createServer(httpsOptions, app)
   : httpServer;
 const PORT = process.env.PORT || 5000;
-
-// Load package.json for version info
-let packageJson = {};
-try {
-  packageJson = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
-  );
-} catch {
-  try {
-    packageJson = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8')
-    );
-  } catch {
-    packageJson = { version: 'unknown', name: 'soroban-playground-backend' };
-  }
-}
 
 // Basic middleware
 applySecurityHeaders(app);
@@ -219,115 +203,13 @@ app.use('/metrics', metricsRoute);
 setupGraphQL(app);
 setupSwagger(app);
 
-// ─── Health Check Helpers ──────────────────────────────────────────────────────
-
-function getCpuUsage() {
-  return os.cpus().map((cpu, index) => {
-    const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
-    const idle = cpu.times.idle;
-    return {
-      core: index,
-      model: cpu.model,
-      speedMHz: cpu.speed,
-      usedPercent: total > 0 ? +((1 - idle / total) * 100).toFixed(1) : 0,
-    };
-  });
-}
-
-function getMemoryInfo() {
-  const totalBytes = os.totalmem();
-  const freeBytes = os.freemem();
-  const usedBytes = totalBytes - freeBytes;
-  const toMB = (b) => +(b / 1024 / 1024).toFixed(2);
-  return {
-    totalMB: toMB(totalBytes),
-    freeMB: toMB(freeBytes),
-    usedMB: toMB(usedBytes),
-    usedPercent: +((usedBytes / totalBytes) * 100).toFixed(1),
-  };
-}
-
-function getUptimeInfo() {
-  const formatSeconds = (s) => {
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = Math.floor(s % 60);
-    return [d && `${d}d`, h && `${h}h`, m && `${m}m`, `${sec}s`]
-      .filter(Boolean)
-      .join(' ');
-  };
-  return {
-    processSec: Math.floor(process.uptime()),
-    processHuman: formatSeconds(process.uptime()),
-    systemSec: Math.floor(os.uptime()),
-    systemHuman: formatSeconds(os.uptime()),
-  };
-}
-
-function getRuntimeInfo() {
-  return {
-    node: process.version,
-    platform: process.platform,
-    arch: process.arch,
-    pid: process.pid,
-  };
-}
-
-// ─── Health Check Endpoints ───────────────────────────────────────────────────
-
-function buildSystemMetrics() {
-  const memory = getMemoryInfo();
-  return {
-    version: packageJson.version ?? 'unknown',
-    service: packageJson.name ?? 'soroban-playground-backend',
-    cpu: getCpuUsage(),
-    memory,
-    runtime: getRuntimeInfo(),
-    memoryDegraded: memory.usedPercent > 95,
-  };
-}
-
-async function handleLivenessCheck(_req, res) {
-  const payload = healthService.getLivenessPayload();
-  return res.status(200).json({ success: true, data: payload });
-}
-
-async function handleDeepHealthCheck(req, res) {
-  try {
-    const skipCache = req.query?.refresh === 'true';
-    const deep = await healthService.performDeepHealthCheck({ skipCache });
-    const metrics = buildSystemMetrics();
-    let status = deep.status;
-    if (metrics.memoryDegraded && status === 'ok') status = 'degraded';
-
-    const payload = {
-      ...deep,
-      status,
-      ...metrics,
-    };
-    delete payload.memoryDegraded;
-
-    const httpStatus = healthService.getHttpStatusForHealth(status);
-    return res
-      .status(httpStatus)
-      .json({ success: httpStatus < 500, data: payload });
-  } catch (err) {
-    return res.status(503).json({
-      success: false,
-      data: {
-        status: 'unhealthy',
-        version: packageJson.version ?? 'unknown',
-        timestamp: new Date().toISOString(),
-        error: err.message,
-      },
-    });
-  }
-}
-
+// ─── Health Check and Readiness Probes ────────────────────────────────────────
 app.get('/', (_req, res) => {
   res.status(200).send('Soroban Playground Backend API is running.');
 });
+
+app.use('/health', healthRouter);
+app.get('/api/health', healthHandler);
 
 app.get('/health/live', handleLivenessCheck);
 app.get('/health', handleDeepHealthCheck);
