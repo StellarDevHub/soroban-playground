@@ -38,6 +38,16 @@ export const tieredRateLimiter = (options = {}) => {
         if (apiKeyData) {
           tier = apiKeyData.tier;
           limits = apiKeyData.limits;
+          req.auth = {
+            ...(req.auth || {}),
+            apiKeyId: apiKeyData.id,
+            userId: apiKeyData.userId,
+            organizationId: apiKeyData.organizationId,
+          };
+          req.tenant = {
+            id: apiKeyData.tenantId,
+            source: 'api_key',
+          };
         }
       }
 
@@ -149,6 +159,7 @@ export const tieredRateLimiter = (options = {}) => {
             action: 'rate_limit_exceeded',
             apiKeyId: apiKeyData.id,
             userId: apiKeyData.userId,
+            tenantId: apiKeyData.tenantId,
             endpoint: req.originalUrl,
             ipAddress: req.ip,
             userAgent: req.headers['user-agent'],
@@ -168,13 +179,20 @@ export const tieredRateLimiter = (options = {}) => {
 
       // Track usage if API key is present
       if (apiKeyData) {
-        await apiKeyService.trackUsage(apiKeyData.id, req.originalUrl, tier);
+        await apiKeyService.trackUsage(
+          apiKeyData.id,
+          req.originalUrl,
+          tier,
+          1,
+          apiKeyData.tenantId
+        );
 
         // Log successful request
         await apiKeyService.logAudit({
           action: 'request',
           apiKeyId: apiKeyData.id,
           userId: apiKeyData.userId,
+          tenantId: apiKeyData.tenantId,
           endpoint: req.originalUrl,
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],

@@ -1,6 +1,7 @@
 import express from 'express';
 import searchService from '../services/searchService.js';
 import { responseCacheMiddleware } from '../middleware/cacheMiddleware.js';
+import { requireTenantContext } from '../middleware/tenantContext.js';
 
 const router = express.Router();
 
@@ -18,6 +19,7 @@ router.use(async (req, res, next) => {
 // Main search endpoint
 router.post(
   '/projects',
+  requireTenantContext(),
   responseCacheMiddleware({ prefix: 'search:' }),
   async (req, res) => {
     try {
@@ -32,7 +34,8 @@ router.post(
       const results = await searchService.searchProjects(
         query.trim(),
         filters,
-        pagination
+        pagination,
+        req.tenant.id
       );
 
       res.json({
@@ -52,6 +55,7 @@ router.post(
 // Autocomplete endpoint
 router.get(
   '/autocomplete',
+  requireTenantContext(),
   responseCacheMiddleware({ prefix: 'autocomplete:' }),
   async (req, res) => {
     try {
@@ -63,7 +67,8 @@ router.get(
 
       const suggestions = await searchService.getAutocompleteSuggestions(
         query,
-        parseInt(limit)
+        parseInt(limit),
+        req.tenant.id
       );
 
       res.json({
@@ -83,12 +88,13 @@ router.get(
 // Faceted filter counts endpoint
 router.get(
   '/facets',
+  requireTenantContext(),
   responseCacheMiddleware({ prefix: 'facets:' }),
   async (req, res) => {
     try {
       const { q: query = '' } = req.query;
 
-      const facets = await searchService.getFacetCounts(query);
+      const facets = await searchService.getFacetCounts(query, req.tenant.id);
 
       res.json({
         success: true,
@@ -107,12 +113,16 @@ router.get(
 // Popular searches endpoint
 router.get(
   '/popular',
+  requireTenantContext(),
   responseCacheMiddleware({ prefix: 'popular:' }),
   async (req, res) => {
     try {
       const { limit = 10 } = req.query;
 
-      const popular = await searchService.getPopularSearches(parseInt(limit));
+      const popular = await searchService.getPopularSearches(
+        parseInt(limit),
+        req.tenant.id
+      );
 
       res.json({
         success: true,
@@ -129,11 +139,14 @@ router.get(
 );
 
 // Search analytics endpoint
-router.get('/analytics', async (req, res) => {
+router.get('/analytics', requireTenantContext(), async (req, res) => {
   try {
     const { days = 7 } = req.query;
 
-    const analytics = await searchService.getSearchAnalytics(parseInt(days));
+    const analytics = await searchService.getSearchAnalytics(
+      parseInt(days),
+      req.tenant.id
+    );
 
     res.json({
       success: true,
