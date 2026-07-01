@@ -1,5 +1,7 @@
 // GraphQL Resolvers
 // Delegates to the same services used by the REST API — no duplication.
+// Per-request DataLoaders (context.loaders) batch per-id lookups so an N+1
+// fan-out collapses to a single batched SQL query per relation (issue #724).
 
 import {
   compileQueued,
@@ -10,11 +12,15 @@ import {
 import {
   deployBatchContracts,
   deployProgressBus,
+  getDeploymentState,
 } from '../services/deployService.js';
 import {
   invokeSorobanContract,
   invokeProgressBus,
 } from '../services/invokeService.js';
+import { listProjects } from '../services/projectService.js';
+import { listFiles } from '../services/fileService.js';
+import { listTemplates } from '../services/templateService.js';
 import { getCached, setCached, invalidateCache } from './cache.js';
 import { checkGraphQLPermission } from '../middleware/auth.js';
 import { getDatabase } from '../database/connection.js';
@@ -165,6 +171,11 @@ export const resolvers = {
 
     compileHistory: async (_parent, _args, context) => {
       const snapshot = await getCompileSnapshot();
+      // Return raw history rows. Per-item artifact resolution is delegated to
+      // the CompileHistoryItem.artifact field resolver, which routes through
+      // context.loaders.compileArtifact — so N items with the same hash only
+      // trigger one snapshot read for the whole batch (the loader caches by
+      // hash within the request).
       return (snapshot?.history ?? []).map((item, i) => ({
         id: item.id ?? item.requestId ?? item.hash ?? String(i),
         requestId: item.requestId ?? `req_${i}`,
@@ -172,24 +183,18 @@ export const resolvers = {
         cached: item.cached ?? false,
         durationMs: item.durationMs ?? 0,
         timestamp: item.timestamp ?? new Date().toISOString(),
-        artifact: item.artifact ?? {
-          name: `${item.hash || 'compiled'}.wasm`,
-          sizeBytes: 12500,
-          path: `/artifacts/${item.hash || 'compiled'}.wasm`,
-          durationMs: item.durationMs ?? 0,
-        },
       }));
     },
 
     deployHistory: async (_parent, { first = 20, after }, context) => {
+      // getDeploymentState() is the actual export from deployService; the
+      // previous dynamic-import fallback referenced readDeployHistory which
+      // was never exported, so the catch branch always ran.
       let history = [];
       try {
-        const mod = await import('../services/deployService.js');
-        if (typeof mod.readDeployHistory === 'function') {
-          history = (await mod.readDeployHistory()) ?? [];
-        }
+        history = getDeploymentState()?.history ?? [];
       } catch {
-        // service may not expose this — return empty
+        history = [];
       }
 
       const items = history.map((item, i) => ({
@@ -208,6 +213,53 @@ export const resolvers = {
       requireRole(context, 'admin');
       // Placeholder — real impl would query invoke log file filtered by contractId
       return null;
+    },
+
+    // ── Projects / Files / Templates (issue #724) ─────────────────────────────
+    // Top-level list resolvers issue one SQL query each. Per-parent relations
+    // (Project.files, File.project, etc.) are resolved via context.loaders so
+    // an N-parent fan-out collapses to one batched SQL query per relation.
+    projects: async (_parent, _args, _context) => listProjects(),
+
+    project: async (_parent, { id }, context) =>
+      context.loaders.project.load(id),
+
+    files: async (_parent, _args, _context) => listFiles(),
+
+    templates: async (_parent, _args, _context) => listTemplates(),
+
+    template: async (_parent, { id }, context) =>
+      context.loaders.template.load(id),
+  },
+
+  // ── Type-level field resolvers (relations routed through DataLoaders) ────────
+  Project: {
+    files: (parent, _args, context) =>
+      context.loaders.filesByProject.load(parent.id),
+  },
+
+  File: {
+    project: (parent, _args, context) =>
+      parent.projectId == null
+        ? null
+        : context.loaders.project.load(parent.projectId),
+    template: (parent, _args, context) =>
+      parent.templateId == null
+        ? null
+        : context.loaders.template.load(parent.templateId),
+  },
+
+  Template: {
+    files: (parent, _args, context) =>
+      context.loaders.filesByTemplate.load(parent.id),
+  },
+
+  CompileHistoryItem: {
+    // Field-level resolver so per-item artifact lookups batch through the
+    // loader — duplicate hashes within one query hit the cache for free.
+    artifact: (parent, _args, context) => {
+      if (!parent.hash) return null;
+      return context.loaders.compileArtifact.load(parent.hash);
     },
   },
 

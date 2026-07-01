@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id TEXT NOT NULL DEFAULT 'public',
     project_id INTEGER,
+    template_id INTEGER,
     uploader_id INTEGER NOT NULL,
     filename TEXT NOT NULL,
     filepath TEXT NOT NULL,
@@ -81,6 +82,7 @@ CREATE TABLE IF NOT EXISTS files (
     size_bytes INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (template_id) REFERENCES templates(id),
     FOREIGN KEY (uploader_id) REFERENCES users(id)
 );
 
@@ -420,3 +422,35 @@ CREATE INDEX IF NOT EXISTS idx_treasury_history_event_type ON treasury_history(e
 CREATE INDEX IF NOT EXISTS idx_feature_flags_enabled ON feature_flags(enabled);
 CREATE INDEX IF NOT EXISTS idx_flag_cohorts_flag_key ON flag_cohorts(flag_key);
 CREATE INDEX IF NOT EXISTS idx_flag_cohorts_cohort_id ON flag_cohorts(cohort_id);
+
+-- Template library (issue #724) — backing store for GraphQL Template type and
+-- DataLoader batch loading. Mirrors the frontend TemplateMetadata shape so the
+-- same records can power both REST and GraphQL consumers.
+CREATE TABLE IF NOT EXISTS templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dir_name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,
+    complexity TEXT NOT NULL,
+    deployment_status TEXT NOT NULL,
+    tags TEXT,              -- JSON array of strings
+    dependencies TEXT,      -- JSON array of {name,version}
+    functionalities TEXT,   -- JSON array of strings
+    features TEXT,          -- JSON array of strings
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_templates_category ON templates(category);
+CREATE INDEX IF NOT EXISTS idx_templates_complexity ON templates(complexity);
+CREATE INDEX IF NOT EXISTS idx_files_template_id ON files(template_id);
+
+-- Seed templates (matches frontend mock metadata so the library is non-empty
+-- on a fresh boot — the frontend falls back to the same data when the REST
+-- endpoint is unavailable).
+INSERT OR IGNORE INTO templates (dir_name, name, description, category, complexity, deployment_status, tags, dependencies, functionalities, features) VALUES
+('hello-world', 'Hello World', 'Minimal Soroban contract example', 'Utilities', 'Beginner', 'Testnet', '["minimal","example"]', '[]', '["Basic"]', '["Simple function call"]'),
+('counter', 'Counter', 'Simple counter with state management', 'Utilities', 'Beginner', 'Testnet', '["state","storage"]', '[]', '["Basic","State Management"]', '["State persistence"]'),
+('stablecoin', 'Stablecoin', 'Algorithmic stablecoin with collateral', 'DeFi', 'Advanced', 'Production', '["defi","collateral"]', '[{"name":"soroban-sdk","version":"^21.0"}]', '["Token Operations","Advanced"]', '["Minting","Burning","Price feed"]');
+
+
