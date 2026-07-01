@@ -14,13 +14,13 @@ describe('Automated Database Seeding', () => {
 
   beforeAll(async () => {
     await fs.mkdir(path.dirname(TEST_DB_PATH), { recursive: true });
-    
+
     // Create schema before testing
     db = await open({
       filename: TEST_DB_PATH,
       driver: sqlite3.Database,
     });
-    
+
     const schemaPath = path.join(__dirname, '../src/database/schema.sql');
     const schema = await fs.readFile(schemaPath, 'utf-8');
     await db.exec(schema);
@@ -37,14 +37,14 @@ describe('Automated Database Seeding', () => {
 
   it('should seed database within 5 seconds and maintain consistency', async () => {
     const startTime = Date.now();
-    
+
     await seedDatabase({
       dbPath: TEST_DB_PATH,
       users: 10,
       projects: 20,
-      files: 50
+      files: 50,
     });
-    
+
     const duration = Date.now() - startTime;
     expect(duration).toBeLessThan(5000);
 
@@ -52,8 +52,10 @@ describe('Automated Database Seeding', () => {
     const usersCount = await db.get('SELECT COUNT(*) as count FROM users');
     expect(usersCount.count).toBe(10);
 
-    const projectsCount = await db.get('SELECT COUNT(*) as count FROM projects');
-    // Projects table has 8 default seeded projects in schema.sql, 
+    const projectsCount = await db.get(
+      'SELECT COUNT(*) as count FROM projects'
+    );
+    // Projects table has 8 default seeded projects in schema.sql,
     // but the seed script deletes them first. So it should exactly be 20.
     expect(projectsCount.count).toBe(20);
 

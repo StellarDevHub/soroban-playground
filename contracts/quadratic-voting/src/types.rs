@@ -25,6 +25,8 @@ pub struct Proposal {
     pub votes_for: i128,
     /// Quadratic-weighted votes against
     pub votes_against: i128,
+    /// Snapshot of total supply at proposal creation (for quorum calc)
+    pub total_supply_snapshot: i128,
     pub vote_start: u64,
     pub vote_end: u64,
 }
@@ -35,14 +37,17 @@ pub enum InstanceKey {
     ProposalCount,
     Paused,
     VotingPeriod,
-    MaxCreditsPerUser,
+    /// Total governance token supply
+    TotalSupply,
+    /// Quorum in basis points (default 400 = 4%)
+    QuorumBps,
 }
 
 #[contracttype]
 pub enum DataKey {
     Proposal(u32),
-    /// Credits allocated to (voter, proposal_id)
-    UserCredits(Address, u32),
+    /// Governance token balance for an address
+    Balance(Address),
     /// Whether address is whitelisted
     Whitelisted(Address),
     /// Voted: (proposal_id, voter)
@@ -61,9 +66,9 @@ pub enum Error {
     AlreadyVoted = 6,
     NotWhitelisted = 7,
     ProposalNotActive = 8,
-    InvalidCredits = 9,
-    ExceedsMaxCredits = 10,
-    ContractPaused = 11,
-    EmptyTitle = 12,
-    VotingStillActive = 13,
+    ContractPaused = 9,
+    EmptyTitle = 10,
+    VotingStillActive = 11,
+    InsufficientVotingPower = 12,
+    QuorumNotReached = 13,
 }

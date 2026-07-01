@@ -2724,6 +2724,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "soroban-cross-chain-bridge"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "soroban-did-registry"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "soroban-dutch-auction-contract"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "soroban-env-common"
 version = "21.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2812,6 +2833,27 @@ dependencies = [
  "soroban-env-common",
  "soroban-env-host",
  "thiserror",
+]
+
+[[package]]
+name = "soroban-multisig-wallet"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "soroban-parametric-insurance"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "soroban-patent-registry"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -2904,6 +2946,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "soroban-twap-oracle"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "soroban-wasmi"
 version = "0.31.1-soroban.20.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2914,6 +2963,13 @@ dependencies = [
  "wasmi_arena",
  "wasmi_core",
  "wasmparser-nostd",
+]
+
+[[package]]
+name = "soroban-yield-optimizer"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -3205,6 +3261,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
+name = "subscription-manager"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3241,6 +3304,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "synthetic-assets"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -3331,6 +3401,13 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "token_contract"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
 
 [[package]]
 name = "tokio"

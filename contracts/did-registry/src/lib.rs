@@ -155,10 +155,12 @@ impl DidRegistry {
     // ── Queries ───────────────────────────────────────────────────────────────
 
     pub fn get_identity(env: Env, owner: Address) -> Result<Identity, Error> {
+        ensure_initialized(&env)?;
         load_identity(&env, &owner)
     }
 
     pub fn get_credential(env: Env, credential_id: u32) -> Result<Credential, Error> {
+        ensure_initialized(&env)?;
         load_credential(&env, credential_id)
     }
 

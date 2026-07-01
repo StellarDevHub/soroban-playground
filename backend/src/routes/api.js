@@ -1,5 +1,7 @@
 import warrantyRoutes from './warranty.js';
 import favoritesRoutes from './favorites.js';
+import searchRoutes from './search.js';
+import projectsRoutes from './projects.js';
 import express from 'express';
 import v1Compile from './v1/compile.js';
 import v1Deploy from './v1/deploy.js';
@@ -18,15 +20,16 @@ import {
   versionTransformer,
   requestTransformerV2,
 } from '../middleware/versionTransformer.js';
-import { rateLimitMiddleware } from '../middleware/rateLimiter.js';
 
 import { versions } from '../config/versions.js';
 import { deprecationHeaders } from '../middleware/deprecationHeaders.js';
+import {
+  dispatchByApiVersion,
+  negotiateApiVersion,
+  rejectUnsupportedUriVersion,
+} from '../middleware/apiVersioning.js';
 
 const router = express.Router();
-
-// Apply deprecation/version headers to all versioned routes
-router.use(deprecationHeaders);
 
 // Version discovery endpoint
 router.get('/versions', (req, res) => {
@@ -55,19 +58,69 @@ v2Router.use('/invoke', v2Invoke);
 v2Router.use('/identity', v2Identity);
 v2Router.use('/lottery', v2Lottery);
 
+const versionRouters = {
+  v1: v1Router,
+  v2: v2Router,
+};
+
+const headerVersionedPaths = [
+  '/compile',
+  '/deploy',
+  '/invoke',
+  '/identity',
+  '/lottery',
+];
+
+function isHeaderVersionedPath(path) {
+  return headerVersionedPaths.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`)
+  );
+}
+
 // Register versioned routes
-router.use('/v1', v1Router);
-router.use('/v2', v2Router);
+router.use(
+  '/v1',
+  negotiateApiVersion({ uriVersion: 'v1' }),
+  deprecationHeaders,
+  v1Router
+);
+router.use(
+  '/v2',
+  negotiateApiVersion({ uriVersion: 'v2' }),
+  deprecationHeaders,
+  v2Router
+);
+router.use((req, res, next) => {
+  if (/^\/v\d+(?:\/|$)/i.test(req.path)) {
+    return rejectUnsupportedUriVersion(req, res, next);
+  }
+
+  return next();
+});
 router.use('/oracle', oracleRouter);
 
-// Default to v1 for backward compatibility (requests to /api/compile, etc.)
-router.use('/compile', versionTransformer('v1'), v1Compile);
-router.use('/deploy', versionTransformer('v1'), v1Deploy);
-router.use('/invoke', versionTransformer('v1'), v1Invoke);
-router.use('/identity', versionTransformer('v1'), v1Identity);
+// Default to v1 for backward compatibility, while allowing headers such as:
+// Accept: application/vnd.soroban-playground.v2+json
+// Accept-Version: v2
+router.use(
+  (req, res, next) => {
+    if (!isHeaderVersionedPath(req.path)) return next();
+    return negotiateApiVersion()(req, res, next);
+  },
+  (req, res, next) => {
+    if (!req.apiVersion) return next();
+    return deprecationHeaders(req, res, next);
+  },
+  (req, res, next) => {
+    if (!req.apiVersion) return next();
+    return dispatchByApiVersion(versionRouters)(req, res, next);
+  }
+);
+
 router.use('/events', eventsRouter);
 router.use('/patents', patentsRouter);
 router.use('/token-burn', tokenBurnRouter);
+router.use('/search', searchRoutes);
 
 import bugBountyRoutes from './bugBountyRoutes.js';
 router.use('/bug-bounty', bugBountyRoutes);
@@ -77,4 +130,5 @@ router.use('/music-licensing', musicLicensingRoutes);
 
 router.use('/warranty', warrantyRoutes);
 router.use('/favorites', favoritesRoutes);
+router.use('/projects', projectsRoutes);
 export default router;

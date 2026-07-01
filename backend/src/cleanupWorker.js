@@ -10,6 +10,7 @@ const OLD_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 const TEMP_DIR_PREFIX = '.tmp_compile_';
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1000;
+let intervalId = null;
 
 /**
  * Scans a directory for temporary compilation folders
@@ -104,10 +105,16 @@ async function cleanupTempDirectories() {
   console.log('Temporary directory cleanup finished.');
 }
 
+export function stopCleanupWorker() {
+  if (intervalId) {
+    clearInterval(intervalId);
+    intervalId = null;
+  }
+}
+
 /**
  * Starts the background worker for cleaning up temporary directories.
  * It runs immediately upon call and then at regular intervals.
- * Includes graceful shutdown handling.
  */
 export function startCleanupWorker() {
   console.log(
@@ -118,18 +125,7 @@ export function startCleanupWorker() {
   cleanupTempDirectories().catch(console.error);
 
   // Then run at intervals
-  const intervalId = setInterval(() => {
+  intervalId = setInterval(() => {
     cleanupTempDirectories().catch(console.error);
   }, CLEANUP_INTERVAL_MS);
-
-  // Set up graceful shutdown
-  process.on('SIGTERM', () => {
-    console.log('Shutting down cleanup worker gracefully...');
-    clearInterval(intervalId);
-  });
-
-  process.on('SIGINT', () => {
-    console.log('Shutting down cleanup worker gracefully...');
-    clearInterval(intervalId);
-  });
 }

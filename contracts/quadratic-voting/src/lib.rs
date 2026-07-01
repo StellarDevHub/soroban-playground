@@ -24,10 +24,10 @@ mod types;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 
 use crate::storage::{
-    get_admin, get_max_credits, get_proposal, get_proposal_count, get_user_credits,
-    get_voting_period, has_voted, is_initialized, is_paused, is_whitelisted, record_vote,
-    set_admin, set_max_credits, set_paused, set_proposal, set_proposal_count, set_user_credits,
-    set_voting_period, set_whitelisted,
+    get_admin, get_balance, get_proposal, get_proposal_count, get_quorum_bps,
+    get_total_supply, get_voting_period, has_voted, is_initialized, is_paused, is_whitelisted,
+    record_vote, set_admin, set_balance, set_paused, set_proposal, set_proposal_count,
+    set_quorum_bps, set_total_supply, set_voting_period, set_whitelisted,
 };
 use crate::types::{Error, Proposal, ProposalStatus};
 
@@ -43,7 +43,7 @@ impl QuadraticVoting {
         env: Env,
         admin: Address,
         voting_period: Option<u64>,
-        max_credits: Option<i128>,
+        quorum_bps: Option<i128>,
     ) -> Result<(), Error> {
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
@@ -53,10 +53,23 @@ impl QuadraticVoting {
         if let Some(vp) = voting_period {
             set_voting_period(&env, vp);
         }
-        if let Some(mc) = max_credits {
-            set_max_credits(&env, mc);
+        if let Some(qb) = quorum_bps {
+            set_quorum_bps(&env, qb);
         }
         env.events().publish((symbol_short!("init"),), admin);
+        Ok(())
+    }
+
+    // ── Token management (admin mints for testing / bootstrapping) ────────────
+
+    /// Mint governance tokens to `recipient`. Admin only.
+    pub fn mint(env: Env, admin: Address, recipient: Address, amount: i128) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+        let new_bal = get_balance(&env, &recipient) + amount;
+        set_balance(&env, &recipient, new_bal);
+        set_total_supply(&env, get_total_supply(&env) + amount);
         Ok(())
     }
 
@@ -125,6 +138,7 @@ impl QuadraticVoting {
             status: ProposalStatus::Active,
             votes_for: 0,
             votes_against: 0,
+            total_supply_snapshot: get_total_supply(&env),
             vote_start: now,
             vote_end: now + period,
         };
@@ -152,14 +166,12 @@ impl QuadraticVoting {
 
     // ── Voting ────────────────────────────────────────────────────────────────
 
-    /// Cast a quadratic vote. `credits` is the number of voting credits to
-    /// spend; votes received = floor(sqrt(credits)).
+    /// Cast a quadratic vote. Voting power = floor(sqrt(token_balance)).
     /// `is_for`: true = vote for, false = vote against.
     pub fn vote(
         env: Env,
         voter: Address,
         proposal_id: u32,
-        credits: i128,
         is_for: bool,
     ) -> Result<i128, Error> {
         ensure_initialized(&env)?;
@@ -168,13 +180,6 @@ impl QuadraticVoting {
 
         if !is_whitelisted(&env, &voter) {
             return Err(Error::NotWhitelisted);
-        }
-        if credits <= 0 {
-            return Err(Error::InvalidCredits);
-        }
-        let max = get_max_credits(&env);
-        if credits > max {
-            return Err(Error::ExceedsMaxCredits);
         }
 
         let mut proposal = get_proposal(&env, proposal_id)?;
@@ -189,7 +194,12 @@ impl QuadraticVoting {
             return Err(Error::AlreadyVoted);
         }
 
-        let votes = integer_sqrt(credits as u64) as i128;
+        let balance = get_balance(&env, &voter);
+        if balance == 0 {
+            return Err(Error::InsufficientVotingPower);
+        }
+
+        let votes = integer_sqrt(balance as u64) as i128;
 
         if is_for {
             proposal.votes_for += votes;
@@ -198,10 +208,9 @@ impl QuadraticVoting {
         }
 
         record_vote(&env, proposal_id, &voter);
-        set_user_credits(&env, &voter, proposal_id, credits);
         set_proposal(&env, &proposal);
 
-        env.events().publish((symbol_short!("voted"),), (voter, proposal_id, credits, votes, is_for));
+        env.events().publish((symbol_short!("voted"),), (voter, proposal_id, votes, is_for));
         Ok(votes)
     }
 
@@ -216,7 +225,14 @@ impl QuadraticVoting {
         if now <= proposal.vote_end {
             return Err(Error::VotingStillActive);
         }
-        proposal.status = if proposal.votes_for > proposal.votes_against {
+
+        let total_votes = proposal.votes_for + proposal.votes_against;
+        let quorum_needed = proposal.total_supply_snapshot
+            .saturating_mul(get_quorum_bps(&env)) / 10_000;
+
+        proposal.status = if total_votes >= quorum_needed
+            && proposal.votes_for > proposal.votes_against
+        {
             ProposalStatus::Passed
         } else {
             ProposalStatus::Defeated
@@ -238,9 +254,14 @@ impl QuadraticVoting {
         Ok(get_proposal_count(&env))
     }
 
-    pub fn get_user_credits(env: Env, voter: Address, proposal_id: u32) -> Result<i128, Error> {
+    pub fn get_balance(env: Env, addr: Address) -> Result<i128, Error> {
         ensure_initialized(&env)?;
-        Ok(get_user_credits(&env, &voter, proposal_id))
+        Ok(get_balance(&env, &addr))
+    }
+
+    pub fn get_total_supply(env: Env) -> Result<i128, Error> {
+        ensure_initialized(&env)?;
+        Ok(get_total_supply(&env))
     }
 
     pub fn is_whitelisted(env: Env, voter: Address) -> Result<bool, Error> {
@@ -256,10 +277,10 @@ impl QuadraticVoting {
         get_admin(&env)
     }
 
-    /// Compute votes for a given credit amount (off-chain helper).
-    pub fn credits_to_votes(_env: Env, credits: i128) -> i128 {
-        if credits <= 0 { return 0; }
-        integer_sqrt(credits as u64) as i128
+    /// Compute voting power for a given token balance (off-chain helper).
+    pub fn balance_to_voting_power(_env: Env, balance: i128) -> i128 {
+        if balance <= 0 { return 0; }
+        integer_sqrt(balance as u64) as i128
     }
 }
 

@@ -5,6 +5,13 @@ const createLogger = () => ({
 });
 
 describe('environment config validation', () => {
+  it('limits compile requests to 10 per minute per IP by default', () => {
+    const config = createConfig({}, { reportWarnings: false });
+
+    expect(config.rateLimit.compile.max).toBe(10);
+    expect(config.rateLimit.compile.windowMs).toBe(60000);
+  });
+
   it('uses defaults without warnings when optional env values are missing', () => {
     const logger = createLogger();
     const config = createConfig({}, { logger });

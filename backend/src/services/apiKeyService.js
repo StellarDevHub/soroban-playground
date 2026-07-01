@@ -3,6 +3,7 @@
 
 import crypto from 'crypto';
 import { getDatabase } from '../database/connection.js';
+import { deriveTenantId } from '../utils/tenant.js';
 
 /**
  * API Key Management Service
@@ -26,17 +27,21 @@ export class ApiKeyService {
     tier = 'free',
     userId,
     organizationId,
+    tenantId,
     expiresAt,
   }) {
     const key = this.generateSecureKey();
     const keyHash = crypto.createHash('sha256').update(key).digest('hex');
     const keyPrefix = key.substring(0, 8);
+    const resolvedTenantId =
+      deriveTenantId({ tenantId, organizationId, userId }) || 'public';
 
     const db = getDatabase();
     const result = await db.run(
-      `INSERT INTO api_keys (key_hash, key_prefix, name, description, tier, user_id, organization_id, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO api_keys (tenant_id, key_hash, key_prefix, name, description, tier, user_id, organization_id, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        resolvedTenantId,
         keyHash,
         keyPrefix,
         name,
@@ -53,6 +58,7 @@ export class ApiKeyService {
       action: 'key_generated',
       apiKeyId: result.lastID,
       userId,
+      tenantId: resolvedTenantId,
       metadata: { tier, name },
     });
 
@@ -63,6 +69,7 @@ export class ApiKeyService {
       name,
       description,
       tier,
+      tenantId: resolvedTenantId,
       status: 'active',
       createdAt: new Date().toISOString(),
     };
@@ -92,7 +99,7 @@ export class ApiKeyService {
 
     // Check expiration
     if (row.expires_at && new Date(row.expires_at) < new Date()) {
-      await this.revokeKey(row.id, 'expired');
+      await this.revokeKey(row.id, 'expired', { tenantId: row.tenant_id });
       return null;
     }
 
@@ -108,6 +115,7 @@ export class ApiKeyService {
       tier: row.tier,
       userId: row.user_id,
       organizationId: row.organization_id,
+      tenantId: row.tenant_id,
       limits: {
         requestsPerMinute: row.requests_per_minute,
         requestsPerHour: row.requests_per_hour,
@@ -124,14 +132,21 @@ export class ApiKeyService {
    * @param {number} keyId - Key ID
    * @returns {Object|null} Key data
    */
-  async getKeyById(keyId) {
+  async getKeyById(keyId, options = {}) {
     const db = getDatabase();
+    const params = [keyId];
+    let tenantPredicate = '';
+    if (options.tenantId) {
+      tenantPredicate = ' AND ak.tenant_id = ?';
+      params.push(options.tenantId);
+    }
+
     const row = await db.get(
       `SELECT ak.*, tl.requests_per_minute, tl.requests_per_hour, tl.requests_per_day, tl.burst_limit
        FROM api_keys ak
        JOIN tier_limits tl ON ak.tier = tl.tier
-       WHERE ak.id = ?`,
-      [keyId]
+       WHERE ak.id = ?${tenantPredicate}`,
+      params
     );
 
     if (!row) return null;
@@ -143,6 +158,7 @@ export class ApiKeyService {
       description: row.description,
       tier: row.tier,
       status: row.status,
+      tenantId: row.tenant_id,
       userId: row.user_id,
       organizationId: row.organization_id,
       createdAt: row.created_at,
@@ -166,7 +182,7 @@ export class ApiKeyService {
    * @returns {Array} List of keys
    */
   async listKeys(userId, options = {}) {
-    const { limit = 50, offset = 0, status } = options;
+    const { limit = 50, offset = 0, status, tenantId } = options;
     const db = getDatabase();
 
     let query = `
@@ -176,6 +192,11 @@ export class ApiKeyService {
       WHERE ak.user_id = ?
     `;
     const params = [userId];
+
+    if (tenantId) {
+      query += ' AND ak.tenant_id = ?';
+      params.push(tenantId);
+    }
 
     if (status) {
       query += ' AND ak.status = ?';
@@ -194,6 +215,7 @@ export class ApiKeyService {
       description: row.description,
       tier: row.tier,
       status: row.status,
+      tenantId: row.tenant_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       expiresAt: row.expires_at,
@@ -213,17 +235,25 @@ export class ApiKeyService {
    * @param {number} keyId - Key ID
    * @param {string} reason - Revocation reason
    */
-  async revokeKey(keyId, reason = 'revoked') {
+  async revokeKey(keyId, reason = 'revoked', options = {}) {
     const db = getDatabase();
+    const params = [reason, keyId];
+    let tenantPredicate = '';
+    if (options.tenantId) {
+      tenantPredicate = ' AND tenant_id = ?';
+      params.push(options.tenantId);
+    }
+
     await db.run(
-      `UPDATE api_keys SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [reason, keyId]
+      `UPDATE api_keys SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?${tenantPredicate}`,
+      params
     );
 
     // Log revocation
     await this.logAudit({
       action: 'key_revoked',
       apiKeyId: keyId,
+      tenantId: options.tenantId,
       metadata: { reason },
     });
   }
@@ -235,7 +265,7 @@ export class ApiKeyService {
    * @returns {Object} Usage statistics
    */
   async getUsageStats(keyId, options = {}) {
-    const { days = 30 } = options;
+    const { days = 30, tenantId } = options;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     const db = getDatabase();
@@ -245,9 +275,12 @@ export class ApiKeyService {
       `SELECT DATE(window_start) as date, SUM(request_count) as requests
        FROM rate_limit_usage
        WHERE api_key_id = ? AND window_start >= ?
+       ${tenantId ? 'AND tenant_id = ?' : ''}
        GROUP BY DATE(window_start)
        ORDER BY date DESC`,
-      [keyId, startDate.toISOString()]
+      tenantId
+        ? [keyId, startDate.toISOString(), tenantId]
+        : [keyId, startDate.toISOString()]
     );
 
     // Get total usage by endpoint
@@ -255,9 +288,12 @@ export class ApiKeyService {
       `SELECT endpoint, SUM(request_count) as requests
        FROM rate_limit_usage
        WHERE api_key_id = ? AND window_start >= ?
+       ${tenantId ? 'AND tenant_id = ?' : ''}
        GROUP BY endpoint
        ORDER BY requests DESC`,
-      [keyId, startDate.toISOString()]
+      tenantId
+        ? [keyId, startDate.toISOString(), tenantId]
+        : [keyId, startDate.toISOString()]
     );
 
     // Get violations (if we track them)
@@ -265,9 +301,12 @@ export class ApiKeyService {
       `SELECT COUNT(*) as count, DATE(timestamp) as date
        FROM audit_log
        WHERE api_key_id = ? AND action = 'rate_limit_exceeded' AND timestamp >= ?
+       ${tenantId ? 'AND tenant_id = ?' : ''}
        GROUP BY DATE(timestamp)
        ORDER BY date DESC`,
-      [keyId, startDate.toISOString()]
+      tenantId
+        ? [keyId, startDate.toISOString(), tenantId]
+        : [keyId, startDate.toISOString()]
     );
 
     return {
@@ -293,8 +332,9 @@ export class ApiKeyService {
   async logAudit(event) {
     const db = getDatabase();
     await db.run(
-      `INSERT INTO audit_log (api_key_id, user_id, action, metadata) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO audit_log (tenant_id, api_key_id, user_id, action, metadata) VALUES (?, ?, ?, ?, ?)`,
       [
+        event.tenantId || 'public',
         event.apiKeyId,
         event.userId,
         event.action,
@@ -310,17 +350,30 @@ export class ApiKeyService {
    * @param {string} tier - User tier
    * @param {number} windowMinutes - Window size in minutes
    */
-  async trackUsage(apiKeyId, endpoint, tier, windowMinutes = 1) {
+  async trackUsage(
+    apiKeyId,
+    endpoint,
+    tier,
+    windowMinutes = 1,
+    tenantId = 'public'
+  ) {
     const now = new Date();
     const windowStart = new Date(now.getTime() - windowMinutes * 60 * 1000);
     const db = getDatabase();
 
     await db.run(
-      `INSERT INTO rate_limit_usage (api_key_id, endpoint, request_count, window_start, window_end, tier)
-       VALUES (?, ?, 1, ?, ?, ?)
+      `INSERT INTO rate_limit_usage (tenant_id, api_key_id, endpoint, request_count, window_start, window_end, tier)
+       VALUES (?, ?, ?, 1, ?, ?, ?)
        ON CONFLICT(api_key_id, endpoint, window_start, window_end)
        DO UPDATE SET request_count = request_count + 1`,
-      [apiKeyId, endpoint, windowStart.toISOString(), now.toISOString(), tier]
+      [
+        tenantId,
+        apiKeyId,
+        endpoint,
+        windowStart.toISOString(),
+        now.toISOString(),
+        tier,
+      ]
     );
   }
 }

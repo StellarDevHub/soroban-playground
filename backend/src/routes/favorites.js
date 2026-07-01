@@ -1,6 +1,7 @@
 import express from 'express';
 import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
 import { getDatabase } from '../database/connection.js';
+import { requireTenantContext } from '../middleware/tenantContext.js';
 
 const router = express.Router();
 
@@ -28,12 +29,13 @@ function validateFavoritesArray(value) {
 
 router.get(
   '/',
+  requireTenantContext(),
   requireAuth,
   asyncHandler(async (req, res) => {
     const db = getDatabase();
     const row = await db.get(
-      'SELECT favorites, updated_at FROM favorites WHERE wallet_address = ?',
-      req.walletAddress
+      'SELECT favorites, updated_at FROM favorites WHERE tenant_id = ? AND wallet_address = ?',
+      [req.tenant.id, req.walletAddress]
     );
 
     const favorites = row ? JSON.parse(row.favorites) : [];
@@ -45,6 +47,7 @@ router.get(
 
 router.post(
   '/',
+  requireTenantContext(),
   requireAuth,
   asyncHandler(async (req, res, next) => {
     const { favorites } = req.body || {};
@@ -60,13 +63,11 @@ router.post(
     const updatedAt = new Date().toISOString();
 
     await db.run(
-      `INSERT INTO favorites (wallet_address, favorites, updated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(wallet_address)
+      `INSERT INTO favorites (tenant_id, wallet_address, favorites, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(tenant_id, wallet_address)
        DO UPDATE SET favorites = excluded.favorites, updated_at = excluded.updated_at`,
-      req.walletAddress,
-      serialized,
-      updatedAt
+      [req.tenant.id, req.walletAddress, serialized, updatedAt]
     );
 
     return res.json({ favorites, updatedAt });

@@ -40,9 +40,7 @@ Unit tests provide isolated testing of individual service methods with mocked de
 describe('SyntheticAssetsService - methodName', () => {
   it('should perform action successfully with valid inputs', async () => {
     // Setup
-    service.method.mockResolvedValue({
-      /* expected result */
-    });
+    service.method.mockResolvedValue({/* expected result */});
 
     // Execute
     const result = await service.method(/* args */);
@@ -399,12 +397,8 @@ Use this template for new test cases:
 describe('SyntheticAssetsService - newMethod', () => {
   it('should perform expected action with valid inputs', async () => {
     // Arrange - Set up test data and mocks
-    const input = {
-      /* test data */
-    };
-    syntheticAssetsService.newMethod.mockResolvedValue({
-      /* expected result */
-    });
+    const input = {/* test data */};
+    syntheticAssetsService.newMethod.mockResolvedValue({/* expected result */});
 
     // Act - Call the method
     const result = await syntheticAssetsService.newMethod(input);

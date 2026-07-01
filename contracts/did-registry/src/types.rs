@@ -19,7 +19,7 @@ pub enum Error {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Identity {
     pub owner: Address,
     pub did: String,          // e.g. "did:soroban:<address>"
@@ -39,7 +39,7 @@ pub enum CredentialStatus {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Credential {
     pub id: u32,
     pub subject: Address,     // identity that holds this credential
@@ -54,7 +54,7 @@ pub struct Credential {
 
 /// Verification record for tracking credential verifications
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VerificationRecord {
     pub credential_id: u32,
     pub verifier: Address,

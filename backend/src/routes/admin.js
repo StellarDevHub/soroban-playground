@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import redisService from '../services/redisService.js';
 import oracleProofQueueService from '../services/oracleProofQueueService.js';
 import apiKeyService from '../services/apiKeyService.js';
+import { requireTenantContext } from '../middleware/tenantContext.js';
 import { seedDatabase } from '../../scripts/seed.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -103,7 +104,7 @@ router.post('/oracle-queue/dead-letter/:id/requeue', async (req, res) => {
 // API Key Management Endpoints
 
 // Generate new API key
-router.post('/api-keys', async (req, res) => {
+router.post('/api-keys', requireTenantContext(), async (req, res) => {
   try {
     const { name, description, tier, userId, organizationId, expiresAt } =
       req.body;
@@ -124,6 +125,7 @@ router.post('/api-keys', async (req, res) => {
       tier,
       userId: userId || 1, // Default to first user for now
       organizationId,
+      tenantId: req.tenant.id,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     });
 
@@ -134,7 +136,7 @@ router.post('/api-keys', async (req, res) => {
 });
 
 // List API keys
-router.get('/api-keys', async (req, res) => {
+router.get('/api-keys', requireTenantContext(), async (req, res) => {
   try {
     const { userId, status, limit, offset } = req.query;
 
@@ -142,6 +144,7 @@ router.get('/api-keys', async (req, res) => {
       userId || 1, // Default to first user
       {
         status,
+        tenantId: req.tenant.id,
         limit: parseInt(limit) || 50,
         offset: parseInt(offset) || 0,
       }
@@ -154,9 +157,11 @@ router.get('/api-keys', async (req, res) => {
 });
 
 // Get API key details
-router.get('/api-keys/:id', async (req, res) => {
+router.get('/api-keys/:id', requireTenantContext(), async (req, res) => {
   try {
-    const key = await apiKeyService.getKeyById(req.params.id);
+    const key = await apiKeyService.getKeyById(req.params.id, {
+      tenantId: req.tenant.id,
+    });
     if (!key) {
       return res.status(404).json({ error: 'API key not found' });
     }
@@ -167,10 +172,12 @@ router.get('/api-keys/:id', async (req, res) => {
 });
 
 // Revoke API key
-router.delete('/api-keys/:id', async (req, res) => {
+router.delete('/api-keys/:id', requireTenantContext(), async (req, res) => {
   try {
     const { reason } = req.body;
-    await apiKeyService.revokeKey(req.params.id, reason || 'revoked');
+    await apiKeyService.revokeKey(req.params.id, reason || 'revoked', {
+      tenantId: req.tenant.id,
+    });
     res.json({ success: true, message: 'API key revoked' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -178,11 +185,12 @@ router.delete('/api-keys/:id', async (req, res) => {
 });
 
 // Get API key usage statistics
-router.get('/api-keys/:id/usage', async (req, res) => {
+router.get('/api-keys/:id/usage', requireTenantContext(), async (req, res) => {
   try {
     const { days } = req.query;
     const stats = await apiKeyService.getUsageStats(req.params.id, {
       days: parseInt(days) || 30,
+      tenantId: req.tenant.id,
     });
     res.json(stats);
   } catch (err) {
@@ -226,10 +234,15 @@ router.get('/rate-limits/stats', async (req, res) => {
 router.post('/reset-database', async (req, res) => {
   try {
     const { users = 50, projects = 200, files = 500 } = req.body;
-    const dbPath = process.env.MIGRATION_DB_PATH || path.join(__dirname, '../../data/soroban_playground.sqlite');
+    const dbPath =
+      process.env.MIGRATION_DB_PATH ||
+      path.join(__dirname, '../../data/soroban_playground.sqlite');
 
     await seedDatabase({ dbPath, users, projects, files });
-    res.json({ success: true, message: 'Database reset and seeded successfully' });
+    res.json({
+      success: true,
+      message: 'Database reset and seeded successfully',
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

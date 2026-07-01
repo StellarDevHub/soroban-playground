@@ -11,10 +11,70 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Roles table
+CREATE TABLE IF NOT EXISTS roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Permissions table
+CREATE TABLE IF NOT EXISTS permissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Role Permissions join table
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role_id INTEGER NOT NULL,
+    permission_id INTEGER NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+);
+
+-- Insert default roles
+INSERT OR IGNORE INTO roles (name, description) VALUES
+('admin', 'Administrator with full access'),
+('developer', 'Developer who can manage own projects'),
+('guest', 'Guest user with read-only access');
+
+-- Insert default permissions
+INSERT OR IGNORE INTO permissions (name, description) VALUES
+('project:create', 'Create new projects'),
+('project:read', 'Read own projects'),
+('project:update', 'Update own projects'),
+('project:delete', 'Delete own projects'),
+('project:read_all', 'Read all projects (admin)'),
+('project:write_all', 'Modify/Delete all projects (admin)');
+
+-- Map permissions to roles
+-- admin gets all permissions
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p WHERE r.name = 'admin';
+
+-- developer gets create, read, update, delete
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'developer' AND p.name IN ('project:create', 'project:read', 'project:update', 'project:delete');
+
+-- guest gets read
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'guest' AND p.name IN ('project:read');
+
+
 -- Files table
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     project_id INTEGER,
+    template_id INTEGER,
     uploader_id INTEGER NOT NULL,
     filename TEXT NOT NULL,
     filepath TEXT NOT NULL,
@@ -22,12 +82,14 @@ CREATE TABLE IF NOT EXISTS files (
     size_bytes INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (template_id) REFERENCES templates(id),
     FOREIGN KEY (uploader_id) REFERENCES users(id)
 );
 
 -- Projects table with full-text search support
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     category TEXT NOT NULL,
@@ -76,6 +138,7 @@ END;
 -- Search analytics table
 CREATE TABLE IF NOT EXISTS search_analytics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     query TEXT NOT NULL,
     filters_applied TEXT, -- JSON object of applied filters
     results_count INTEGER NOT NULL,
@@ -95,24 +158,32 @@ CREATE TABLE IF NOT EXISTS search_suggestions (
 
 -- Popular searches cache
 CREATE TABLE IF NOT EXISTS popular_searches (
-    query TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
+    query TEXT NOT NULL,
     search_count INTEGER DEFAULT 1,
-    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(tenant_id, query)
 );
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_projects_category ON projects(category);
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_projects_creator ON projects(creator_id);
+CREATE INDEX IF NOT EXISTS idx_projects_tenant ON projects(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_files_tenant ON files(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_projects_funding ON projects(current_funding);
 CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at);
 CREATE INDEX IF NOT EXISTS idx_projects_completion ON projects(completion_rate);
+CREATE INDEX IF NOT EXISTS idx_search_analytics_tenant_timestamp ON search_analytics(tenant_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_search_analytics_timestamp ON search_analytics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_search_suggestions_freq ON search_suggestions(frequency DESC);
+CREATE INDEX IF NOT EXISTS idx_popular_searches_tenant_count ON popular_searches(tenant_id, search_count DESC);
 
 -- API Keys table for rate limiting and authentication
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     key_hash TEXT NOT NULL UNIQUE, -- SHA-256 hash of the API key
     key_prefix TEXT NOT NULL, -- First 8 characters for lookup
     name TEXT NOT NULL,
@@ -142,6 +213,7 @@ CREATE TABLE IF NOT EXISTS organizations (
 -- Rate limit usage tracking
 CREATE TABLE IF NOT EXISTS rate_limit_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     api_key_id INTEGER NOT NULL,
     endpoint TEXT NOT NULL,
     request_count INTEGER NOT NULL DEFAULT 1,
@@ -166,6 +238,7 @@ CREATE TABLE IF NOT EXISTS tier_limits (
 -- Audit log for API access
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     api_key_id INTEGER,
     user_id INTEGER,
     action TEXT NOT NULL, -- 'request', 'key_generated', 'key_revoked', etc.
@@ -182,9 +255,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 -- Additional indexes for rate limiting tables
 CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix ON api_keys(key_prefix);
+CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_usage_tenant_window ON rate_limit_usage(tenant_id, window_start, window_end);
 CREATE INDEX IF NOT EXISTS idx_rate_limit_usage_api_key_window ON rate_limit_usage(api_key_id, window_start, window_end);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_limit_usage_unique ON rate_limit_usage(api_key_id, endpoint, window_start, window_end);
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_timestamp ON audit_log(tenant_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_api_key_timestamp ON audit_log(api_key_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
 
@@ -238,10 +315,11 @@ CREATE TABLE IF NOT EXISTS treasury_history (
 -- User favorites for template library sync
 CREATE TABLE IF NOT EXISTS favorites (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
     wallet_address TEXT NOT NULL,
     favorites TEXT NOT NULL DEFAULT '[]', -- JSON array of template IDs
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(wallet_address)
+    UNIQUE(tenant_id, wallet_address)
 );
 
 -- Feature flags and cohort overrides (issue #754)
@@ -268,6 +346,73 @@ CREATE TABLE IF NOT EXISTS flag_cohorts (
     UNIQUE(flag_key, cohort_id)
 );
 
+-- CORS origin whitelist (issue #756)
+-- Dynamically-managed list of allowed origins that supplements env-var configuration.
+-- active=0 soft-deletes an entry without losing history.
+CREATE TABLE IF NOT EXISTS cors_whitelist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    origin TEXT NOT NULL UNIQUE,
+    active INTEGER NOT NULL DEFAULT 1,
+    added_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Webhook subscriptions (issue #746)
+-- Developer-registered endpoints that receive signed event payloads.
+CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
+    url TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '[]',  -- JSON array of subscribed event types; [] means all
+    secret TEXT NOT NULL,               -- HMAC-SHA256 signing key (developer-supplied)
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Webhook delivery log (issue #746)
+-- Persists every dispatch attempt including retry history and response details.
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
+    subscription_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload TEXT NOT NULL,              -- JSON event payload
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'success', 'failed', 'retrying')),
+    attempt INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    response_status INTEGER,
+    response_body TEXT,
+    delivered_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status_next
+    ON webhook_deliveries (status, next_attempt_at)
+    WHERE status IN ('pending', 'retrying');
+CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_tenant_active
+    ON webhook_subscriptions (tenant_id, active);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_tenant_created
+    ON webhook_deliveries (tenant_id, created_at);
+-- Offline sync log for client transaction replay and conflict resolution (issue #764)
+CREATE TABLE IF NOT EXISTS sync_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK (operation IN ('insert', 'update', 'delete')),
+    payload TEXT NOT NULL DEFAULT '{}',
+    client_timestamp DATETIME NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'applied', 'conflict', 'error')),
+    error_message TEXT,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_logs_table_record ON sync_logs(table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_sync_logs_status ON sync_logs(status);
+CREATE INDEX IF NOT EXISTS idx_sync_logs_client_timestamp ON sync_logs(client_timestamp);
+
 -- Missing indexes for performance optimization
 CREATE INDEX IF NOT EXISTS idx_treasury_proposals_status ON treasury_proposals(status);
 CREATE INDEX IF NOT EXISTS idx_treasury_proposals_expires_at ON treasury_proposals(expires_at);
@@ -277,4 +422,35 @@ CREATE INDEX IF NOT EXISTS idx_treasury_history_event_type ON treasury_history(e
 CREATE INDEX IF NOT EXISTS idx_feature_flags_enabled ON feature_flags(enabled);
 CREATE INDEX IF NOT EXISTS idx_flag_cohorts_flag_key ON flag_cohorts(flag_key);
 CREATE INDEX IF NOT EXISTS idx_flag_cohorts_cohort_id ON flag_cohorts(cohort_id);
+
+-- Template library (issue #724) — backing store for GraphQL Template type and
+-- DataLoader batch loading. Mirrors the frontend TemplateMetadata shape so the
+-- same records can power both REST and GraphQL consumers.
+CREATE TABLE IF NOT EXISTS templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dir_name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,
+    complexity TEXT NOT NULL,
+    deployment_status TEXT NOT NULL,
+    tags TEXT,              -- JSON array of strings
+    dependencies TEXT,      -- JSON array of {name,version}
+    functionalities TEXT,   -- JSON array of strings
+    features TEXT,          -- JSON array of strings
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_templates_category ON templates(category);
+CREATE INDEX IF NOT EXISTS idx_templates_complexity ON templates(complexity);
+CREATE INDEX IF NOT EXISTS idx_files_template_id ON files(template_id);
+
+-- Seed templates (matches frontend mock metadata so the library is non-empty
+-- on a fresh boot — the frontend falls back to the same data when the REST
+-- endpoint is unavailable).
+INSERT OR IGNORE INTO templates (dir_name, name, description, category, complexity, deployment_status, tags, dependencies, functionalities, features) VALUES
+('hello-world', 'Hello World', 'Minimal Soroban contract example', 'Utilities', 'Beginner', 'Testnet', '["minimal","example"]', '[]', '["Basic"]', '["Simple function call"]'),
+('counter', 'Counter', 'Simple counter with state management', 'Utilities', 'Beginner', 'Testnet', '["state","storage"]', '[]', '["Basic","State Management"]', '["State persistence"]'),
+('stablecoin', 'Stablecoin', 'Algorithmic stablecoin with collateral', 'DeFi', 'Advanced', 'Production', '["defi","collateral"]', '[{"name":"soroban-sdk","version":"^21.0"}]', '["Token Operations","Advanced"]', '["Minting","Burning","Price feed"]');
+
 

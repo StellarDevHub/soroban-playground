@@ -146,6 +146,36 @@ fn test_partial_match() {
 }
 
 #[test]
+fn test_best_price_priority() {
+    let (env, client, _) = setup();
+    let seller_high = Address::generate(&env);
+    let seller_low = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let high_sell = client.place_order(&seller_high, &Side::Sell, &1_000_000, &5_000_000);
+    let low_sell = client.place_order(&seller_low, &Side::Sell, &900_000, &5_000_000);
+    client.place_order(&buyer, &Side::Buy, &1_000_000, &5_000_000);
+
+    assert_eq!(client.get_order(&low_sell).status, OrderStatus::Filled);
+    assert_eq!(client.get_order(&high_sell).status, OrderStatus::Open);
+}
+
+#[test]
+fn test_time_priority_when_prices_equal() {
+    let (env, client, _) = setup();
+    let seller_first = Address::generate(&env);
+    let seller_second = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let first_sell = client.place_order(&seller_first, &Side::Sell, &1_000_000, &3_000_000);
+    let second_sell = client.place_order(&seller_second, &Side::Sell, &1_000_000, &3_000_000);
+    client.place_order(&buyer, &Side::Buy, &1_000_000, &4_000_000);
+
+    assert_eq!(client.get_order(&first_sell).status, OrderStatus::Filled);
+    assert_eq!(client.get_order(&second_sell).status, OrderStatus::PartiallyFilled);
+}
+
+#[test]
 fn test_no_match_price_mismatch() {
     let (env, client, _) = setup();
     let seller = Address::generate(&env);
