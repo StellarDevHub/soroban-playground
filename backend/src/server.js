@@ -53,6 +53,12 @@ import healthService from './services/healthService.js';
 import { LedgerSyncService } from './services/ledgerSyncService.js';
 import snippetsRoute from './routes/snippets.js';
 import deployQueueRoute from './routes/deployQueue.js';
+import {
+  initializeQueues,
+  queueDashboard,
+  shutdownQueues,
+} from './services/queueService.js';
+import backgroundJobsRoute from './routes/backgroundJobs.js';
 import predictionMarketRoute from './routes/predictionMarket.js';
 import { startWebhookDispatcher, stopWebhookDispatcher } from './services/webhookDispatcher.js';
 import { webhooksRoute } from './routes/webhooks.js';
@@ -195,6 +201,10 @@ app.use('/api/batch', batchSubmitterRoute);
 app.use('/api/credentials', credentialsRoute);
 app.use('/api/snippets', snippetsRoute);
 app.use('/api/deploy-queue', deployQueueRoute);
+app.use('/api/background-jobs', backgroundJobsRoute);
+if (config.app.env === 'development') {
+  app.use('/admin/queues', queueDashboard);
+}
 app.use('/api/prediction-market', predictionMarketRoute);
 app.use('/metrics', metricsRoute);
 
@@ -364,6 +374,7 @@ initializeDatabase()
     featureFlagService.initSubscriber();
     startWebhookDispatcher();
     setupCredentialRotation();
+    initializeQueues();
     if (process.env.LEDGER_SYNC_ENABLED === 'true') {
       ledgerSyncServiceInstance = new LedgerSyncService({ db });
       ledgerSyncServiceInstance.start();
@@ -404,6 +415,11 @@ async function gracefulShutdown(signal) {
     if (ledgerSyncServiceInstance) ledgerSyncServiceInstance.stop();
     await oracleWorkerPool.stop();
     credentialRotationService.stop();
+    try {
+      await shutdownQueues();
+    } catch(err) {
+      console.error('Error shutting down BullMQ:', err.message);
+    }
 
     // 2. Stop accepting new HTTP requests
     console.log('[Shutdown] Stopping HTTP server...');
