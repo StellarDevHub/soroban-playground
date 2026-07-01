@@ -6,6 +6,7 @@ import {
   buildPageInfo,
   normalizeSort,
 } from '../utils/cursorPagination.js';
+import { rlsRules } from '../config/rlsRules.js';
 
 export class QueryBuilder {
   constructor(tableName = 'contract_events') {
@@ -22,11 +23,37 @@ export class QueryBuilder {
   }
 
   /**
+   * Applies Row-Level Security restrictions to the query filter
+   */
+  applyRLS(filter, user, action) {
+    const rule = rlsRules[this.tableName];
+    if (rule) {
+      const restriction = rule(user, action);
+      if (restriction) {
+        if (!filter || Object.keys(filter).length === 0) {
+          return restriction;
+        }
+        return {
+          $and: [
+            filter,
+            restriction
+          ]
+        };
+      }
+    }
+    return filter;
+  }
+
+  /**
    * Main entry point to build a full SQL statement from a unified query object
    */
-  buildFullQuery(jsonQuery) {
+  buildFullQuery(jsonQuery, user = null, action = 'read') {
     this.params = []; // Reset parameters for new query
-    const { filter = {}, sort = [], limit = 50, cursor, aggregate } = jsonQuery;
+    let { filter = {}, sort = [], limit = 50, cursor, aggregate } = jsonQuery;
+
+    if (user) {
+      filter = this.applyRLS(filter, user, action);
+    }
 
     const where = this._parseNode(filter);
     const { select, groupBy } = this.buildAggregation(aggregate);
@@ -62,9 +89,13 @@ export class QueryBuilder {
     for (const [key, value] of Object.entries(node)) {
       if (key === '$or' || key === '$and') {
         const subOp = key === '$or' ? 'OR' : 'AND';
-        const subExpressions = value.map((subNode) => this._parseNode(subNode));
-        expressions.push(`(${subExpressions.join(` ${subOp} `)})`);
-      } else if (typeof value === 'object' && !Array.isArray(value)) {
+        const subExpressions = value
+          .map((subNode) => this._parseNode(subNode))
+          .filter(Boolean);
+        if (subExpressions.length > 0) {
+          expressions.push(`(${subExpressions.join(` ${subOp} `)})`);
+        }
+      } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
         for (const [op, opVal] of Object.entries(value)) {
           if (this.operators[op])
             expressions.push(this._buildExpression(key, op, opVal));

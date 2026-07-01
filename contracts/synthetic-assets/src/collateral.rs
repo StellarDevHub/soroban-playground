@@ -28,11 +28,8 @@ pub fn is_above_liquidation_threshold(
     price: i128,
 ) -> Result<bool, Error> {
     let threshold = get_liquidation_threshold(env)?;
-    let ratio = calculate_collateral_ratio(
-        position.collateral_amount,
-        position.minted_amount,
-        price,
-    )?;
+    let ratio =
+        calculate_collateral_ratio(position.collateral_amount, position.minted_amount, price)?;
 
     Ok(ratio <= threshold as i128)
 }
@@ -76,11 +73,11 @@ pub fn calculate_liquidation_reward(
 
     // Apply bonus
     let bonus = (collateral_share * bonus_bps as i128) / 10000;
-    let reward = collateral_share + bonus;
+    let mut reward = collateral_share + bonus;
 
     // Ensure we don't give more collateral than exists
     if reward > total_collateral {
-        return Err(Error::InsufficientBalance);
+        reward = total_collateral;
     }
 
     Ok(reward)

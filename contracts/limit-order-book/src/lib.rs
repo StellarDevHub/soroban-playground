@@ -194,7 +194,7 @@ impl LimitOrderBookContract {
     }
 
     /// Core matching logic: price-time priority.
-    /// Scans up to 200 existing orders for the best resting counterpart.
+    /// Scans up to 200 existing orders and matches against the best resting counterpart.
     fn try_match(env: &Env, aggressor_id: u64) -> Result<Vec<Trade>, Error> {
         let mut aggressor = match get_order(env, aggressor_id) {
             Some(o) => o,
@@ -209,37 +209,64 @@ impl LimitOrderBookContract {
 
         let total = get_order_count(env);
         let mut trades: Vec<Trade> = vec![env];
-
-        // Scan resting orders (oldest first = time priority within same price)
         let scan_limit = total.min(200);
-        for resting_id in 1..=scan_limit {
-            if aggressor.remaining <= 0 {
-                break;
-            }
-            if resting_id == aggressor_id {
-                continue;
+
+        while aggressor.remaining > 0 {
+            let mut best_match: Option<(u64, Order)> = None;
+
+            for resting_id in 1..=scan_limit {
+                if resting_id == aggressor_id {
+                    continue;
+                }
+
+                let resting = match get_order(env, resting_id) {
+                    Some(o) => o,
+                    None => continue,
+                };
+
+                if resting.status == OrderStatus::Filled || resting.status == OrderStatus::Cancelled {
+                    continue;
+                }
+
+                if resting.side == aggressor.side {
+                    continue;
+                }
+
+                let price_matches = match aggressor.side {
+                    Side::Buy => aggressor.price >= resting.price,
+                    Side::Sell => aggressor.price <= resting.price,
+                };
+
+                if !price_matches {
+                    continue;
+                }
+
+                let candidate_better = match &best_match {
+                    None => true,
+                    Some((_, best)) => match aggressor.side {
+                        Side::Buy => {
+                            resting.price < best.price
+                                || (resting.price == best.price
+                                    && resting.created_at < best.created_at)
+                        }
+                        Side::Sell => {
+                            resting.price > best.price
+                                || (resting.price == best.price
+                                    && resting.created_at < best.created_at)
+                        }
+                    },
+                };
+
+                if candidate_better {
+                    best_match = Some((resting_id, resting));
+                }
             }
 
-            let mut resting = match get_order(env, resting_id) {
-                Some(o) => o,
-                None => continue,
+            let (resting_id, mut resting) = match best_match {
+                Some(pair) => pair,
+                None => break,
             };
 
-            if resting.status == OrderStatus::Filled || resting.status == OrderStatus::Cancelled {
-                continue;
-            }
-
-            // Price check: buy aggressor needs price >= resting sell price
-            let price_matches = match aggressor.side {
-                Side::Buy => aggressor.price >= resting.price && resting.side == Side::Sell,
-                Side::Sell => aggressor.price <= resting.price && resting.side == Side::Buy,
-            };
-
-            if !price_matches {
-                continue;
-            }
-
-            // Execute at resting order's price (maker price)
             let fill_qty = aggressor.remaining.min(resting.remaining);
             let exec_price = resting.price;
 

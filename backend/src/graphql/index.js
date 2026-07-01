@@ -4,35 +4,37 @@
 
 import { createRequire } from 'module';
 const nodeRequire = createRequire(import.meta.url);
-const { createYoga, createSchema } = nodeRequire('graphql-yoga');
+const { createYoga } = nodeRequire('graphql-yoga');
 const { GraphQLError } = nodeRequire('graphql');
 import { typeDefs } from './schema.js';
 import { resolvers } from './resolvers.js';
+import { buildGraphQLSchema } from './authorization.js';
 import { createLoaders } from './dataloaders.js';
 import { computeComplexity, getMaxComplexityForRole } from './complexity.js';
 import {
   createPersistedQueryMiddleware,
   createPersistedQueryRouter,
 } from './persistedQueries.js';
+import authService from '../services/authService.js';
 
 // Build the executable schema once at startup
-const schema = createSchema({ typeDefs, resolvers });
+const schema = buildGraphQLSchema({ typeDefs, resolvers });
 
 /**
  * Extracts a minimal user context from the request for field-level auth.
- * In production, verify a JWT here. For now, the X-Role header is used
- * so the playground can be tested without a full auth stack.
  */
-function buildUserContext(request) {
-  const role = request.headers.get('x-role') ?? 'guest';
-  const token = (request.headers.get('authorization') ?? '').replace(
-    'Bearer ',
-    ''
-  );
-  return {
-    roles: role ? [role] : ['guest'],
-    token,
-  };
+async function buildUserContext(req, request) {
+  if (req && req.user) {
+    return req.user;
+  }
+  // Convert standard fetch request headers to a plain object
+  const headers = {};
+  if (request && request.headers) {
+    for (const [key, val] of request.headers.entries()) {
+      headers[key] = val;
+    }
+  }
+  return authService.authenticate({ headers });
 }
 
 export function createGraphQLServer() {
@@ -52,9 +54,9 @@ query Health {
     },
 
     // Per-request context: loaders + user
-    context: ({ request }) => ({
+    context: async ({ req, request }) => ({
       loaders: createLoaders(),
-      user: buildUserContext(request),
+      user: await buildUserContext(req, request),
     }),
 
     // Query complexity enforcement.
@@ -65,7 +67,8 @@ query Health {
     plugins: [
       {
         onExecute({ args, setResultAndStopExecution }) {
-          const roles = args.contextValue?.user?.roles ?? ['guest'];
+          const userRole = args.contextValue?.user?.role || 'guest';
+          const roles = args.contextValue?.user?.roles || [userRole];
           const max = getMaxComplexityForRole(roles);
           const score = computeComplexity(
             args.schema,

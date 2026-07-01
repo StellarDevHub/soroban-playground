@@ -64,34 +64,45 @@ function postJson(url, body, headers) {
 
 // ── Subscriptions ──────────────────────────────────────────────────────────────
 
-export async function createSubscription({ url, events = [], secret }) {
+export async function createSubscription({
+  tenantId,
+  url,
+  events = [],
+  secret,
+}) {
   if (!url || !secret) throw new Error('url and secret are required');
+  if (!tenantId) throw new Error('tenantId is required');
   const db = getDatabase();
   const id = newId();
-  const eventsJson = JSON.stringify(
-    Array.isArray(events) ? events : [events]
-  );
+  const eventsJson = JSON.stringify(Array.isArray(events) ? events : [events]);
   await db.run(
-    `INSERT INTO webhook_subscriptions (id, url, events, secret)
-     VALUES (?, ?, ?, ?)`,
-    [id, url, eventsJson, secret]
+    `INSERT INTO webhook_subscriptions (id, tenant_id, url, events, secret)
+     VALUES (?, ?, ?, ?, ?)`,
+    [id, tenantId, url, eventsJson, secret]
   );
-  return db.get('SELECT id, url, events, active, created_at FROM webhook_subscriptions WHERE id = ?', [id]);
+  return db.get(
+    'SELECT id, tenant_id, url, events, active, created_at FROM webhook_subscriptions WHERE id = ? AND tenant_id = ?',
+    [id, tenantId]
+  );
+
 }
 
-export async function listSubscriptions() {
+export async function listSubscriptions(tenantId) {
+  if (!tenantId) throw new Error('tenantId is required');
   const db = getDatabase();
   const rows = await db.all(
-    'SELECT id, url, events, active, created_at FROM webhook_subscriptions ORDER BY created_at DESC'
+    'SELECT id, tenant_id, url, events, active, created_at FROM webhook_subscriptions WHERE tenant_id = ? ORDER BY created_at DESC',
+    [tenantId]
   );
   return rows.map((r) => ({ ...r, events: JSON.parse(r.events) }));
 }
 
-export async function deleteSubscription(id) {
+export async function deleteSubscription(id, tenantId) {
+  if (!tenantId) throw new Error('tenantId is required');
   const db = getDatabase();
   const { changes } = await db.run(
-    'DELETE FROM webhook_subscriptions WHERE id = ?',
-    [id]
+    'DELETE FROM webhook_subscriptions WHERE id = ? AND tenant_id = ?',
+    [id, tenantId]
   );
   return changes > 0;
 }
@@ -99,10 +110,12 @@ export async function deleteSubscription(id) {
 // ── Dispatch ───────────────────────────────────────────────────────────────────
 
 // Enqueue a delivery job for every active subscription that listens to eventType.
-export async function enqueueEvent(eventType, payload) {
+export async function enqueueEvent(eventType, payload, tenantId) {
+  if (!tenantId) throw new Error('tenantId is required');
   const db = getDatabase();
   const subs = await db.all(
-    `SELECT id, events FROM webhook_subscriptions WHERE active = 1`
+    `SELECT id, events FROM webhook_subscriptions WHERE tenant_id = ? AND active = 1`,
+    [tenantId]
   );
 
   const deliveryIds = [];
@@ -113,9 +126,9 @@ export async function enqueueEvent(eventType, payload) {
     }
     const id = newId();
     await db.run(
-      `INSERT INTO webhook_deliveries (id, subscription_id, event_type, payload, next_attempt_at)
-       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-      [id, sub.id, eventType, JSON.stringify(payload)]
+      `INSERT INTO webhook_deliveries (id, tenant_id, subscription_id, event_type, payload, next_attempt_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [id, tenantId, sub.id, eventType, JSON.stringify(payload)]
     );
     deliveryIds.push(id);
   }
@@ -181,12 +194,17 @@ export async function processPendingDeliveries() {
 
 // ── Delivery history ──────────────────────────────────────────────────────────
 
-export async function listDeliveries(subscriptionId = null, limit = 50) {
+export async function listDeliveries(
+  tenantId,
+  subscriptionId = null,
+  limit = 50
+) {
+  if (!tenantId) throw new Error('tenantId is required');
   const db = getDatabase();
-  const params = [];
-  let where = '';
+  const params = [tenantId];
+  let where = 'WHERE d.tenant_id = ?';
   if (subscriptionId) {
-    where = 'WHERE d.subscription_id = ?';
+    where += ' AND d.subscription_id = ?';
     params.push(subscriptionId);
   }
   params.push(limit);

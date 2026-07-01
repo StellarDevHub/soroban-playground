@@ -571,7 +571,9 @@ export function detectPhase(sqlContent) {
  */
 export function detectLockingSQL(sql) {
   const warnings = [];
-  if (/ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN\s+.+NOT\s+NULL(?!\s+DEFAULT)/i.test(sql)) {
+  if (
+    /ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN\s+.+NOT\s+NULL(?!\s+DEFAULT)/i.test(sql)
+  ) {
     warnings.push(
       'ADD COLUMN NOT NULL without DEFAULT requires a full table rewrite in SQLite'
     );
@@ -585,7 +587,10 @@ export function detectLockingSQL(sql) {
  *   phase='contract' → only migrations tagged `-- @phase: contract`
  *   phase=null       → all pending (same as applyPendingMigrations, backward compat)
  */
-export async function applyPendingMigrationsPhased(phase = null, { dryRun = false } = {}) {
+export async function applyPendingMigrationsPhased(
+  phase = null,
+  { dryRun = false } = {}
+) {
   const files = await readMigrationFiles();
   const ups = files
     .filter((f) => f.direction === 'up')
@@ -601,7 +606,12 @@ export async function applyPendingMigrationsPhased(phase = null, { dryRun = fals
     try {
       sql = await fsp.readFile(f.fullPath, 'utf8');
     } catch (err) {
-      results.push({ status: 'failed', version: f.version, error: err.message, phase: null });
+      results.push({
+        status: 'failed',
+        version: f.version,
+        error: err.message,
+        phase: null,
+      });
       break;
     }
 

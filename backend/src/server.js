@@ -6,7 +6,6 @@ import http from 'http';
 import https from 'https';
 import cors from 'cors';
 import morgan from 'morgan';
-import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -16,12 +15,14 @@ import { corsOptions } from './config/cors.js';
 import { applyServerTuning } from './config/http2Config.js';
 import { http2PushMiddleware } from './middleware/http2Push.js';
 import apiRouter from './routes/api.js';
-import { startCleanupWorker } from './cleanupWorker.js';
+import authRoute from './routes/auth.js';
+import cookieParser from 'cookie-parser';
+import { startCleanupWorker, stopCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
-import { setupWebsocketServer } from './websocket.js';
+import { setupWebsocketServer, closeWebsocketServer } from './websocket.js';
 import { initializeCompileService } from './services/compileService.js';
 import adminRoute from './routes/admin.js';
-import metricsRoute, { requestLatency } from './routes/metrics.js';
+import metricsRoute, { requestLatency, recordHttpRequest } from './routes/metrics.js';
 import oracleRoute from './routes/oracle.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
@@ -39,19 +40,45 @@ import { setupGraphQL } from './graphql/index.js';
 import {
   initializeDatabase,
   refreshDatabaseConnection,
+  closeDatabase,
 } from './database/connection.js';
 import { compressionMiddleware } from './middleware/compressionMiddleware.js';
+import applyDdosProtection from './middleware/ddosMitigation.js';
+import applySecurityHeaders from './middleware/securityHeaders.js';
 import feeEngineRoute from './routes/feeEngine.js';
 import featureFlagsRoute from './routes/featureFlags.js';
 import featureFlagService from './services/featureFlagService.js';
+import { startMemoryLeakDetector } from './services/memoryLeakDetector.js';
+import { contractEventIndexer } from './services/contractEventIndexer.js';
+import { runStartupMigrations } from './services/migrationService.js';
+import healthService from './services/healthService.js';
 import { LedgerSyncService } from './services/ledgerSyncService.js';
+import healthRouter, { healthHandler } from './routes/health.js';
+import snippetsRoute from './routes/snippets.js';
+import deployQueueRoute from './routes/deployQueue.js';
+import backupRoute from './routes/backup.js';
+import { startBackupScheduler } from './services/backupScheduler.js';
+import {
+  initializeQueues,
+  queueDashboard,
+  shutdownQueues,
+} from './services/queueService.js';
+import backgroundJobsRoute from './routes/backgroundJobs.js';
+import predictionMarketRoute from './routes/predictionMarket.js';
+import { startWebhookDispatcher, stopWebhookDispatcher } from './services/webhookDispatcher.js';
+import { webhooksRoute } from './routes/webhooks.js';
+import corsAdminRoute from './routes/corsAdmin.js';
+import serviceRegistryRoute from './routes/serviceRegistry.js';
+import batchSubmitterRoute from './routes/batchSubmitter.js';
+import { setupSwagger } from './docs/swagger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const server = http.createServer(app);
-applyServerTuning(server); // HTTP/2: keep-alive + headers-timeout tuning
+let httpServer = http.createServer(app);
+applyServerTuning(httpServer); // HTTP/2: keep-alive + headers-timeout tuning
+let server;
 
 // TLS/SSL Hardening configuration
 const httpsOptions = {
@@ -94,31 +121,18 @@ try {
 }
 
 // Fallback to HTTP if no certs are provided, otherwise use HTTPS
-const server = hasCertificates
+server = hasCertificates
   ? https.createServer(httpsOptions, app)
-  : http.createServer(app);
+  : httpServer;
 const PORT = process.env.PORT || 5000;
 
-// Load package.json for version info
-let packageJson = {};
-try {
-  packageJson = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
-  );
-} catch {
-  try {
-    packageJson = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8')
-    );
-  } catch {
-    packageJson = { version: 'unknown', name: 'soroban-playground-backend' };
-  }
-}
-
 // Basic middleware
+applyDdosProtection(app);
+applySecurityHeaders(app);
 app.use(morgan('combined'));
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
+app.use(cookieParser());
 app.use(compressionMiddleware);
 app.use(http2PushMiddleware);
 
@@ -139,14 +153,16 @@ app.use((req, res, next) => {
     const diff = process.hrtime(start);
     const time = diff[0] + diff[1] / 1e9;
     try {
+      const route = req.route ? req.route.path : req.path;
       requestLatency.observe(
         {
           method: req.method,
-          route: req.route ? req.route.path : req.path,
+          route,
           status: res.statusCode,
         },
         time
       );
+      recordHttpRequest(req.method, route, res.statusCode);
     } catch {
       // metrics are best-effort
     }
@@ -174,99 +190,32 @@ app.use('/api/v1/events', eventsV1Route);
 app.use('/api/registry', serviceRegistryRoute);
 app.use('/api/batch', batchSubmitterRoute);
 app.use('/api/credentials', credentialsRoute);
+app.use('/api/snippets', snippetsRoute);
+app.use('/api/deploy-queue', deployQueueRoute);
+app.use('/api/backup', backupRoute);
+app.use('/api/auth', authRoute);
+app.use('/api/background-jobs', backgroundJobsRoute);
+if (config.app.env === 'development') {
+  app.use('/admin/queues', queueDashboard);
+}
+app.use('/api/prediction-market', predictionMarketRoute);
 app.use('/metrics', metricsRoute);
 
 // GraphQL Endpoint
 setupGraphQL(app);
 setupSwagger(app);
 
-// ─── Health Check Helpers ──────────────────────────────────────────────────────
-
-function getCpuUsage() {
-  return os.cpus().map((cpu, index) => {
-    const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
-    const idle = cpu.times.idle;
-    return {
-      core: index,
-      model: cpu.model,
-      speedMHz: cpu.speed,
-      usedPercent: total > 0 ? +((1 - idle / total) * 100).toFixed(1) : 0,
-    };
-  });
-}
-
-function getMemoryInfo() {
-  const totalBytes = os.totalmem();
-  const freeBytes = os.freemem();
-  const usedBytes = totalBytes - freeBytes;
-  const toMB = (b) => +(b / 1024 / 1024).toFixed(2);
-  return {
-    totalMB: toMB(totalBytes),
-    freeMB: toMB(freeBytes),
-    usedMB: toMB(usedBytes),
-    usedPercent: +((usedBytes / totalBytes) * 100).toFixed(1),
-  };
-}
-
-function getUptimeInfo() {
-  const formatSeconds = (s) => {
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = Math.floor(s % 60);
-    return [d && `${d}d`, h && `${h}h`, m && `${m}m`, `${sec}s`]
-      .filter(Boolean)
-      .join(' ');
-  };
-  return {
-    processSec: Math.floor(process.uptime()),
-    processHuman: formatSeconds(process.uptime()),
-    systemSec: Math.floor(os.uptime()),
-    systemHuman: formatSeconds(os.uptime()),
-  };
-}
-
-function getRuntimeInfo() {
-  return {
-    node: process.version,
-    platform: process.platform,
-    arch: process.arch,
-    pid: process.pid,
-  };
-}
-
-// ─── Health Check Endpoint ────────────────────────────────────────────────────
+// ─── Health Check and Readiness Probes ────────────────────────────────────────
 app.get('/', (_req, res) => {
   res.status(200).send('Soroban Playground Backend API is running.');
 });
 
-app.get('/api/health', (_req, res) => {
-  try {
-    const memory = getMemoryInfo();
-    const status = memory.usedPercent > 95 ? 'degraded' : 'ok';
-    const payload = {
-      status,
-      version: packageJson.version ?? 'unknown',
-      service: packageJson.name ?? 'soroban-playground-backend',
-      timestamp: new Date().toISOString(),
-      uptime: getUptimeInfo(),
-      cpu: getCpuUsage(),
-      memory,
-      runtime: getRuntimeInfo(),
-    };
-    return res.status(200).json({ success: true, data: payload });
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      data: {
-        status: 'error',
-        version: packageJson.version ?? 'unknown',
-        timestamp: new Date().toISOString(),
-        error: err.message,
-      },
-    });
-  }
-});
+app.use('/health', healthRouter);
+app.get('/api/health', healthHandler);
+
+app.get('/health/live', handleLivenessCheck);
+app.get('/health', handleDeepHealthCheck);
+app.get('/api/health', handleDeepHealthCheck);
 
 // Error handlers (must be after routes)
 app.use(notFoundHandler);
@@ -304,6 +253,8 @@ function setupCredentialRotation() {
   credentialRotationService.start();
 }
 
+let ledgerSyncServiceInstance = null;
+
 // WebSocket + compile service + database init
 initializeDatabase()
   .then((db) => {
@@ -311,11 +262,14 @@ initializeDatabase()
     initializeCompileService().catch(console.error);
     oracleWorkerPool.start();
     startCleanupWorker();
+    startBackupScheduler();
     featureFlagService.initSubscriber();
     startWebhookDispatcher();
     setupCredentialRotation();
+    initializeQueues();
     if (process.env.LEDGER_SYNC_ENABLED === 'true') {
-      new LedgerSyncService({ db }).start();
+      ledgerSyncServiceInstance = new LedgerSyncService({ db });
+      ledgerSyncServiceInstance.start();
     }
 
     // Start listening
@@ -332,9 +286,59 @@ initializeDatabase()
   });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Shutting down gracefully...');
-  server.close(() => process.exit(0));
-});
+let isShuttingDown = false;
+const SHUTDOWN_TIMEOUT_MS = 30000;
+
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n[Shutdown] Received ${signal}. Starting graceful shutdown...`);
+
+  const forceExit = setTimeout(() => {
+    console.error('[Shutdown] Graceful shutdown timed out after 30s. Force exiting.');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+
+  try {
+    // 1. Stop background workers
+    console.log('[Shutdown] Stopping background workers...');
+    stopCleanupWorker();
+    stopWebhookDispatcher();
+    if (ledgerSyncServiceInstance) ledgerSyncServiceInstance.stop();
+    await oracleWorkerPool.stop();
+    credentialRotationService.stop();
+    try {
+      await shutdownQueues();
+    } catch(err) {
+      console.error('Error shutting down BullMQ:', err.message);
+    }
+
+    // 2. Stop accepting new HTTP requests
+    console.log('[Shutdown] Stopping HTTP server...');
+    await new Promise((resolve) => server.close(resolve));
+
+    // 3. Stop WebSocket connections
+    console.log('[Shutdown] Closing WebSocket server...');
+    closeWebsocketServer();
+
+    // 4. Close database and Redis connections
+    console.log('[Shutdown] Closing database and Redis connections...');
+    await closeDatabase();
+    if (redisService.client) {
+      await redisService.client.quit();
+    }
+
+    console.log('[Shutdown] Graceful shutdown completed cleanly.');
+    clearTimeout(forceExit);
+    process.exit(0);
+  } catch (err) {
+    console.error('[Shutdown] Error during shutdown:', err);
+    clearTimeout(forceExit);
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 export default app;

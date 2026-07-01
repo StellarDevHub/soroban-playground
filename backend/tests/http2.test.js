@@ -31,7 +31,9 @@ describe('http2Config constants', () => {
   });
 
   it('HTTP2_SERVER_OPTIONS caps concurrent streams', () => {
-    expect(HTTP2_SERVER_OPTIONS.settings.maxConcurrentStreams).toBeGreaterThan(0);
+    expect(HTTP2_SERVER_OPTIONS.settings.maxConcurrentStreams).toBeGreaterThan(
+      0
+    );
   });
 
   it('PUSH_RULES is a non-empty array with match and assets fields', () => {
@@ -105,7 +107,9 @@ describe('http2PushMiddleware', () => {
     const headers = {};
     const res = {
       stream: null, // no HTTP/2 stream – simulates HTTP/1.1
-      setHeader: jest.fn((k, v) => { headers[k] = v; }),
+      setHeader: jest.fn((k, v) => {
+        headers[k] = v;
+      }),
       getHeaders: () => headers,
     };
     return { req, res, headers };
@@ -136,7 +140,9 @@ describe('http2PushMiddleware', () => {
     const { req, res } = makeReqRes('/');
     res.stream = {
       destroyed: false,
-      pushStream: jest.fn((_headers, cb) => cb(null, { respond: jest.fn(), end: jest.fn(), on: jest.fn() })),
+      pushStream: jest.fn((_headers, cb) =>
+        cb(null, { respond: jest.fn(), end: jest.fn(), on: jest.fn() })
+      ),
     };
     const next = jest.fn();
 

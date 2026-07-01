@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #![cfg(test)]
+extern crate std;
 
 use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address, Env, String};
 
@@ -19,7 +20,7 @@ fn setup() -> (Env, Address, DidRegistryClient<'static>) {
 }
 
 fn did(env: &Env, addr: &Address) -> String {
-    String::from_str(env, &format!("did:soroban:{}", addr.to_string()))
+    String::from_str(env, &std::format!("did:soroban:{:?}", addr))
 }
 
 fn register(env: &Env, client: &DidRegistryClient, addr: &Address) {

@@ -50,7 +50,14 @@ export class ServiceRegistry extends EventEmitter {
     if (!this.#services.has(name)) {
       this.#services.set(name, new Map());
     }
-    const entry = { instanceId, host, port, metadata, lastHeartbeat: Date.now(), healthy: true };
+    const entry = {
+      instanceId,
+      host,
+      port,
+      metadata,
+      lastHeartbeat: Date.now(),
+      healthy: true,
+    };
     this.#services.get(name).set(instanceId, entry);
     this.#startPruneTimer();
     this.emit('registered', { name, instanceId });
@@ -60,7 +67,8 @@ export class ServiceRegistry extends EventEmitter {
   /** Update heartbeat timestamp for an instance. */
   heartbeat(name, instanceId) {
     const entry = this.#services.get(name)?.get(instanceId);
-    if (!entry) throw new Error(`Unknown instance ${instanceId} for service ${name}`);
+    if (!entry)
+      throw new Error(`Unknown instance ${instanceId} for service ${name}`);
     entry.lastHeartbeat = Date.now();
     entry.healthy = true;
   }
@@ -112,7 +120,11 @@ export class ServiceRegistry extends EventEmitter {
         if (now - entry.lastHeartbeat > this.#ttlMs) {
           entry.healthy = false;
           instances.delete(instanceId);
-          this.emit('pruned', { name, instanceId, reason: 'heartbeat_timeout' });
+          this.emit('pruned', {
+            name,
+            instanceId,
+            reason: 'heartbeat_timeout',
+          });
         }
       }
     }

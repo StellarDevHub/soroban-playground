@@ -12,6 +12,7 @@
 import { invokeContract } from './invokeService.js';
 import { redisService } from './redisService.js';
 import { databaseService } from './databaseService.js';
+import { assertSafeIdentifier } from '../database/safeQuery.js';
 import { logger } from '../utils/logger.js';
 
 const CACHE_TTL = {
@@ -607,7 +608,10 @@ class SyntheticAssetsService {
   }
 
   async updatePosition(positionId, updates) {
-    const fields = Object.keys(updates).map((key, i) => `${key} = $${i + 2}`);
+    const fields = Object.keys(updates).map((key, i) => {
+      assertSafeIdentifier(key, 'column');
+      return `${key} = $${i + 2}`;
+    });
     const values = Object.values(updates);
 
     await databaseService.query(

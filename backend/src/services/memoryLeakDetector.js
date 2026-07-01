@@ -8,8 +8,13 @@ import { alertManager } from '../utils/alerting.js';
 
 class MemoryLeakDetector {
   constructor() {
-    const { heapLimitMb, heapThresholdPct, heapDumpDir, heapDumpIntervalMs, heapDumpS3Bucket } =
-      config.memory;
+    const {
+      heapLimitMb,
+      heapThresholdPct,
+      heapDumpDir,
+      heapDumpIntervalMs,
+      heapDumpS3Bucket,
+    } = config.memory;
 
     this._limitBytes = heapLimitMb * 1024 * 1024;
     this._thresholdPct = heapThresholdPct;
@@ -22,7 +27,11 @@ class MemoryLeakDetector {
     // 0o700: owner-only — heap snapshots may contain secrets from process memory.
     fs.mkdirSync(this._dumpDir, { recursive: true, mode: 0o700 });
     // mkdirSync does not change the mode of a pre-existing directory.
-    try { fs.chmodSync(this._dumpDir, 0o700); } catch { /* best-effort */ }
+    try {
+      fs.chmodSync(this._dumpDir, 0o700);
+    } catch {
+      /* best-effort */
+    }
   }
 
   start() {
@@ -65,9 +74,8 @@ class MemoryLeakDetector {
 
     if (this._s3Bucket) {
       try {
-        const { S3Client, PutObjectCommand } = await import(
-          '@aws-sdk/client-s3'
-        );
+        const { S3Client, PutObjectCommand } =
+          await import('@aws-sdk/client-s3');
         const s3 = new S3Client({});
         const fileStream = fs.createReadStream(outPath);
         await s3.send(
@@ -78,7 +86,10 @@ class MemoryLeakDetector {
           })
         );
       } catch (err) {
-        if (err.code !== 'ERR_MODULE_NOT_FOUND' && err.code !== 'MODULE_NOT_FOUND') {
+        if (
+          err.code !== 'ERR_MODULE_NOT_FOUND' &&
+          err.code !== 'MODULE_NOT_FOUND'
+        ) {
           console.warn('S3 upload failed:', err.message);
         }
       }

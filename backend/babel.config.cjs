@@ -1,12 +1,33 @@
 const path = require('path');
-const localModules = path.resolve(__dirname, '../node_modules');
+
+function requireFromBackendFirst(packageName) {
+  try {
+    return require(require.resolve(packageName, { paths: [__dirname] }));
+  } catch {
+    return require(
+      require.resolve(packageName, {
+        paths: [path.resolve(__dirname, '../node_modules')],
+      })
+    );
+  }
+}
+
+function resolveBabelModule(name) {
+  return require.resolve(name, { paths: [__dirname, localModules] });
+}
 
 module.exports = {
   presets: [
+<<<<<<< HEAD
     [
-      require(path.join(localModules, '@babel/preset-env')),
+      requireFromBackendFirst('@babel/preset-env'),
       { targets: { node: 'current' } },
     ],
   ],
-  plugins: [require(path.join(localModules, 'babel-plugin-transform-import-meta'))],
+  plugins: [requireFromBackendFirst('babel-plugin-transform-import-meta')],
+=======
+    [resolveBabelModule('@babel/preset-env'), { targets: { node: 'current' } }],
+  ],
+  plugins: [resolveBabelModule('babel-plugin-transform-import-meta')],
+>>>>>>> origin/main
 };

@@ -8,10 +8,11 @@ const DEFAULTS = {
   APP_ENV: 'development',
   GLOBAL_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
   GLOBAL_RATE_LIMIT_MAX: 1000,
-  COMPILE_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
-  COMPILE_RATE_LIMIT_MAX: 1500,
+  COMPILE_RATE_LIMIT_WINDOW_MS: 60 * 1000,
+  COMPILE_RATE_LIMIT_MAX: 10,
   COMPILE_COMMAND: 'cargo build --target wasm32-unknown-unknown --release',
   COMPILE_TIMEOUT_MS: 120000,
+  COMPILE_MAX_SOURCE_BYTES: 1024 * 1024,
   COMPILE_TEMP_DIR_PREFIX: '.tmp_compile_',
   WASM_TARGET_SUBPATH: 'target/wasm32-unknown-unknown/release',
   WASM_FILENAME: 'soroban_contract.wasm',
@@ -36,6 +37,11 @@ const DEFAULTS = {
   HEAP_DUMP_INTERVAL_MS: 30000,
   SOROBAN_RPC_URL: 'https://soroban-testnet.stellar.org',
   INDEXER_POLL_INTERVAL_MS: 5000,
+  BACKUP_ENABLED: false,
+  BACKUP_CRON_SCHEDULE: '0 2 * * *',
+  BACKUP_S3_PREFIX: 'sqlite-backups/',
+  BACKUP_S3_REGION: 'us-east-1',
+  BACKUP_RETENTION_COUNT: 30,
 };
 
 const CONFIG_WARNING_PREFIX = 'CONFIG WARNING';
@@ -191,6 +197,13 @@ export function createConfig(env = process.env, options = {}) {
         warnings,
         { min: 1 }
       ),
+      maxSourceBytes: toInt(
+        env.COMPILE_MAX_SOURCE_BYTES,
+        DEFAULTS.COMPILE_MAX_SOURCE_BYTES,
+        'COMPILE_MAX_SOURCE_BYTES',
+        warnings,
+        { min: 1024 }
+      ),
       tempDirPrefix: cleanString(
         env.COMPILE_TEMP_DIR_PREFIX,
         DEFAULTS.COMPILE_TEMP_DIR_PREFIX
@@ -331,6 +344,22 @@ export function createConfig(env = process.env, options = {}) {
         warnings,
         { min: 1000 }
       ),
+    },
+    backup: {
+      enabled: toBoolean(env.BACKUP_ENABLED, DEFAULTS.BACKUP_ENABLED, 'BACKUP_ENABLED', warnings),
+      cronSchedule: cleanString(env.BACKUP_CRON_SCHEDULE, DEFAULTS.BACKUP_CRON_SCHEDULE),
+      s3Bucket: cleanString(env.BACKUP_S3_BUCKET, undefined),
+      s3Prefix: cleanString(env.BACKUP_S3_PREFIX, DEFAULTS.BACKUP_S3_PREFIX),
+      s3Region: cleanString(env.BACKUP_S3_REGION, DEFAULTS.BACKUP_S3_REGION),
+      encryptionKey: cleanString(env.BACKUP_ENCRYPTION_KEY, undefined),
+      retentionCount: toInt(
+        env.BACKUP_RETENTION_COUNT,
+        DEFAULTS.BACKUP_RETENTION_COUNT,
+        'BACKUP_RETENTION_COUNT',
+        warnings,
+        { min: 1, max: 365 }
+      ),
+      tempDir: cleanString(env.BACKUP_TEMP_DIR, undefined),
     },
   };
 

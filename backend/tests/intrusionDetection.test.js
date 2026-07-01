@@ -6,7 +6,10 @@ jest.mock('../src/services/redisService.js', () => {
     __esModule: true,
     default: {
       get: jest.fn(async (k) => store.get(k) ?? null),
-      set: jest.fn(async (k, v) => { store.set(k, v); return 'OK'; }),
+      set: jest.fn(async (k, v) => {
+        store.set(k, v);
+        return 'OK';
+      }),
       _store: store,
       _reset: () => store.clear(),
     },
@@ -28,8 +31,14 @@ function makeReq(overrides = {}) {
 
 function makeRes() {
   const res = { _status: null, _body: null };
-  res.status = jest.fn((s) => { res._status = s; return res; });
-  res.json = jest.fn((b) => { res._body = b; return res; });
+  res.status = jest.fn((s) => {
+    res._status = s;
+    return res;
+  });
+  res.json = jest.fn((b) => {
+    res._body = b;
+    return res;
+  });
   return res;
 }
 
@@ -62,7 +71,11 @@ describe('createIntrusionDetection', () => {
     it('blocks UNION SELECT attacks', async () => {
       const mw = createIntrusionDetection({ scoreThreshold: 100 });
       const res = makeRes();
-      await mw(makeReq({ ip: '10.1.0.1', body: { q: "1 UNION SELECT * FROM users" } }), res, jest.fn());
+      await mw(
+        makeReq({ ip: '10.1.0.1', body: { q: '1 UNION SELECT * FROM users' } }),
+        res,
+        jest.fn()
+      );
       expect(res._status).toBe(400);
       expect(res._body.threats).toContain('sql_injection');
     });
@@ -70,7 +83,11 @@ describe('createIntrusionDetection', () => {
     it('blocks DROP TABLE injections', async () => {
       const mw = createIntrusionDetection({ scoreThreshold: 100 });
       const res = makeRes();
-      await mw(makeReq({ ip: '10.1.0.2', query: { id: "1; DROP TABLE users" } }), res, jest.fn());
+      await mw(
+        makeReq({ ip: '10.1.0.2', query: { id: '1; DROP TABLE users' } }),
+        res,
+        jest.fn()
+      );
       expect(res._status).toBe(400);
     });
   });
@@ -79,7 +96,11 @@ describe('createIntrusionDetection', () => {
     it('blocks ../ traversal in path', async () => {
       const mw = createIntrusionDetection({ scoreThreshold: 100 });
       const res = makeRes();
-      await mw(makeReq({ ip: '10.2.0.1', path: '/api/../../../etc/passwd' }), res, jest.fn());
+      await mw(
+        makeReq({ ip: '10.2.0.1', path: '/api/../../../etc/passwd' }),
+        res,
+        jest.fn()
+      );
       expect(res._status).toBe(400);
       expect(res._body.threats).toContain('path_traversal');
     });
@@ -87,7 +108,11 @@ describe('createIntrusionDetection', () => {
     it('blocks URL-encoded traversal', async () => {
       const mw = createIntrusionDetection({ scoreThreshold: 100 });
       const res = makeRes();
-      await mw(makeReq({ ip: '10.2.0.2', query: { file: '%2e%2e%2fetc%2fpasswd' } }), res, jest.fn());
+      await mw(
+        makeReq({ ip: '10.2.0.2', query: { file: '%2e%2e%2fetc%2fpasswd' } }),
+        res,
+        jest.fn()
+      );
       expect(res._status).toBe(400);
     });
   });
@@ -96,7 +121,14 @@ describe('createIntrusionDetection', () => {
     it('blocks script tag injection', async () => {
       const mw = createIntrusionDetection({ scoreThreshold: 100 });
       const res = makeRes();
-      await mw(makeReq({ ip: '10.3.0.1', body: { comment: '<script>alert(1)</script>' } }), res, jest.fn());
+      await mw(
+        makeReq({
+          ip: '10.3.0.1',
+          body: { comment: '<script>alert(1)</script>' },
+        }),
+        res,
+        jest.fn()
+      );
       expect(res._status).toBe(400);
       expect(res._body.threats).toContain('xss');
     });
@@ -104,17 +136,28 @@ describe('createIntrusionDetection', () => {
 
   describe('IP banning', () => {
     it('bans IP once score crosses threshold', async () => {
-      const mw = createIntrusionDetection({ scoreThreshold: 5, blockTtlSeconds: 60 });
+      const mw = createIntrusionDetection({
+        scoreThreshold: 5,
+        blockTtlSeconds: 60,
+      });
       const ip = '1.2.3.4';
 
       // First hit — score = 3 (sql_injection score), below threshold
       const res1 = makeRes();
-      await mw(makeReq({ ip, body: { q: "1 UNION SELECT * FROM users" } }), res1, jest.fn());
+      await mw(
+        makeReq({ ip, body: { q: '1 UNION SELECT * FROM users' } }),
+        res1,
+        jest.fn()
+      );
       expect(res1._status).toBe(400);
 
       // Second hit — cumulative score >= 5, should ban
       const res2 = makeRes();
-      await mw(makeReq({ ip, body: { q: "1 UNION SELECT * FROM users" } }), res2, jest.fn());
+      await mw(
+        makeReq({ ip, body: { q: '1 UNION SELECT * FROM users' } }),
+        res2,
+        jest.fn()
+      );
       expect(res2._status).toBe(403);
     });
 
@@ -136,7 +179,11 @@ describe('createIntrusionDetection', () => {
     it('detects shell command injection in body', async () => {
       const mw = createIntrusionDetection({ scoreThreshold: 100 });
       const res = makeRes();
-      await mw(makeReq({ ip: '10.4.0.1', body: { cmd: '| bash -c "whoami"' } }), res, jest.fn());
+      await mw(
+        makeReq({ ip: '10.4.0.1', body: { cmd: '| bash -c "whoami"' } }),
+        res,
+        jest.fn()
+      );
       expect(res._status).toBe(400);
       expect(res._body.threats).toContain('command_injection');
     });
@@ -148,8 +195,16 @@ describe('createIntrusionDetection', () => {
       const mw = createIntrusionDetection({ scoreThreshold: 3, onBlock });
       const ip = '5.5.5.5';
 
-      await mw(makeReq({ ip, body: { q: "1 UNION SELECT * FROM users" } }), makeRes(), jest.fn());
-      expect(onBlock).toHaveBeenCalledWith(ip, expect.any(Array), expect.any(Number));
+      await mw(
+        makeReq({ ip, body: { q: '1 UNION SELECT * FROM users' } }),
+        makeRes(),
+        jest.fn()
+      );
+      expect(onBlock).toHaveBeenCalledWith(
+        ip,
+        expect.any(Array),
+        expect.any(Number)
+      );
     });
   });
 });

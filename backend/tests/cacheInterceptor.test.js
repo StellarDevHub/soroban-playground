@@ -1,4 +1,8 @@
-import { extractTableName, invalidateCacheForTable, withCacheBusting } from '../src/database/cacheInterceptor.js';
+import {
+  extractTableName,
+  invalidateCacheForTable,
+  withCacheBusting,
+} from '../src/database/cacheInterceptor.js';
 import multiLevelCache from '../src/services/multiLevelCache.js';
 import cacheService from '../src/services/cacheService.js';
 
@@ -6,14 +10,14 @@ jest.mock('../src/services/multiLevelCache.js', () => ({
   __esModule: true,
   default: {
     invalidatePattern: jest.fn().mockResolvedValue(),
-  }
+  },
 }));
 
 jest.mock('../src/services/cacheService.js', () => ({
   __esModule: true,
   default: {
     clearSearchCache: jest.fn().mockResolvedValue(),
-  }
+  },
 }));
 
 describe('Cache Interceptor', () => {
@@ -23,8 +27,12 @@ describe('Cache Interceptor', () => {
 
   describe('extractTableName', () => {
     it('should extract table from INSERT', () => {
-      expect(extractTableName('INSERT INTO projects (title) VALUES (?)')).toBe('projects');
-      expect(extractTableName('INSERT OR IGNORE INTO api_keys (key) VALUES (?)')).toBe('api_keys');
+      expect(extractTableName('INSERT INTO projects (title) VALUES (?)')).toBe(
+        'projects'
+      );
+      expect(
+        extractTableName('INSERT OR IGNORE INTO api_keys (key) VALUES (?)')
+      ).toBe('api_keys');
     });
 
     it('should extract table from UPDATE', () => {
@@ -45,13 +53,17 @@ describe('Cache Interceptor', () => {
       await invalidateCacheForTable('projects');
       expect(multiLevelCache.invalidatePattern).toHaveBeenCalledWith('search:');
       expect(multiLevelCache.invalidatePattern).toHaveBeenCalledWith('facets:');
-      expect(multiLevelCache.invalidatePattern).toHaveBeenCalledWith('projects:');
+      expect(multiLevelCache.invalidatePattern).toHaveBeenCalledWith(
+        'projects:'
+      );
       expect(cacheService.clearSearchCache).toHaveBeenCalled();
     });
 
     it('should invalidate api_keys patterns', async () => {
       await invalidateCacheForTable('api_keys');
-      expect(multiLevelCache.invalidatePattern).toHaveBeenCalledWith('api_keys:');
+      expect(multiLevelCache.invalidatePattern).toHaveBeenCalledWith(
+        'api_keys:'
+      );
       expect(cacheService.clearSearchCache).not.toHaveBeenCalled();
     });
 
@@ -66,22 +78,26 @@ describe('Cache Interceptor', () => {
       const mockDb = {
         run: jest.fn(function (sql, params, cb) {
           if (cb) cb.call({ lastID: 1, changes: 1 }, null);
-        })
+        }),
       };
 
       const wrappedDb = withCacheBusting(mockDb);
-      wrappedDb.run('INSERT INTO projects (title) VALUES (?)', ['Test'], async (err) => {
-        expect(err).toBeNull();
-        // Allow microtasks to complete
-        await Promise.resolve();
-        expect(multiLevelCache.invalidatePattern).toHaveBeenCalled();
-        done();
-      });
+      wrappedDb.run(
+        'INSERT INTO projects (title) VALUES (?)',
+        ['Test'],
+        async (err) => {
+          expect(err).toBeNull();
+          // Allow microtasks to complete
+          await Promise.resolve();
+          expect(multiLevelCache.invalidatePattern).toHaveBeenCalled();
+          done();
+        }
+      );
     });
 
     it('should support Promise based run', async () => {
       const mockDb = {
-        run: jest.fn().mockResolvedValue({ changes: 1 })
+        run: jest.fn().mockResolvedValue({ changes: 1 }),
       };
 
       const wrappedDb = withCacheBusting(mockDb);

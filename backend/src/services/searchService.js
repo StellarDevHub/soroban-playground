@@ -1,4 +1,8 @@
 import { getDatabase } from '../database/connection.js';
+import {
+  cutoffTimestampDaysAgo,
+  resolveMappedSort,
+} from '../database/safeQuery.js';
 
 class SearchService {
   constructor() {
@@ -93,7 +97,12 @@ class SearchService {
   }
 
   // Enhanced search with fuzzy matching and ranking
-  async searchProjects(query, filters = {}, pagination = {}) {
+  async searchProjects(
+    query,
+    filters = {},
+    pagination = {},
+    tenantId = 'public'
+  ) {
     const startTime = Date.now();
     const {
       category,
@@ -122,9 +131,10 @@ class SearchService {
         FROM projects p
         JOIN projects_fts ON p.id = projects_fts.rowid
         WHERE projects_fts MATCH ?
+          AND p.tenant_id = ?
       `;
 
-      const queryParams = [`%${query}%`, `%${query}%`, query];
+      const queryParams = [`%${query}%`, `%${query}%`, query, tenantId];
 
       // Add filters
       if (category) {
@@ -149,7 +159,7 @@ class SearchService {
       }
 
       // Add sorting based on ranking algorithm
-      const sortMapping = {
+      const SORT_OPTIONS = {
         relevance:
           'search_rank DESC, field_weight DESC, p.completion_rate DESC',
         funding: 'p.current_funding DESC',
@@ -158,7 +168,7 @@ class SearchService {
         title: 'p.title ASC',
       };
 
-      searchQuery += ` ORDER BY ${sortMapping[sortBy] || sortMapping['relevance']}`;
+      searchQuery += ` ORDER BY ${resolveMappedSort(sortBy, SORT_OPTIONS)}`;
       searchQuery += ` LIMIT ? OFFSET ?`;
       queryParams.push(limit, offset);
 
@@ -170,6 +180,7 @@ class SearchService {
         FROM projects p
         JOIN projects_fts ON p.id = projects_fts.rowid
         WHERE projects_fts MATCH ?
+          AND p.tenant_id = ?
         ${category ? 'AND p.category = ?' : ''}
         ${status ? 'AND p.status = ?' : ''}
         ${creator ? 'AND p.creator_name LIKE ?' : ''}
@@ -177,7 +188,7 @@ class SearchService {
         ${fundingMax !== undefined ? 'AND p.current_funding <= ?' : ''}
       `;
 
-      const countParams = [query];
+      const countParams = [query, tenantId];
       if (category) countParams.push(category);
       if (status) countParams.push(status);
       if (creator) countParams.push(`%${creator}%`);
@@ -192,9 +203,13 @@ class SearchService {
         const fuzzyResults = await this.getFuzzyMatches(
           query,
           filters,
+          tenantId,
           limit - results.length
         );
-        results.push(...fuzzyResults);
+        const seenIds = new Set(results.map((result) => result.id));
+        results.push(
+          ...fuzzyResults.filter((result) => !seenIds.has(result.id))
+        );
       }
 
       const responseTime = Date.now() - startTime;
@@ -203,6 +218,7 @@ class SearchService {
       await this.logSearchAnalytics(
         query,
         filters,
+        tenantId,
         results.length,
         responseTime
       );
@@ -230,7 +246,7 @@ class SearchService {
   }
 
   // Fuzzy matching for typos and similar terms
-  async getFuzzyMatches(query, filters, limit) {
+  async getFuzzyMatches(query, filters, tenantId, limit) {
     const projects = await this.db.all(
       `
       SELECT *, 
@@ -240,15 +256,17 @@ class SearchService {
           ELSE 0.4
         END as similarity_score
       FROM projects 
-      WHERE (LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?))
+      WHERE tenant_id = ?
+        AND (LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?))
         AND category LIKE COALESCE(?, category)
         AND status LIKE COALESCE(?, status)
       ORDER BY similarity_score DESC, completion_rate DESC
       LIMIT ?
-    `,
+      `,
       [
         `%${query}%`,
         `%${query}%`,
+        tenantId,
         `%${query}%`,
         `%${query}%`,
         filters.category || '%',
@@ -265,7 +283,7 @@ class SearchService {
   }
 
   // Get faceted filter counts
-  async getFacetCounts(query = '') {
+  async getFacetCounts(query = '', tenantId = 'public') {
     try {
       const facets = {};
 
@@ -275,11 +293,11 @@ class SearchService {
         SELECT category as name, COUNT(*) as count
         FROM projects p
         LEFT JOIN projects_fts fts ON p.id = fts.rowid
-        WHERE (? = '' OR fts MATCH ?)
+        WHERE p.tenant_id = ? AND (? = '' OR fts MATCH ?)
         GROUP BY category
         ORDER BY count DESC
       `,
-        [query, query]
+        [tenantId, query, query]
       );
 
       // Status counts
@@ -288,11 +306,11 @@ class SearchService {
         SELECT status as name, COUNT(*) as count
         FROM projects p
         LEFT JOIN projects_fts fts ON p.id = fts.rowid
-        WHERE (? = '' OR fts MATCH ?)
+        WHERE p.tenant_id = ? AND (? = '' OR fts MATCH ?)
         GROUP BY status
         ORDER BY count DESC
       `,
-        [query, query]
+        [tenantId, query, query]
       );
 
       // Creator counts (top 10)
@@ -301,12 +319,12 @@ class SearchService {
         SELECT creator_name as name, COUNT(*) as count
         FROM projects p
         LEFT JOIN projects_fts fts ON p.id = fts.rowid
-        WHERE (? = '' OR fts MATCH ?)
+        WHERE p.tenant_id = ? AND (? = '' OR fts MATCH ?)
         GROUP BY creator_name
         ORDER BY count DESC
         LIMIT 10
       `,
-        [query, query]
+        [tenantId, query, query]
       );
 
       // Funding range counts
@@ -322,11 +340,11 @@ class SearchService {
           COUNT(*) as count
         FROM projects p
         LEFT JOIN projects_fts fts ON p.id = fts.rowid
-        WHERE (? = '' OR fts MATCH ?)
+        WHERE p.tenant_id = ? AND (? = '' OR fts MATCH ?)
         GROUP BY name
         ORDER BY count DESC
       `,
-        [query, query]
+        [tenantId, query, query]
       );
 
       return facets;
@@ -337,35 +355,46 @@ class SearchService {
   }
 
   // Autocomplete suggestions
-  async getAutocompleteSuggestions(query, limit = 10) {
+  async getAutocompleteSuggestions(query, limit = 10, tenantId = 'public') {
     try {
       if (query.length < 2) return [];
 
       const suggestions = await this.db.all(
         `
         SELECT DISTINCT 
-          substr(title, 1, 50) as suggestion,
+          substr(projects_fts.title, 1, 50) as suggestion,
           'title' as type,
           COUNT(*) OVER () as total_matches
         FROM projects_fts
-        WHERE title MATCH ?
+        JOIN projects p ON p.id = projects_fts.rowid
+        WHERE p.tenant_id = ? AND projects_fts.title MATCH ?
         UNION ALL
         SELECT DISTINCT 
-          substr(category, 1, 50) as suggestion,
+          substr(projects_fts.category, 1, 50) as suggestion,
           'category' as type,
           COUNT(*) OVER () as total_matches
         FROM projects_fts
-        WHERE category MATCH ?
+        JOIN projects p ON p.id = projects_fts.rowid
+        WHERE p.tenant_id = ? AND projects_fts.category MATCH ?
         UNION ALL
         SELECT DISTINCT 
-          substr(creator_name, 1, 50) as suggestion,
+          substr(projects_fts.creator_name, 1, 50) as suggestion,
           'creator' as type,
           COUNT(*) OVER () as total_matches
         FROM projects_fts
-        WHERE creator_name MATCH ?
+        JOIN projects p ON p.id = projects_fts.rowid
+        WHERE p.tenant_id = ? AND projects_fts.creator_name MATCH ?
         LIMIT ?
       `,
-        [`${query}*`, `${query}*`, `${query}*`, limit]
+        [
+          tenantId,
+          `${query}*`,
+          tenantId,
+          `${query}*`,
+          tenantId,
+          `${query}*`,
+          limit,
+        ]
       );
 
       return suggestions;
@@ -376,26 +405,32 @@ class SearchService {
   }
 
   // Log search analytics
-  async logSearchAnalytics(query, filters, resultsCount, responseTime) {
+  async logSearchAnalytics(
+    query,
+    filters,
+    tenantId,
+    resultsCount,
+    responseTime
+  ) {
     try {
       await this.db.run(
         `
-        INSERT INTO search_analytics (query, filters_applied, results_count, response_time_ms)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO search_analytics (tenant_id, query, filters_applied, results_count, response_time_ms)
+        VALUES (?, ?, ?, ?, ?)
       `,
-        [query, JSON.stringify(filters), resultsCount, responseTime]
+        [tenantId, query, JSON.stringify(filters), resultsCount, responseTime]
       );
 
       // Update popular searches
       await this.db.run(
         `
-        INSERT INTO popular_searches (query, search_count)
-        VALUES (?, 1)
-        ON CONFLICT(query) DO UPDATE SET 
+        INSERT INTO popular_searches (tenant_id, query, search_count)
+        VALUES (?, ?, 1)
+        ON CONFLICT(tenant_id, query) DO UPDATE SET 
           search_count = search_count + 1,
           last_updated = CURRENT_TIMESTAMP
       `,
-        [query]
+        [tenantId, query]
       );
     } catch (error) {
       console.error('Analytics logging error:', error);
@@ -403,16 +438,17 @@ class SearchService {
   }
 
   // Get popular searches
-  async getPopularSearches(limit = 10) {
+  async getPopularSearches(limit = 10, tenantId = 'public') {
     try {
       return await this.db.all(
         `
         SELECT query, search_count, last_updated
         FROM popular_searches
+        WHERE tenant_id = ?
         ORDER BY search_count DESC, last_updated DESC
         LIMIT ?
       `,
-        [limit]
+        [tenantId, limit]
       );
     } catch (error) {
       console.error('Popular searches error:', error);
@@ -421,19 +457,23 @@ class SearchService {
   }
 
   // Get search analytics
-  async getSearchAnalytics(days = 7) {
+  async getSearchAnalytics(days = 7, tenantId = 'public') {
     try {
-      return await this.db.all(`
+      const cutoff = cutoffTimestampDaysAgo(days);
+      return await this.db.all(
+        `
         SELECT 
           DATE(timestamp) as date,
           COUNT(*) as search_count,
           AVG(response_time_ms) as avg_response_time,
           AVG(results_count) as avg_results
         FROM search_analytics
-        WHERE timestamp >= datetime('now', '-${days} days')
+        WHERE tenant_id = ? AND timestamp >= ?
         GROUP BY DATE(timestamp)
         ORDER BY date DESC
-      `);
+      `,
+        [tenantId, cutoff]
+      );
     } catch (error) {
       console.error('Analytics error:', error);
       return [];

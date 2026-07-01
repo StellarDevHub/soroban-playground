@@ -1,21 +1,19 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
+import { setupSwagger, swaggerSpec } from '../src/docs/swagger.js';
 
-jest.unstable_mockModule('../src/services/compileService.js', () => ({
+jest.mock('../src/services/compileService.js', () => ({
   getCompileStats: jest.fn(),
   getCompileSnapshot: jest.fn(),
   initializeCompileService: jest.fn(),
 }));
 
-jest.unstable_mockModule('../src/services/redisService.js', () => ({
+jest.mock('../src/services/redisService.js', () => ({
   default: { isConnected: false, get: jest.fn(), set: jest.fn() },
 }));
-
-const { setupSwagger, swaggerSpec } = await import('../src/docs/swagger.js');
 
 describe('Swagger / OAS Documentation', () => {
   let app;
@@ -57,5 +55,17 @@ describe('Swagger / OAS Documentation', () => {
   it('spec includes security scheme definition', () => {
     expect(swaggerSpec.components?.securitySchemes?.bearerAuth).toBeDefined();
     expect(swaggerSpec.components.securitySchemes.bearerAuth.type).toBe('http');
+  });
+
+  it('categorizes versioned API documentation', () => {
+    expect(swaggerSpec.tags.map((tag) => tag.name)).toEqual(
+      expect.arrayContaining(['Versioning', 'API v1', 'API v2'])
+    );
+    expect(swaggerSpec.paths['/api/v1/compile']?.post?.tags).toContain(
+      'API v1'
+    );
+    expect(swaggerSpec.paths['/api/v2/compile']?.post?.tags).toContain(
+      'API v2'
+    );
   });
 });

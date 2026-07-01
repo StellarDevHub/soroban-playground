@@ -29,13 +29,18 @@ class ContractEventIndexer {
   async start() {
     await this._db.connect();
     const t = setInterval(
-      () => this._poll().catch((e) => console.error('Indexer poll error:', e.message)),
+      () =>
+        this._poll().catch((e) =>
+          console.error('Indexer poll error:', e.message)
+        ),
       this._intervalMs
     );
     t.unref();
     this._timer = t;
     // Fire once immediately without awaiting so startup is non-blocking
-    this._poll().catch((e) => console.error('Indexer initial poll error:', e.message));
+    this._poll().catch((e) =>
+      console.error('Indexer initial poll error:', e.message)
+    );
   }
 
   stop() {

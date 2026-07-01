@@ -2,43 +2,43 @@ use soroban_sdk::{contracterror, contracttype, Address, String, Symbol};
 
 /// Errors that can occur in the contract
 #[contracterror]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Error {
     // Initialization errors
     AlreadyInitialized = 1,
     NotInitialized = 2,
-    
+
     // Authorization errors
     Unauthorized = 3,
-    
+
     // Asset errors
     AssetAlreadyRegistered = 4,
     AssetNotRegistered = 5,
     InvalidPrice = 6,
     StalePrice = 7,
-    
+
     // Amount errors
     InvalidAmount = 8,
     InsufficientBalance = 9,
     InsufficientCollateral = 10,
-    
+
     // Position errors
     PositionNotFound = 11,
     PositionUndercollateralized = 12,
     PositionNotLiquidatable = 13,
     PositionAlreadyClosed = 14,
     ExcessiveRepayAmount = 15,
-    
+
     // Liquidation errors
     NoLiquidatablePositions = 16,
-    
+
     // Parameter errors
     InvalidCollateralRatio = 17,
     InvalidLiquidationThreshold = 18,
     InvalidLiquidationBonus = 19,
     InvalidFeePercentage = 20,
     InvalidLeverage = 21,
-    
+
     // Trading errors
     InsufficientMargin = 22,
     PositionLiquidated = 23,
@@ -62,7 +62,7 @@ pub struct SyntheticAsset {
 }
 
 /// Collateral position for minting synthetic assets
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct CollateralPosition {
     pub user: Address,
@@ -104,17 +104,17 @@ pub struct TradingPosition {
 pub struct PriceData {
     pub price: i128,
     pub timestamp: u64,
-    pub confidence: u32,  // 0-100 representing percentage
+    pub confidence: u32, // 0-100 representing percentage
 }
 
 /// Protocol configuration
 #[derive(Clone)]
 #[contracttype]
 pub struct AssetConfig {
-    pub min_collateral_ratio: u32,    // Basis points (15000 = 150%)
-    pub liquidation_threshold: u32,   // Basis points (12000 = 120%)
-    pub liquidation_bonus: u32,       // Basis points (500 = 5%)
-    pub fee_percentage: u32,          // Basis points (100 = 1%)
+    pub min_collateral_ratio: u32,  // Basis points (15000 = 150%)
+    pub liquidation_threshold: u32, // Basis points (12000 = 120%)
+    pub liquidation_bonus: u32,     // Basis points (500 = 5%)
+    pub fee_percentage: u32,        // Basis points (100 = 1%)
 }
 
 /// Instance storage keys (simple values)

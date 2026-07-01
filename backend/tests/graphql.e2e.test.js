@@ -114,7 +114,7 @@ describe('GraphQL E2E — Queries', () => {
           cacheHitRate
           artifactsCount
         }
-      }`,
+      }`
     );
 
     expect(res.status).toBe(200);
@@ -131,9 +131,23 @@ describe('GraphQL E2E — Queries', () => {
   it('compileHistory returns items with artifact resolved via DataLoader', async () => {
     getCompileSnapshot.mockResolvedValue({
       history: [
-        { requestId: 'r1', hash: 'h1', cached: false, durationMs: 200, timestamp: '2026-01-01', success: true },
+        {
+          requestId: 'r1',
+          hash: 'h1',
+          cached: false,
+          durationMs: 200,
+          timestamp: '2026-01-01',
+          success: true,
+        },
       ],
-      artifacts: [{ hash: 'h1', name: 'token.wasm', sizeBytes: 4096, path: '/out/token.wasm' }],
+      artifacts: [
+        {
+          hash: 'h1',
+          name: 'token.wasm',
+          sizeBytes: 4096,
+          path: '/out/token.wasm',
+        },
+      ],
     });
 
     const res = await gql(
@@ -145,7 +159,7 @@ describe('GraphQL E2E — Queries', () => {
           cached
           artifact { name sizeBytes }
         }
-      }`,
+      }`
     );
 
     expect(res.status).toBe(200);
@@ -183,7 +197,7 @@ describe('GraphQL E2E — Queries', () => {
           pageInfo { hasNextPage hasPreviousPage }
           totalCount
         }
-      }`,
+      }`
     );
 
     expect(res.status).toBe(200);
@@ -216,7 +230,12 @@ describe('GraphQL E2E — Mutations', () => {
       hash: 'abc123',
       durationMs: 350,
       logs: ['Compiling token...', 'Done.'],
-      artifact: { name: 'token.wasm', sizeBytes: 8192, path: '/out/token.wasm', durationMs: 350 },
+      artifact: {
+        name: 'token.wasm',
+        sizeBytes: 8192,
+        path: '/out/token.wasm',
+        durationMs: 350,
+      },
       message: 'Compiled successfully',
     });
 
@@ -231,7 +250,7 @@ describe('GraphQL E2E — Mutations', () => {
           artifact { name sizeBytes }
         }
       }`,
-      { input: { contractName: 'token', sourceCode: '#![no_std]' } },
+      { input: { contractName: 'token', sourceCode: '#![no_std]' } }
     );
 
     expect(res.status).toBe(200);
@@ -243,10 +262,7 @@ describe('GraphQL E2E — Mutations', () => {
   });
 
   it('compile mutation returns errors for missing required field', async () => {
-    const res = await gql(
-      app,
-      `mutation { compile(input: {}) { success } }`,
-    );
+    const res = await gql(app, `mutation { compile(input: {}) { success } }`);
     expect(res.status).toBe(200);
     expect(res.body.errors).toBeDefined();
     expect(res.body.errors.length).toBeGreaterThan(0);
@@ -271,7 +287,7 @@ describe('GraphQL E2E — Mutations', () => {
           network
         }
       }`,
-      { input: { wasmHash: 'abc123', network: 'testnet' } },
+      { input: { wasmHash: 'abc123', network: 'testnet' } }
     );
 
     expect(res.status).toBe(200);
@@ -310,14 +326,16 @@ describe('GraphQL E2E — Error handling', () => {
     const res = await gql(app, '{ nonExistentField }');
     expect(res.status).toBe(200);
     expect(res.body.errors).toBeDefined();
-    expect(res.body.errors[0].message).toMatch(/nonExistentField|Cannot query/i);
+    expect(res.body.errors[0].message).toMatch(
+      /nonExistentField|Cannot query/i
+    );
   });
 
   it('rejects query exceeding complexity limit', async () => {
     // compileBatch has complexity 20, nesting many of these should trip the limit
     const heavyQuery = Array.from(
       { length: 5 },
-      (_, i) => `q${i}: compileHistory { requestId hash }`,
+      (_, i) => `q${i}: compileHistory { requestId hash }`
     ).join('\n');
 
     getCompileSnapshot.mockResolvedValue({ history: [], artifacts: [] });
@@ -327,7 +345,7 @@ describe('GraphQL E2E — Error handling', () => {
     // Either succeeds (if limit is high) or returns a complexity error — both are valid
     if (res.body.errors) {
       const hasComplexityError = res.body.errors.some((e) =>
-        /complex/i.test(e.message),
+        /complex/i.test(e.message)
       );
       expect(hasComplexityError || res.body.errors.length > 0).toBe(true);
     }
@@ -351,17 +369,25 @@ describe('GraphQL E2E — Authorization', () => {
 
   it('accepts requests with Authorization header without rejecting by default', async () => {
     getCompileStats.mockReturnValue({
-      activeWorkers: 0, maxWorkers: 4, queueLength: 0,
-      estimatedWaitTimeMs: 0, cacheHitRate: 0, totalCompiles: 0,
-      cacheHits: 0, slowCompiles: 0, memoryPeakBytes: 0, cacheBytes: 0,
-      artifactsCount: 0, artifacts: 0,
+      activeWorkers: 0,
+      maxWorkers: 4,
+      queueLength: 0,
+      estimatedWaitTimeMs: 0,
+      cacheHitRate: 0,
+      totalCompiles: 0,
+      cacheHits: 0,
+      slowCompiles: 0,
+      memoryPeakBytes: 0,
+      cacheBytes: 0,
+      artifactsCount: 0,
+      artifacts: 0,
     });
 
     const res = await gql(
       app,
       '{ compileStats { activeWorkers } }',
       {},
-      { Authorization: 'Bearer some-token' },
+      { Authorization: 'Bearer some-token' }
     );
     expect(res.status).toBe(200);
     expect(res.body.data?.compileStats).toBeDefined();

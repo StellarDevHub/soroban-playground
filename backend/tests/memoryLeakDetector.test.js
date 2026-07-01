@@ -99,7 +99,9 @@ describe('MemoryLeakDetector', () => {
     // 90MB > 85% of 100MB (85MB)
     memorySpy.mockReturnValue({ rss: 90 * 1024 * 1024 });
 
-    const captureSpy = jest.spyOn(detector, '_captureSnapshot').mockResolvedValue();
+    const captureSpy = jest
+      .spyOn(detector, '_captureSnapshot')
+      .mockResolvedValue();
     detector._check();
 
     expect(captureSpy).toHaveBeenCalledTimes(1);
@@ -111,7 +113,9 @@ describe('MemoryLeakDetector', () => {
     // 80MB < 85% of 100MB
     memorySpy.mockReturnValue({ rss: 80 * 1024 * 1024 });
 
-    const captureSpy = jest.spyOn(detector, '_captureSnapshot').mockResolvedValue();
+    const captureSpy = jest
+      .spyOn(detector, '_captureSnapshot')
+      .mockResolvedValue();
     detector._check();
 
     expect(captureSpy).not.toHaveBeenCalled();
@@ -121,7 +125,9 @@ describe('MemoryLeakDetector', () => {
     const detector = makeDetector({ heapDumpIntervalMs: 10000 });
     memorySpy.mockReturnValue({ rss: 90 * 1024 * 1024 });
 
-    const captureSpy = jest.spyOn(detector, '_captureSnapshot').mockResolvedValue();
+    const captureSpy = jest
+      .spyOn(detector, '_captureSnapshot')
+      .mockResolvedValue();
 
     // First check should trigger
     detector._check();

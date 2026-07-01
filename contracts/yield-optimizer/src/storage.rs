@@ -3,7 +3,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey, Position, Strategy};
+use crate::types::{AdvancedStrategy, DataKey, Error, InstanceKey, Position, Strategy};
 
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&InstanceKey::Admin)
@@ -39,7 +39,9 @@ pub fn get_strategy_count(env: &Env) -> u32 {
 }
 
 pub fn set_strategy_count(env: &Env, v: u32) {
-    env.storage().instance().set(&InstanceKey::StrategyCount, &v);
+    env.storage()
+        .instance()
+        .set(&InstanceKey::StrategyCount, &v);
 }
 
 pub fn set_strategy(env: &Env, id: u32, s: &Strategy) {
@@ -55,6 +57,25 @@ pub fn get_strategy(env: &Env, id: u32) -> Result<Strategy, Error> {
 
 pub fn has_strategy(env: &Env, id: u32) -> bool {
     env.storage().persistent().has(&DataKey::Strategy(id))
+}
+
+pub fn set_advanced_strategy(env: &Env, id: u32, s: &AdvancedStrategy) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::AdvancedStrategy(id), s);
+}
+
+pub fn get_advanced_strategy(env: &Env, id: u32) -> Result<AdvancedStrategy, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AdvancedStrategy(id))
+        .ok_or(Error::StrategyNotFound)
+}
+
+pub fn has_advanced_strategy(env: &Env, id: u32) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::AdvancedStrategy(id))
 }
 
 pub fn set_position(env: &Env, sid: u32, user: &Address, p: &Position) {

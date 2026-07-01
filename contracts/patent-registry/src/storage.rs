@@ -98,9 +98,7 @@ pub fn get_dispute_count(env: &Env) -> u32 {
 // ── Patent ────────────────────────────────────────────────────────────────────
 
 pub fn set_patent(env: &Env, id: u32, patent: &Patent) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Patent(id), patent);
+    env.storage().persistent().set(&DataKey::Patent(id), patent);
 }
 
 pub fn get_patent(env: &Env, id: u32) -> Result<Patent, Error> {

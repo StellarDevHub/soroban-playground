@@ -7,7 +7,10 @@ import { faker } from '@faker-js/faker';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DEFAULT_DB_PATH = path.join(__dirname, '../data/soroban_playground.sqlite');
+const DEFAULT_DB_PATH = path.join(
+  __dirname,
+  '../data/soroban_playground.sqlite'
+);
 
 async function seedDatabase(options = {}) {
   const dbPath = options.dbPath || DEFAULT_DB_PATH;
@@ -16,7 +19,9 @@ async function seedDatabase(options = {}) {
   const numFiles = options.files || 500;
 
   console.log(`Starting database seed at ${dbPath}`);
-  console.log(`Target: ${numUsers} users, ${numProjects} projects, ${numFiles} files`);
+  console.log(
+    `Target: ${numUsers} users, ${numProjects} projects, ${numFiles} files`
+  );
 
   const db = await open({
     filename: dbPath,
@@ -45,7 +50,7 @@ async function seedDatabase(options = {}) {
         faker.internet.userName(),
         faker.internet.email(),
         faker.internet.password(),
-        faker.helpers.arrayElement(['user', 'admin'])
+        faker.helpers.arrayElement(['developer', 'admin', 'guest'])
       );
 
       if (currentUserChunk.length === 50 || i === numUsers - 1) {
@@ -70,19 +75,35 @@ async function seedDatabase(options = {}) {
       const creator = faker.helpers.arrayElement(users);
       const goal = faker.number.int({ min: 1000, max: 1000000 });
       const current = faker.number.int({ min: 0, max: goal });
-      
+
       currentProjectChunk.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
       currentProjectParams.push(
         faker.commerce.productName(),
         faker.commerce.productDescription(),
-        faker.helpers.arrayElement(['DeFi', 'NFT', 'Infrastructure', 'Payments', 'Gaming']),
-        faker.helpers.arrayElement(['draft', 'active', 'funded', 'completed', 'cancelled']),
+        faker.helpers.arrayElement([
+          'DeFi',
+          'NFT',
+          'Infrastructure',
+          'Payments',
+          'Gaming',
+        ]),
+        faker.helpers.arrayElement([
+          'draft',
+          'active',
+          'funded',
+          'completed',
+          'cancelled',
+        ]),
         creator.id,
         creator.username,
         goal,
         current,
         (current / goal) * 100,
-        JSON.stringify([faker.word.sample(), faker.word.sample(), faker.word.sample()])
+        JSON.stringify([
+          faker.word.sample(),
+          faker.word.sample(),
+          faker.word.sample(),
+        ])
       );
 
       if (currentProjectChunk.length === 50 || i === numProjects - 1) {
@@ -106,7 +127,7 @@ async function seedDatabase(options = {}) {
     for (let i = 0; i < numFiles; i++) {
       const project = faker.helpers.arrayElement(projects);
       const uploader = faker.helpers.arrayElement(users);
-      
+
       currentFileChunk.push('(?, ?, ?, ?, ?, ?)');
       currentFileParams.push(
         project.id,
@@ -144,10 +165,11 @@ async function seedDatabase(options = {}) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   const options = {};
-  
+
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--users') options.users = parseInt(args[++i], 10);
-    else if (args[i] === '--projects') options.projects = parseInt(args[++i], 10);
+    else if (args[i] === '--projects')
+      options.projects = parseInt(args[++i], 10);
     else if (args[i] === '--files') options.files = parseInt(args[++i], 10);
     else if (args[i] === '--db') options.dbPath = args[++i];
   }

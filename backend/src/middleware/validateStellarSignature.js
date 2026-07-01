@@ -23,13 +23,31 @@ const REQUIRED_FIELDS = [
 export function validateStellarSignature(req, res, next) {
   const missing = REQUIRED_FIELDS.filter((f) => req.body[f] == null);
   if (missing.length) {
-    return next(new HttpError(400, `Missing required fields: ${missing.join(', ')}`));
+    return next(
+      new HttpError(400, `Missing required fields: ${missing.join(', ')}`)
+    );
   }
 
-  const { callerAddress, contractId, method, params, nonce, expiry, signature } = req.body;
+  const {
+    callerAddress,
+    contractId,
+    method,
+    params,
+    nonce,
+    expiry,
+    signature,
+  } = req.body;
 
   signatureValidationService
-    .verify({ callerAddress, contractId, method, params, nonce, expiry, signature })
+    .verify({
+      callerAddress,
+      contractId,
+      method,
+      params,
+      nonce,
+      expiry,
+      signature,
+    })
     .then((result) => {
       if (!result.valid) {
         return next(

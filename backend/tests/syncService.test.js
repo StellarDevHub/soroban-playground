@@ -1,4 +1,9 @@
-import { processSyncBatch, getSyncHistory, getPendingEntries, SYNC_STATUS } from '../src/services/syncService.js';
+import {
+  processSyncBatch,
+  getSyncHistory,
+  getPendingEntries,
+  SYNC_STATUS,
+} from '../src/services/syncService.js';
 
 const mockRun = jest.fn().mockResolvedValue({ lastID: 1, changes: 1 });
 const mockGet = jest.fn();
@@ -46,23 +51,38 @@ describe('processSyncBatch', () => {
   });
 
   it('applies a valid delete entry', async () => {
-    const entry = { table: 'favorites', record_id: 'rec-3', operation: 'delete', client_timestamp: '2026-01-01T00:00:00.000Z' };
+    const entry = {
+      table: 'favorites',
+      record_id: 'rec-3',
+      operation: 'delete',
+      client_timestamp: '2026-01-01T00:00:00.000Z',
+    };
     const result = await processSyncBatch([entry]);
     expect(result.applied).toBe(1);
   });
 
   describe('last-write-wins conflict resolution', () => {
     it('skips incoming entry when a newer record already exists', async () => {
-      mockGet.mockResolvedValueOnce({ client_timestamp: '2026-06-01T12:00:00.000Z' });
-      const olderEntry = { ...VALID_ENTRY, client_timestamp: '2026-01-01T00:00:00.000Z' };
+      mockGet.mockResolvedValueOnce({
+        client_timestamp: '2026-06-01T12:00:00.000Z',
+      });
+      const olderEntry = {
+        ...VALID_ENTRY,
+        client_timestamp: '2026-01-01T00:00:00.000Z',
+      };
       const result = await processSyncBatch([olderEntry]);
       expect(result.skipped).toBe(1);
       expect(result.applied).toBe(0);
     });
 
     it('applies incoming entry when it is newer than the stored one', async () => {
-      mockGet.mockResolvedValueOnce({ client_timestamp: '2026-01-01T00:00:00.000Z' });
-      const newerEntry = { ...VALID_ENTRY, client_timestamp: '2026-06-01T12:00:00.000Z' };
+      mockGet.mockResolvedValueOnce({
+        client_timestamp: '2026-01-01T00:00:00.000Z',
+      });
+      const newerEntry = {
+        ...VALID_ENTRY,
+        client_timestamp: '2026-06-01T12:00:00.000Z',
+      };
       const result = await processSyncBatch([newerEntry]);
       expect(result.applied).toBe(1);
     });
@@ -123,10 +143,10 @@ describe('getSyncHistory', () => {
   it('queries sync_logs for the given table and record_id', async () => {
     mockAll.mockResolvedValueOnce([{ id: 1, status: 'applied' }]);
     const history = await getSyncHistory('favorites', 'rec-1');
-    expect(mockAll).toHaveBeenCalledWith(
-      expect.stringContaining('sync_logs'),
-      ['favorites', 'rec-1']
-    );
+    expect(mockAll).toHaveBeenCalledWith(expect.stringContaining('sync_logs'), [
+      'favorites',
+      'rec-1',
+    ]);
     expect(history).toHaveLength(1);
   });
 });
@@ -135,7 +155,9 @@ describe('getPendingEntries', () => {
   it('returns all pending sync log entries', async () => {
     mockAll.mockResolvedValueOnce([{ id: 2, status: 'pending' }]);
     const pending = await getPendingEntries();
-    expect(mockAll).toHaveBeenCalledWith(expect.stringContaining("status = 'pending'"));
+    expect(mockAll).toHaveBeenCalledWith(
+      expect.stringContaining("status = 'pending'")
+    );
     expect(pending).toHaveLength(1);
   });
 });

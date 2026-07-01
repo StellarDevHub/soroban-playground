@@ -53,9 +53,15 @@ class SchemaField {
     const errors = [];
 
     if (value === undefined || value === null || value === '') {
-      if (this._defaultValue !== undefined) return { value: this._defaultValue, errors: [] };
+      if (this._defaultValue !== undefined)
+        return { value: this._defaultValue, errors: [] };
       if (this._required) {
-        return { value, errors: [{ path, message: this._requiredMsg || `${path} is required` }] };
+        return {
+          value,
+          errors: [
+            { path, message: this._requiredMsg || `${path} is required` },
+          ],
+        };
       }
       return { value, errors: [] };
     }
@@ -65,7 +71,10 @@ class SchemaField {
       coerced = this._coerceValue(value, path, errors);
       if (errors.length) return { value, errors };
     } else if (this._type && !this._checkType(value)) {
-      return { value, errors: [{ path, message: `${path} must be of type ${this._type}` }] };
+      return {
+        value,
+        errors: [{ path, message: `${path} must be of type ${this._type}` }],
+      };
     }
 
     for (const rule of this._rules) {
@@ -78,10 +87,14 @@ class SchemaField {
 
   _checkType(value) {
     if (this._type === 'string') return typeof value === 'string';
-    if (this._type === 'number') return typeof value === 'number' && !isNaN(value);
+    if (this._type === 'number')
+      return typeof value === 'number' && !isNaN(value);
     if (this._type === 'boolean') return typeof value === 'boolean';
     if (this._type === 'array') return Array.isArray(value);
-    if (this._type === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (this._type === 'object')
+      return (
+        value !== null && typeof value === 'object' && !Array.isArray(value)
+      );
     return true;
   }
 
@@ -99,7 +112,10 @@ class SchemaField {
       }
       if (this._type === 'string') return String(value);
     } catch {
-      errors.push({ path, message: `${path} cannot be coerced to ${this._type}` });
+      errors.push({
+        path,
+        message: `${path} cannot be coerced to ${this._type}`,
+      });
     }
     return value;
   }
@@ -113,31 +129,44 @@ class StringField extends SchemaField {
 
   min(n, msg) {
     return this._addRule((v, path) =>
-      v.length < n ? { path, message: msg || `${path} must be at least ${n} characters` } : null
+      v.length < n
+        ? { path, message: msg || `${path} must be at least ${n} characters` }
+        : null
     );
   }
 
   max(n, msg) {
     return this._addRule((v, path) =>
-      v.length > n ? { path, message: msg || `${path} must be at most ${n} characters` } : null
+      v.length > n
+        ? { path, message: msg || `${path} must be at most ${n} characters` }
+        : null
     );
   }
 
   email(msg) {
     return this._addRule((v, path) =>
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : { path, message: msg || `${path} must be a valid email` }
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+        ? null
+        : { path, message: msg || `${path} must be a valid email` }
     );
   }
 
   pattern(regex, msg) {
     return this._addRule((v, path) =>
-      regex.test(v) ? null : { path, message: msg || `${path} has an invalid format` }
+      regex.test(v)
+        ? null
+        : { path, message: msg || `${path} has an invalid format` }
     );
   }
 
   oneOf(values, msg) {
     return this._addRule((v, path) =>
-      values.includes(v) ? null : { path, message: msg || `${path} must be one of: ${values.join(', ')}` }
+      values.includes(v)
+        ? null
+        : {
+            path,
+            message: msg || `${path} must be one of: ${values.join(', ')}`,
+          }
     );
   }
 }
@@ -162,7 +191,9 @@ class NumberField extends SchemaField {
 
   integer(msg) {
     return this._addRule((v, path) =>
-      Number.isInteger(v) ? null : { path, message: msg || `${path} must be an integer` }
+      Number.isInteger(v)
+        ? null
+        : { path, message: msg || `${path} must be an integer` }
     );
   }
 }
@@ -187,7 +218,10 @@ class ObjectSchema {
    */
   validate(data) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      return { value: data, errors: [{ path: 'body', message: 'Expected an object' }] };
+      return {
+        value: data,
+        errors: [{ path: 'body', message: 'Expected an object' }],
+      };
     }
 
     const errors = [];

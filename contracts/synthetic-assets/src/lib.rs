@@ -8,14 +8,8 @@ mod test;
 mod trading;
 mod types;
 
-use soroban_sdk::{
-    contract, contractimpl, token, Address, Env, String, Symbol, Vec,
-};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Symbol, Vec};
 
-use crate::types::{
-    AssetConfig, CollateralPosition, Error, PriceData, SyntheticAsset, TradeDirection,
-    TradingPosition,
-};
 use crate::storage::{
     add_registered_asset_symbol, get_admin, get_collateral_position, get_collateral_token,
     get_fee_percentage, get_liquidation_bonus, get_liquidation_threshold, get_min_collateral_ratio,
@@ -23,18 +17,21 @@ use crate::storage::{
     get_synthetic_asset, get_trading_position, has_synthetic_asset, increment_position_counter,
     is_initialized, remove_collateral_position, remove_trading_position, set_admin,
     set_collateral_position, set_collateral_token, set_fee_percentage, set_initialized,
-    set_liquidation_bonus, set_liquidation_threshold, set_min_collateral_ratio,
-    set_oracle_address, set_position_counter, set_price, set_synthetic_asset,
-    set_trading_position,
+    set_liquidation_bonus, set_liquidation_threshold, set_min_collateral_ratio, set_oracle_address,
+    set_position_counter, set_price, set_synthetic_asset, set_trading_position,
+};
+use crate::types::{
+    AssetConfig, CollateralPosition, Error, PriceData, SyntheticAsset, TradeDirection,
+    TradingPosition,
 };
 
-use crate::oracle::{
-    calculate_price_deviation, get_price_internal, is_price_valid_deviation, update_price_internal,
-};
 use crate::collateral::{
     calculate_collateral_ratio, calculate_health_factor, calculate_liquidation_reward,
     calculate_max_mint_amount, calculate_required_collateral, is_above_liquidation_threshold,
     is_adding_collateral_safe,
+};
+use crate::oracle::{
+    calculate_price_deviation, get_price_internal, is_price_valid_deviation, update_price_internal,
 };
 use crate::trading::{
     calculate_effective_notional, calculate_liquidation_price, calculate_margin_requirement,
@@ -43,7 +40,7 @@ use crate::trading::{
 };
 
 /// Synthetic Assets Contract
-/// 
+///
 /// This contract enables:
 /// - Minting synthetic assets backed by collateral
 /// - Price oracle integration for real-time asset pricing
@@ -64,7 +61,7 @@ impl SyntheticAssetsContract {
         min_collateral_ratio: u32,  // Basis points (e.g., 15000 = 150%)
         liquidation_threshold: u32, // Basis points (e.g., 12000 = 120%)
         liquidation_bonus: u32,     // Basis points (e.g., 500 = 5%)
-        fee_percentage: u32,          // Basis points (e.g., 100 = 1%)
+        fee_percentage: u32,        // Basis points (e.g., 100 = 1%)
     ) -> Result<(), Error> {
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
@@ -287,7 +284,7 @@ impl SyntheticAssetsContract {
         }
 
         let mut position = get_collateral_position(&env, position_id)?;
-        
+
         if position.user != user {
             return Err(Error::Unauthorized);
         }
@@ -295,7 +292,11 @@ impl SyntheticAssetsContract {
         // Transfer additional collateral
         let collateral_token = get_collateral_token(&env)?;
         let token_client = token::Client::new(&env, &collateral_token);
-        token_client.transfer(&user, &env.current_contract_address(), &additional_collateral);
+        token_client.transfer(
+            &user,
+            &env.current_contract_address(),
+            &additional_collateral,
+        );
 
         position.collateral_amount += additional_collateral;
         position.last_updated = env.ledger().timestamp();
@@ -318,7 +319,7 @@ impl SyntheticAssetsContract {
         }
 
         let mut position = get_collateral_position(&env, position_id)?;
-        
+
         if position.user != user {
             return Err(Error::Unauthorized);
         }
@@ -328,7 +329,8 @@ impl SyntheticAssetsContract {
         }
 
         // Calculate collateral to return
-        let collateral_to_return = (burn_amount * position.collateral_amount) / position.minted_amount;
+        let collateral_to_return =
+            (burn_amount * position.collateral_amount) / position.minted_amount;
 
         // Update position
         position.minted_amount -= burn_amount;
@@ -361,7 +363,11 @@ impl SyntheticAssetsContract {
         // Return collateral to user
         let collateral_token = get_collateral_token(&env)?;
         let token_client = token::Client::new(&env, &collateral_token);
-        token_client.transfer(&env.current_contract_address(), &user, &collateral_to_return);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &user,
+            &collateral_to_return,
+        );
 
         Ok(())
     }
@@ -409,7 +415,11 @@ impl SyntheticAssetsContract {
         // Transfer collateral reward to liquidator
         let collateral_token = get_collateral_token(&env)?;
         let token_client = token::Client::new(&env, &collateral_token);
-        token_client.transfer(&env.current_contract_address(), &liquidator, &collateral_reward);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &liquidator,
+            &collateral_reward,
+        );
 
         // Update position
         let mut new_position = position.clone();
@@ -440,7 +450,7 @@ impl SyntheticAssetsContract {
         asset_symbol: Symbol,
         direction: TradeDirection,
         margin: i128,
-        leverage: u32,  // Basis points (e.g., 20000 = 2x)
+        leverage: u32, // Basis points (e.g., 20000 = 2x)
     ) -> Result<u64, Error> {
         user.require_auth();
 
@@ -452,7 +462,8 @@ impl SyntheticAssetsContract {
             return Err(Error::InvalidAmount);
         }
 
-        if leverage < 10000 || leverage > 100000 { // 1x to 10x
+        if leverage < 10000 || leverage > 100000 {
+            // 1x to 10x
             return Err(Error::InvalidLeverage);
         }
 
@@ -492,15 +503,11 @@ impl SyntheticAssetsContract {
     }
 
     /// Close a trading position and settle PnL
-    pub fn close_trade(
-        env: Env,
-        user: Address,
-        position_id: u64,
-    ) -> Result<i128, Error> {
+    pub fn close_trade(env: Env, user: Address, position_id: u64) -> Result<i128, Error> {
         user.require_auth();
 
         let position = get_trading_position(&env, position_id)?;
-        
+
         if position.user != user {
             return Err(Error::Unauthorized);
         }
@@ -593,18 +600,11 @@ impl SyntheticAssetsContract {
     }
 
     /// Calculate collateral ratio for a position
-    pub fn get_collateral_ratio(
-        env: Env,
-        position_id: u64,
-    ) -> Result<i128, Error> {
+    pub fn get_collateral_ratio(env: Env, position_id: u64) -> Result<i128, Error> {
         let position = get_collateral_position(&env, position_id)?;
         let price = get_price_internal(&env, &position.asset_symbol)?;
 
-        calculate_collateral_ratio(
-            position.collateral_amount,
-            position.minted_amount,
-            price,
-        )
+        calculate_collateral_ratio(position.collateral_amount, position.minted_amount, price)
     }
 
     /// Calculate health factor for a collateralized position
@@ -676,7 +676,7 @@ impl SyntheticAssetsContract {
     /// Calculate trading PnL for a position
     pub fn get_trading_pnl(env: Env, position_id: u64) -> Result<i128, Error> {
         let position = get_trading_position(&env, position_id)?;
-        
+
         if !position.is_open {
             return Err(Error::PositionAlreadyClosed);
         }
@@ -743,11 +743,7 @@ impl SyntheticAssetsContract {
         max_deviation_bps: u32,
     ) -> Result<bool, Error> {
         let current_price = get_price_internal(&env, &asset_symbol)?;
-        is_price_valid_deviation(
-            current_price,
-            new_price,
-            max_deviation_bps,
-        )
+        is_price_valid_deviation(current_price, new_price, max_deviation_bps)
     }
 
     /// Get list of all registered synthetic assets

@@ -15,7 +15,7 @@ describe('TLS/SSL Hardening Configuration', () => {
       'ECDHE-ECDSA-CHACHA20-POLY1305',
       'ECDHE-RSA-CHACHA20-POLY1305',
       'DHE-RSA-AES256-GCM-SHA384',
-      'DHE-RSA-AES128-GCM-SHA256'
+      'DHE-RSA-AES128-GCM-SHA256',
     ].join(':'),
     honorCipherOrder: true,
     ecdhCurve: 'X25519:P-256:P-384',

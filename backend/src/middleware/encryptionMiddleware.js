@@ -1,7 +1,14 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-import { aesDecrypt, verifySignature, sha256Hex, generateRsaKeyPair, generateSessionKey, aesEncrypt } from '../utils/cryptoUtils.js';
+import {
+  aesDecrypt,
+  verifySignature,
+  sha256Hex,
+  generateRsaKeyPair,
+  generateSessionKey,
+  aesEncrypt,
+} from '../utils/cryptoUtils.js';
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5-minute replay window
 
@@ -51,7 +58,8 @@ export function createEncryptionMiddleware(options = {}) {
       if (enforceEncryption) {
         return res.status(400).json({
           error: 'Encryption Required',
-          message: 'This endpoint requires an encrypted payload. Set X-Encrypted: true and encrypt the request body.',
+          message:
+            'This endpoint requires an encrypted payload. Set X-Encrypted: true and encrypt the request body.',
         });
       }
       return next();
@@ -65,7 +73,8 @@ export function createEncryptionMiddleware(options = {}) {
     if (!sessionKeyHeader || !timestamp || !nonce || !signature) {
       return res.status(400).json({
         error: 'Missing Encryption Headers',
-        message: 'Required headers: X-Session-Key, X-Request-Timestamp, X-Request-Nonce, X-Request-Signature',
+        message:
+          'Required headers: X-Session-Key, X-Request-Timestamp, X-Request-Nonce, X-Request-Signature',
       });
     }
 
@@ -82,7 +91,14 @@ export function createEncryptionMiddleware(options = {}) {
       const bodyHash = sha256Hex(bodyJson);
 
       if (publicKeyPem) {
-        const valid = verifySignature(publicKeyPem, req.method, req.path, timestamp, bodyHash, signature);
+        const valid = verifySignature(
+          publicKeyPem,
+          req.method,
+          req.path,
+          timestamp,
+          bodyHash,
+          signature
+        );
         if (!valid) {
           return res.status(401).json({
             error: 'Invalid Signature',
@@ -95,7 +111,8 @@ export function createEncryptionMiddleware(options = {}) {
       if (!iv || !ciphertext || !tag) {
         return res.status(400).json({
           error: 'Invalid Encrypted Payload',
-          message: 'Encrypted body must include iv, ciphertext, and tag fields.',
+          message:
+            'Encrypted body must include iv, ciphertext, and tag fields.',
         });
       }
 

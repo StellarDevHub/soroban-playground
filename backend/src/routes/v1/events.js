@@ -3,9 +3,10 @@
 
 import express from 'express';
 import crypto from 'crypto';
-import { asyncHandler } from '../../middleware/errorHandler.js';
+import { asyncHandler, createHttpError } from '../../middleware/errorHandler.js';
 import { QueryBuilder } from '../../services/queryBuilder.js';
 import cacheService from '../../services/cacheService.js';
+import { listEmittedEvents } from '../../services/emittedEventsService.js';
 
 const router = express.Router();
 const eventBuilder = new QueryBuilder('contract_events');
@@ -19,6 +20,47 @@ function cacheKeyFor(body) {
     .digest('hex');
   return `events:query:${hash}`;
 }
+
+/**
+ * @route GET /api/v1/events/emitted
+ * @desc Retrieve emitted contract events for frontend consumption
+ */
+router.get(
+  '/emitted',
+  asyncHandler(async (req, res, next) => {
+    try {
+      const result = await listEmittedEvents(req.query);
+      return res.json({
+        success: true,
+        status: 'success',
+        events: result.events,
+        pageInfo: result.pageInfo,
+        filters: result.filters,
+      });
+    } catch (error) {
+      return next(createHttpError(400, error.message));
+    }
+  })
+);
+
+// Backward-compatible alias for clients that call /api/v1/events directly.
+router.get(
+  '/',
+  asyncHandler(async (req, res, next) => {
+    try {
+      const result = await listEmittedEvents(req.query);
+      return res.json({
+        success: true,
+        status: 'success',
+        events: result.events,
+        pageInfo: result.pageInfo,
+        filters: result.filters,
+      });
+    } catch (error) {
+      return next(createHttpError(400, error.message));
+    }
+  })
+);
 
 /**
  * @route POST /api/v1/events/query

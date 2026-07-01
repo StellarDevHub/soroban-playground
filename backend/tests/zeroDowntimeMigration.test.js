@@ -4,7 +4,10 @@ import os from 'os';
 import fs from 'fs';
 
 const TEST_DIR = path.join(os.tmpdir(), `migrations-zdt-${process.pid}`);
-const TEST_DB_PATH = path.join(os.tmpdir(), `migrations-zdt-db-${process.pid}.sqlite`);
+const TEST_DB_PATH = path.join(
+  os.tmpdir(),
+  `migrations-zdt-db-${process.pid}.sqlite`
+);
 
 // Set env vars before importing the service (Babel hoisting means imports run first,
 // but getMigrationsDir() reads env at call-time, so this still applies at runtime).
@@ -33,15 +36,21 @@ afterAll(async () => {
   await closeDatabase();
   delete process.env.MIGRATIONS_DIR;
   delete process.env.MIGRATION_DB_PATH;
-  try { fs.unlinkSync(TEST_DB_PATH); } catch {}
-  try { fs.rmSync(TEST_DIR, { recursive: true, force: true }); } catch {}
+  try {
+    fs.unlinkSync(TEST_DB_PATH);
+  } catch {}
+  try {
+    fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  } catch {}
 });
 
 beforeEach(async () => {
   // Close the current DB (sets db=null) then delete the file so the next
   // getDatabase() call starts with a completely empty in-memory database.
   await closeDatabase();
-  try { fs.unlinkSync(TEST_DB_PATH); } catch {}
+  try {
+    fs.unlinkSync(TEST_DB_PATH);
+  } catch {}
   // Clear all migration files between tests
   for (const f of fs.readdirSync(TEST_DIR)) {
     fs.unlinkSync(path.join(TEST_DIR, f));
@@ -56,11 +65,15 @@ beforeEach(async () => {
 
 describe('detectPhase()', () => {
   it('returns "expand" for -- @phase: expand comment', () => {
-    expect(detectPhase('-- @phase: expand\nCREATE TABLE foo (id INTEGER);')).toBe('expand');
+    expect(
+      detectPhase('-- @phase: expand\nCREATE TABLE foo (id INTEGER);')
+    ).toBe('expand');
   });
 
   it('returns "contract" for -- @phase: contract comment', () => {
-    expect(detectPhase('-- @phase: contract\nDROP COLUMN bar;')).toBe('contract');
+    expect(detectPhase('-- @phase: contract\nDROP COLUMN bar;')).toBe(
+      'contract'
+    );
   });
 
   it('returns null when no phase comment is present', () => {
@@ -101,9 +114,17 @@ describe('detectLockingSQL()', () => {
 
 describe('applyPendingMigrationsPhased()', () => {
   it('applies only expand-tagged migrations when phase="expand"', async () => {
-    writeMigration('V001__expand_add_col', 'up', '-- @phase: expand\nSELECT 1;');
+    writeMigration(
+      'V001__expand_add_col',
+      'up',
+      '-- @phase: expand\nSELECT 1;'
+    );
     writeMigration('V001__expand_add_col', 'down', 'SELECT 1;');
-    writeMigration('V002__contract_drop', 'up', '-- @phase: contract\nSELECT 2;');
+    writeMigration(
+      'V002__contract_drop',
+      'up',
+      '-- @phase: contract\nSELECT 2;'
+    );
     writeMigration('V002__contract_drop', 'down', 'SELECT 1;');
     writeMigration('V003__no_phase', 'up', 'SELECT 3;');
     writeMigration('V003__no_phase', 'down', 'SELECT 1;');
