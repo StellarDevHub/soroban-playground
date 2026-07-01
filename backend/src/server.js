@@ -43,6 +43,7 @@ import {
   closeDatabase,
 } from './database/connection.js';
 import { compressionMiddleware } from './middleware/compressionMiddleware.js';
+import applyDdosProtection from './middleware/ddosMitigation.js';
 import applySecurityHeaders from './middleware/securityHeaders.js';
 import feeEngineRoute from './routes/feeEngine.js';
 import featureFlagsRoute from './routes/featureFlags.js';
@@ -126,6 +127,7 @@ server = hasCertificates
 const PORT = process.env.PORT || 5000;
 
 // Basic middleware
+applyDdosProtection(app);
 applySecurityHeaders(app);
 app.use(morgan('combined'));
 app.use(cors(corsOptions));
