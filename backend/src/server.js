@@ -16,6 +16,8 @@ import { corsOptions } from './config/cors.js';
 import { applyServerTuning } from './config/http2Config.js';
 import { http2PushMiddleware } from './middleware/http2Push.js';
 import apiRouter from './routes/api.js';
+import authRoute from './routes/auth.js';
+import cookieParser from 'cookie-parser';
 import { startCleanupWorker, stopCleanupWorker } from './cleanupWorker.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { setupWebsocketServer, closeWebsocketServer } from './websocket.js';
@@ -142,6 +144,7 @@ applySecurityHeaders(app);
 app.use(morgan('combined'));
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
+app.use(cookieParser());
 app.use(compressionMiddleware);
 app.use(http2PushMiddleware);
 
@@ -201,6 +204,7 @@ app.use('/api/batch', batchSubmitterRoute);
 app.use('/api/credentials', credentialsRoute);
 app.use('/api/snippets', snippetsRoute);
 app.use('/api/deploy-queue', deployQueueRoute);
+app.use('/api/auth', authRoute);
 app.use('/api/background-jobs', backgroundJobsRoute);
 if (config.app.env === 'development') {
   app.use('/admin/queues', queueDashboard);
