@@ -30,6 +30,7 @@ members = [
     "contracts/analysis-utils",
     "contracts/migration-utils",
     "contracts/synthetic-assets",
+    "contracts/proxy-pattern",
     "contracts/patent-registry",
     "contracts/dutch-auction",
     "contracts/cross-chain-bridge",
