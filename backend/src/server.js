@@ -55,6 +55,8 @@ import healthService from './services/healthService.js';
 import { LedgerSyncService } from './services/ledgerSyncService.js';
 import snippetsRoute from './routes/snippets.js';
 import deployQueueRoute from './routes/deployQueue.js';
+import backupRoute from './routes/backup.js';
+import { startBackupScheduler } from './services/backupScheduler.js';
 import {
   initializeQueues,
   queueDashboard,
@@ -204,6 +206,7 @@ app.use('/api/batch', batchSubmitterRoute);
 app.use('/api/credentials', credentialsRoute);
 app.use('/api/snippets', snippetsRoute);
 app.use('/api/deploy-queue', deployQueueRoute);
+app.use('/api/backup', backupRoute);
 app.use('/api/auth', authRoute);
 app.use('/api/background-jobs', backgroundJobsRoute);
 if (config.app.env === 'development') {
@@ -375,6 +378,7 @@ initializeDatabase()
     initializeCompileService().catch(console.error);
     oracleWorkerPool.start();
     startCleanupWorker();
+    startBackupScheduler();
     featureFlagService.initSubscriber();
     startWebhookDispatcher();
     setupCredentialRotation();

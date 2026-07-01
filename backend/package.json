@@ -21,6 +21,7 @@
     "test:synthetic": "NODE_PATH=../node_modules jest tests/syntheticAssets.*.test.js",
     "test:all": "npm run test:unit && npm run test:synthetic",
     "init-db": "SEED_SAMPLE_DATA=false knex migrate:latest && node src/database/init.js --no-seed",
+    "backup:restore": "node src/services/backupService.js restore",
     "migrate:make": "knex migrate:make",
     "migrate:latest": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
@@ -67,7 +68,11 @@
     "sqlite3": "^5.1.7",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "node-cron": "^3.0.3",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/lib-storage": "^3.600.0",
+    "tar": "^6.2.1"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
