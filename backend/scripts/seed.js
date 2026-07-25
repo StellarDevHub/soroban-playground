@@ -7,26 +7,76 @@ import { faker } from '@faker-js/faker';
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
 
-const DEFAULT_DB_PATH = path.join(
-  __dirname,
-  '../data/soroban_playground.sqlite'
-);
+const DEFAULT_DB_PATH = path.join(dirname, '../data/soroban_playground.sqlite');
+
+/**
+ * Validate and normalise numeric seed options.
+ * Returns an object with sanitised values and any validation errors found.
+ *
+ * @param {object} options
+ * @returns {{ valid: boolean, errors: string[], users: number, projects: number, files: number, dbPath: string }}
+ */
+function validateOptions(options = {}) {
+  const errors = [];
+
+  const toPositiveInt = (value, name, fallback) => {
+    if (value === undefined || value === null) return fallback;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      errors.push(
+        `Invalid value for ${name}: ${JSON.stringify(value)} — must be a positive integer; using default (${fallback})`
+      );
+      return fallback;
+    }
+    return parsed;
+  };
+
+  const users = toPositiveInt(options.users, 'users', 50);
+  const projects = toPositiveInt(options.projects, 'projects', 200);
+  const files = toPositiveInt(options.files, 'files', 500);
+
+  const dbPath =
+    options.dbPath &&
+    typeof options.dbPath === 'string' &&
+    options.dbPath.trim()
+      ? options.dbPath.trim()
+      : DEFAULT_DB_PATH;
+
+  return { valid: errors.length === 0, errors, users, projects, files, dbPath };
+}
 
 async function seedDatabase(options = {}) {
-  const dbPath = options.dbPath || DEFAULT_DB_PATH;
-  const numUsers = options.users || 50;
-  const numProjects = options.projects || 200;
-  const numFiles = options.files || 500;
+  const validated = validateOptions(options);
+
+  if (validated.errors.length > 0) {
+    for (const warning of validated.errors) {
+      console.warn(`[seed] WARNING: ${warning}`);
+    }
+  }
+
+  const {
+    dbPath,
+    users: numUsers,
+    projects: numProjects,
+    files: numFiles,
+  } = validated;
 
   console.log(`Starting database seed at ${dbPath}`);
   console.log(
     `Target: ${numUsers} users, ${numProjects} projects, ${numFiles} files`
   );
 
-  const db = await open({
-    filename: dbPath,
-    driver: sqlite3.Database,
-  });
+  let db;
+  try {
+    db = await open({
+      filename: dbPath,
+      driver: sqlite3.Database,
+    });
+  } catch (openErr) {
+    throw new Error(
+      `Failed to open database at "${dbPath}": ${openErr.message}`
+    );
+  }
 
   await db.run('PRAGMA foreign_keys = OFF;');
   const startTime = Date.now();
@@ -65,6 +115,9 @@ async function seedDatabase(options = {}) {
 
     // Fetch user IDs for foreign keys
     const users = await db.all('SELECT id, username FROM users');
+    if (users.length === 0) {
+      throw new Error('No users were inserted; cannot seed projects or files.');
+    }
 
     // Seed Projects
     console.log('Seeding projects...');
@@ -118,6 +171,9 @@ async function seedDatabase(options = {}) {
 
     // Fetch project IDs
     const projects = await db.all('SELECT id FROM projects');
+    if (projects.length === 0) {
+      throw new Error('No projects were inserted; cannot seed files.');
+    }
 
     // Seed Files
     console.log('Seeding files...');
@@ -152,12 +208,24 @@ async function seedDatabase(options = {}) {
     const duration = Date.now() - startTime;
     console.log(`Seeding completed successfully in ${duration}ms.`);
   } catch (err) {
-    await db.run('ROLLBACK');
-    console.error('Seeding failed:', err);
+    console.error('Seeding failed, rolling back transaction:', err.message);
+    try {
+      await db.run('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('ROLLBACK also failed:', rollbackErr.message);
+    }
     throw err;
   } finally {
-    await db.run('PRAGMA foreign_keys = ON;');
-    await db.close();
+    try {
+      await db.run('PRAGMA foreign_keys = ON;');
+    } catch (_) {
+      // Best-effort; ignore if db is already in a bad state
+    }
+    try {
+      await db.close();
+    } catch (closeErr) {
+      console.error('Failed to close database connection:', closeErr.message);
+    }
   }
 }
 
@@ -167,17 +235,23 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const options = {};
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--users') options.users = parseInt(args[++i], 10);
-    else if (args[i] === '--projects')
+    if (args[i] === '--users') {
+      options.users = parseInt(args[++i], 10);
+    } else if (args[i] === '--projects') {
       options.projects = parseInt(args[++i], 10);
-    else if (args[i] === '--files') options.files = parseInt(args[++i], 10);
-    else if (args[i] === '--db') options.dbPath = args[++i];
+    } else if (args[i] === '--files') {
+      options.files = parseInt(args[++i], 10);
+    } else if (args[i] === '--db') {
+      options.dbPath = args[++i];
+    } else {
+      console.warn(`[seed] Unknown argument: ${args[i]}`);
+    }
   }
 
   seedDatabase(options).catch((err) => {
-    console.error(err);
+    console.error('[seed] Fatal error:', err.message);
     process.exit(1);
   });
 }
 
-export { seedDatabase };
+export { seedDatabase, validateOptions };
