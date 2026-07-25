@@ -49,17 +49,50 @@ const CONFIG_WARNING_PREFIX = 'CONFIG WARNING';
 const hasValue = (value) =>
   value !== undefined && value !== null && String(value).trim() !== '';
 
+/**
+ * Return the trimmed string value when present, otherwise return `fallback`.
+ * If a non-empty value is provided but trims to an empty string, the fallback
+ * is used silently (whitespace-only strings are treated as absent).
+ *
+ * @param {string|undefined} value
+ * @param {string|undefined} fallback
+ * @returns {string|undefined}
+ */
 const cleanString = (value, fallback) => {
   if (!hasValue(value)) return fallback;
-  return String(value).trim();
+  const trimmed = String(value).trim();
+  return trimmed || fallback;
 };
 
+/**
+ * Push a warning message describing an invalid config value and the fallback
+ * that will be used in its place.
+ *
+ * @param {string[]} warnings
+ * @param {string} key
+ * @param {unknown} value
+ * @param {unknown} fallback
+ * @param {string} reason
+ */
 function warnFallback(warnings, key, value, fallback, reason) {
+  const fallbackDisplay =
+    fallback === undefined ? 'undefined' : JSON.stringify(fallback);
   warnings.push(
-    `${key}=${JSON.stringify(value)} is invalid (${reason}); using ${fallback}`
+    `${key}=${JSON.stringify(value)} is invalid (${reason}); using ${fallbackDisplay}`
   );
 }
 
+/**
+ * Parse `value` as an integer, enforcing optional `min`/`max` bounds.
+ * Records a warning and returns `fallback` on any validation failure.
+ *
+ * @param {string|undefined} value
+ * @param {number} fallback
+ * @param {string} key
+ * @param {string[]} warnings
+ * @param {{ min?: number, max?: number }} [bounds]
+ * @returns {number}
+ */
 function toInt(value, fallback, key, warnings, { min, max } = {}) {
   if (!hasValue(value)) return fallback;
 
@@ -84,6 +117,17 @@ function toInt(value, fallback, key, warnings, { min, max } = {}) {
   return parsed;
 }
 
+/**
+ * Parse `value` as a finite float, enforcing optional `min`/`max` bounds.
+ * Records a warning and returns `fallback` on any validation failure.
+ *
+ * @param {string|undefined} value
+ * @param {number} fallback
+ * @param {string} key
+ * @param {string[]} warnings
+ * @param {{ min?: number, max?: number }} [bounds]
+ * @returns {number}
+ */
 function toFloat(value, fallback, key, warnings, { min, max } = {}) {
   if (!hasValue(value)) return fallback;
 
@@ -107,6 +151,18 @@ function toFloat(value, fallback, key, warnings, { min, max } = {}) {
   return parsed;
 }
 
+/**
+ * Parse `value` as a boolean.
+ * Accepted truthy strings: `true`, `1`, `yes`, `on` (case-insensitive).
+ * Accepted falsy strings: `false`, `0`, `no`, `off` (case-insensitive).
+ * Records a warning and returns `fallback` for any other non-empty value.
+ *
+ * @param {string|undefined} value
+ * @param {boolean} fallback
+ * @param {string} key
+ * @param {string[]} warnings
+ * @returns {boolean}
+ */
 function toBoolean(value, fallback, key, warnings) {
   if (!hasValue(value)) return fallback;
 
@@ -118,6 +174,15 @@ function toBoolean(value, fallback, key, warnings) {
   return fallback;
 }
 
+/**
+ * Return the first key in `keys` whose value in `env` passes `hasValue`.
+ * Falls back to returning `{ key: keys[0], value: undefined }` so callers
+ * always have a meaningful key name for warning messages.
+ *
+ * @param {Record<string, string|undefined>} env
+ * @param {string[]} keys
+ * @returns {{ key: string, value: string|undefined }}
+ */
 function getFirstValue(env, keys) {
   for (const key of keys) {
     if (hasValue(env[key])) return { key, value: env[key] };
@@ -125,15 +190,43 @@ function getFirstValue(env, keys) {
   return { key: keys[0], value: undefined };
 }
 
+/**
+ * Emit each warning via `logger.warn`.
+ * Silently skips logging if `warnings` is empty or `logger` does not expose
+ * a callable `warn` method.
+ *
+ * @param {string[]} warnings
+ * @param {{ warn?: (...args: unknown[]) => void }} [logger=console]
+ */
 function logConfigWarnings(warnings, logger = console) {
-  if (!warnings.length || !logger?.warn) return;
+  if (
+    !warnings.length ||
+    !logger ||
+    typeof logger !== 'object' ||
+    typeof logger.warn !== 'function'
+  ) {
+    return;
+  }
 
   for (const warning of warnings) {
     logger.warn(`${CONFIG_WARNING_PREFIX}: ${warning}`);
   }
 }
 
+/**
+ * Build the application configuration object from environment variables.
+ * Invalid or out-of-range values fall back to safe defaults and are recorded
+ * as warnings on `config.validation.warnings`.
+ *
+ * @param {Record<string, string|undefined>} [env=process.env]
+ * @param {{ reportWarnings?: boolean, logger?: { warn: (...args: unknown[]) => void } }} [options={}]
+ * @returns {object}
+ */
 export function createConfig(env = process.env, options = {}) {
+  // Guard against callers passing null or a non-object as env
+  if (!env || typeof env !== 'object') {
+    env = {};
+  }
   const warnings = [];
   const portSource = getFirstValue(env, ['PORT', 'APP_PORT']);
 
