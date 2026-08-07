@@ -16,7 +16,7 @@
     "@kurkle/color": "^0.4.0",
     "@monaco-editor/react": "^4.7.0",
     "@stellar/freighter-api": "^6.0.1",
-    "@stellar/stellar-sdk": "^12.3.0",
+    "@stellar/stellar-sdk": "^16.2.0",
     "@wry/caches": "^1.0.1",
     "@wry/context": "^0.7.4",
     "@wry/equality": "^0.5.7",
