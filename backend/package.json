@@ -61,7 +61,7 @@
     "graphql-query-complexity": "^2.0.0",
     "graphql-yoga": "^5.21.0",
     "helmet": "^8.1.0",
-    "ioredis": "^5.10.1",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "knex": "^3.3.0",
     "lru-cache": "^11.3.5",
