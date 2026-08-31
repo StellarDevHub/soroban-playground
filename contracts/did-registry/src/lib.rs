@@ -208,6 +208,33 @@ impl DidRegistry {
         Ok(is_valid)
     }
 
+    /// Verify that a credential's schema_hash matches the expected value.
+    ///
+    /// This guards against credential re-use across schema versions: issuers
+    /// must commit to a schema hash at issuance, and consumers can confirm the
+    /// credential conforms to the schema they expect.
+    ///
+    /// # Errors
+    /// - [`Error::CredentialNotFound`] if the credential does not exist.
+    /// - [`Error::InvalidCredential`]  if the schema hash does not match.
+    pub fn verify_credential_schema(
+        env: Env,
+        credential_id: u32,
+        expected_schema_hash: u64,
+    ) -> Result<bool, Error> {
+        ensure_initialized(&env)?;
+        if expected_schema_hash == 0 {
+            return Err(Error::InvalidCredential);
+        }
+        let cred = load_credential(&env, credential_id)?;
+        let matches = cred.schema_hash == expected_schema_hash;
+        env.events().publish(
+            (symbol_short!("sch_ver"),),
+            (credential_id, expected_schema_hash, matches),
+        );
+        Ok(matches)
+    }
+
     // ── Reputation System ──────────────────────────────────────────────────
 
     /// Get reputation tier for an identity.

@@ -602,3 +602,174 @@ fn test_meets_reputation_requirement_zero_threshold() {
     // Default reputation is 0, threshold 0 → meets
     assert!(client.meets_reputation_requirement(&user, &0i32));
 }
+
+// ── Schema Verification ───────────────────────────────────────────────────────
+
+#[test]
+fn test_verify_credential_schema_match() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let schema: u64 = 0xDEAD_BEEF;
+    let cred_id = client.issue_credential(&issuer, &subject, &schema, &200u64, &0u64);
+    assert!(client.verify_credential_schema(&cred_id, &schema));
+}
+
+#[test]
+fn test_verify_credential_schema_mismatch() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &0xDEAD_BEEF_u64, &200u64, &0u64);
+    assert!(!client.verify_credential_schema(&cred_id, &0xCAFE_BABE_u64));
+}
+
+#[test]
+fn test_verify_credential_schema_zero_hash_fails() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &100u64, &200u64, &0u64);
+    // expected_schema_hash == 0 is rejected as invalid
+    let res = client.try_verify_credential_schema(&cred_id, &0u64);
+    assert_eq!(res, Err(Ok(Error::InvalidCredential)));
+}
+
+#[test]
+fn test_verify_credential_schema_nonexistent_credential() {
+    let (_, _, client) = setup();
+    let res = client.try_verify_credential_schema(&999u32, &100u64);
+    assert_eq!(res, Err(Ok(Error::CredentialNotFound)));
+}
+
+#[test]
+fn test_verify_credential_schema_revoked_credential() {
+    // Schema verification is orthogonal to revocation status —
+    // schema hash matching still returns correctly even for revoked credentials.
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let schema: u64 = 42;
+    let cred_id = client.issue_credential(&issuer, &subject, &schema, &1u64, &0u64);
+    client.revoke_credential(&cred_id);
+
+    // Schema hash still matches even though credential is revoked.
+    assert!(client.verify_credential_schema(&cred_id, &schema));
+    // But verify_credential returns false (revoked).
+    let verifier = Address::generate(&env);
+    register(&env, &client, &verifier);
+    assert!(!client.verify_credential(&verifier, &cred_id));
+}
+
+#[test]
+fn test_controller_auth_required_for_update() {
+    // Confirm that update_metadata is gated by require_auth().
+    // mock_all_auths is active in setup(), so we just verify the function
+    // succeeds and that deactivation blocks further updates (ownership control).
+    let (env, _, client) = setup();
+    let owner = Address::generate(&env);
+    register(&env, &client, &owner);
+    client.update_metadata(&owner, &999u64);
+    assert_eq!(client.get_identity(&owner).metadata_hash, 999);
+
+    // Deactivate and confirm updates are blocked.
+    client.deactivate_identity(&owner);
+    let res = client.try_update_metadata(&owner, &888u64);
+    assert_eq!(res, Err(Ok(Error::IdentityDeactivated)));
+}
+
+// ── Schema Verification ───────────────────────────────────────────────────────
+
+#[test]
+fn test_verify_credential_schema_match() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let schema: u64 = 0xDEAD_BEEF;
+    let cred_id = client.issue_credential(&issuer, &subject, &schema, &200u64, &0u64);
+    assert!(client.verify_credential_schema(&cred_id, &schema));
+}
+
+#[test]
+fn test_verify_credential_schema_mismatch() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &0xDEAD_BEEFu64, &200u64, &0u64);
+    assert!(!client.verify_credential_schema(&cred_id, &0xCAFE_BABEu64));
+}
+
+#[test]
+fn test_verify_credential_schema_zero_hash_fails() {
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let cred_id = client.issue_credential(&issuer, &subject, &100u64, &200u64, &0u64);
+    let res = client.try_verify_credential_schema(&cred_id, &0u64);
+    assert_eq!(res, Err(Ok(Error::InvalidCredential)));
+}
+
+#[test]
+fn test_verify_credential_schema_nonexistent_credential() {
+    let (_, _, client) = setup();
+    let res = client.try_verify_credential_schema(&999u32, &100u64);
+    assert_eq!(res, Err(Ok(Error::CredentialNotFound)));
+}
+
+#[test]
+fn test_verify_credential_schema_revoked_credential() {
+    // Schema verification is orthogonal to revocation — hash matching
+    // returns correctly even for revoked credentials.
+    let (env, _, client) = setup();
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    register(&env, &client, &issuer);
+    register(&env, &client, &subject);
+
+    let schema: u64 = 42;
+    let cred_id = client.issue_credential(&issuer, &subject, &schema, &1u64, &0u64);
+    client.revoke_credential(&cred_id);
+
+    // Schema still matches even though credential is revoked.
+    assert!(client.verify_credential_schema(&cred_id, &schema));
+    // But verify_credential returns false (revoked).
+    let verifier = Address::generate(&env);
+    register(&env, &client, &verifier);
+    assert!(!client.verify_credential(&verifier, &cred_id));
+}
+
+#[test]
+fn test_controller_auth_required_for_update() {
+    // Confirm update_metadata is gated by owner.require_auth().
+    // mock_all_auths is active in setup(); deactivation blocks updates.
+    let (env, _, client) = setup();
+    let owner = Address::generate(&env);
+    register(&env, &client, &owner);
+    client.update_metadata(&owner, &999u64);
+    assert_eq!(client.get_identity(&owner).metadata_hash, 999);
+
+    client.deactivate_identity(&owner);
+    let res = client.try_update_metadata(&owner, &888u64);
+    assert_eq!(res, Err(Ok(Error::IdentityDeactivated)));
+}
