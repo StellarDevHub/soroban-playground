@@ -3,6 +3,39 @@ import dotenv from 'dotenv';
 // Load .env early
 dotenv.config();
 
+const REQUIRED_PRODUCTION_ENV_VARS = [
+  'JWT_SECRET',
+  'DATABASE_URL',
+  'REDIS_URL',
+  'SOROBAN_RPC_URL',
+  'CORS_ALLOWED_ORIGINS',
+];
+
+function validateProductionEnv(env = process.env) {
+  const isProduction =
+    String(env.NODE_ENV || '').trim().toLowerCase() === 'production' ||
+    String(env.APP_ENV || '').trim().toLowerCase() === 'production';
+
+  if (!isProduction) return;
+
+  const missing = REQUIRED_PRODUCTION_ENV_VARS.filter(
+    (key) => !env[key] || String(env[key]).trim() === ''
+  );
+
+  if (missing.length === 0) return;
+
+  const report = [
+    'Invalid production environment configuration:',
+    ...missing.map((key) => `  MISSING ${key}`),
+    'All required environment variables must be set when NODE_ENV=production.',
+  ].join('\n');
+
+  console.error(report);
+  process.exit(1);
+}
+
+validateProductionEnv(process.env);
+
 const DEFAULTS = {
   APP_PORT: 5000,
   APP_ENV: 'development',
