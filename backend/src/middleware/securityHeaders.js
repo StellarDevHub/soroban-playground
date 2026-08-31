@@ -68,9 +68,9 @@ export function buildHelmetMiddleware() {
     crossOriginOpenerPolicy: { policy: 'same-origin' },
     permissionsPolicy: {
       directives: {
-        'camera': [],
-        'microphone': [],
-        'geolocation': [],
+        camera: [],
+        microphone: [],
+        geolocation: [],
       },
     },
   });
