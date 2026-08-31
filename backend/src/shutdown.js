@@ -8,9 +8,18 @@ import { logger } from './utils/logger.js';
  * @param {import('http').Server} params.server - Running HTTP/HTTPS server instance
  * @param {import('ws').WebSocketServer} params.wss - Active WebSocket server instance
  * @param {import('knex').Knex} params.db - Knex database instance/pool
- * @param {number} [params.timeoutMs=10000] - Hard shutdown timeout in milliseconds
+ * @param {object} [params.queues] - BullMQ queue instances whose workers must drain
+ * @param {import('ioredis').Redis} [params.redis] - Redis client to flush pipelines
+ * @param {number} [params.timeoutMs=20000] - Hard shutdown timeout in milliseconds (20s drain)
  */
-export function setupGracefulShutdown({ server, wss, db, timeoutMs = 10000 }) {
+export function setupGracefulShutdown({
+  server,
+  wss,
+  db,
+  queues = [],
+  redis,
+  timeoutMs = 20000,
+}) {
   let isShuttingDown = false;
 
   const handleSignal = async (signal) => {
@@ -61,7 +70,35 @@ export function setupGracefulShutdown({ server, wss, db, timeoutMs = 10000 }) {
         logger.info('WebSocket connections terminated and server closed.');
       }
 
-      // 3. Drain and destroy Knex database connection pool
+      // 3. Wait for active BullMQ workers to complete in-flight jobs
+      if (queues && queues.length > 0) {
+        logger.info(
+          `Waiting for ${queues.length} BullMQ queues to drain active jobs...`
+        );
+        await Promise.all(
+          queues.map(async (queue) => {
+            if (queue && typeof queue.close === 'function') {
+              await queue.close();
+              logger.info(`Queue drained: ${queue.name}`);
+            }
+          })
+        );
+      }
+
+      // 4. Flush pending Redis pipelines before closing
+      if (redis && typeof redis.pipeline === 'function') {
+        logger.info('Flushing pending Redis pipelines...');
+        try {
+          await new Promise((resolve, reject) => {
+            const pipeline = redis.pipeline();
+            pipeline.exec().then(resolve).catch(reject);
+          });
+        } catch (err) {
+          logger.warn('Non-fatal error flushing Redis pipelines:', err.message);
+        }
+      }
+
+      // 5. Drain and destroy Knex database connection pool
       if (db && typeof db.destroy === 'function') {
         logger.info('Draining Knex database connection pool...');
         await db.destroy();
