@@ -16,15 +16,17 @@ mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, BytesN, Env, String};
 
 use crate::storage::{
-    get_balance, get_deposit, get_exec_delay, get_proposal, get_proposal_count, get_quorum_bps,
-    get_total_supply, get_voting_period, has_voted, is_initialized, record_vote, remove_delegate,
-    resolve_delegate, set_admin, set_balance, set_delegate, set_deposit, set_exec_delay,
-    set_proposal, set_proposal_count, set_quorum_bps, set_total_supply, set_voting_period,
+    clear_pending_upgrade, get_balance, get_deposit, get_exec_delay,
+    get_pending_upgrade as storage_get_pending_upgrade,
+    get_proposal, get_proposal_count, get_quorum_bps, get_total_supply, get_voting_period,
+    has_voted, is_initialized, record_vote, remove_delegate, resolve_delegate, set_admin,
+    set_balance, set_delegate, set_deposit, set_exec_delay, set_pending_upgrade, set_proposal,
+    set_proposal_count, set_quorum_bps, set_total_supply, set_voting_period,
 };
-use crate::types::{Error, Proposal, ProposalStatus, VoteChoice};
+use crate::types::{Error, Proposal, ProposalStatus, UpgradePending, VoteChoice};
 
 #[contract]
 pub struct Governance;
@@ -223,6 +225,118 @@ impl Governance {
         proposal.status = ProposalStatus::Cancelled;
         set_proposal(&env, &proposal);
         Ok(())
+    }
+
+    // ── Upgrade (2-step with 48-hour timelock) ────────────────────────────────
+
+    /// Schedule a contract WASM upgrade.
+    ///
+    /// Admin-only. The upgrade cannot be executed until at least 48 hours
+    /// (172 800 seconds) have elapsed, giving the community a veto window.
+    /// Scheduling a new upgrade while one is already pending overwrites it,
+    /// allowing the admin to replace a pending upgrade with a safer hash.
+    ///
+    /// Emits `UpgradeScheduled` event: `(symbol_short!("upg_sched"), (wasm_hash, execute_after))`.
+    pub fn schedule_upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+        delay: u64,
+    ) -> Result<u64, Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+
+        // Enforce the mandatory minimum delay of 48 hours.
+        const MIN_DELAY: u64 = 172_800; // 48 * 60 * 60
+        if delay < MIN_DELAY {
+            return Err(Error::UpgradeDelayTooShort);
+        }
+
+        let now = env.ledger().timestamp();
+        let execute_after = now + delay;
+
+        set_pending_upgrade(
+            &env,
+            &UpgradePending {
+                wasm_hash: new_wasm_hash.clone(),
+                execute_after,
+            },
+        );
+
+        // UpgradeScheduled event — observable by public indexers.
+        env.events().publish(
+            (symbol_short!("upg_sched"),),
+            (new_wasm_hash, execute_after),
+        );
+
+        Ok(execute_after)
+    }
+
+    /// Execute a previously scheduled WASM upgrade.
+    ///
+    /// Admin-only. The caller must supply the same `new_wasm_hash` that was
+    /// passed to `schedule_upgrade` (guards against accidental or front-run
+    /// substitutions). The 48-hour timelock must have elapsed.
+    ///
+    /// Emits `ContractUpgraded` event: `(symbol_short!("upg_done"), new_wasm_hash)`
+    /// **before** the WASM is swapped so the event is always indexable.
+    pub fn execute_upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+
+        let pending = storage_get_pending_upgrade(&env).ok_or(Error::UpgradeNotScheduled)?;
+
+        // Verify the hash matches what was scheduled.
+        if pending.wasm_hash != new_wasm_hash {
+            return Err(Error::UpgradeHashMismatch);
+        }
+
+        // Verify the timelock has elapsed.
+        let now = env.ledger().timestamp();
+        if now < pending.execute_after {
+            return Err(Error::UpgradeTimelockActive);
+        }
+
+        // Clear the pending upgrade before applying (checks-effects-interactions).
+        clear_pending_upgrade(&env);
+
+        // ContractUpgraded event.
+        env.events()
+            .publish((symbol_short!("upg_done"),), new_wasm_hash.clone());
+
+        // Apply the WASM upgrade — atomically replaces contract code.
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+
+        Ok(())
+    }
+
+    /// Cancel a pending upgrade. Admin-only.
+    ///
+    /// Useful if a scheduled upgrade is discovered to be unsafe before the
+    /// timelock expires.
+    pub fn cancel_upgrade(env: Env, admin: Address) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+
+        if storage_get_pending_upgrade(&env).is_none() {
+            return Err(Error::UpgradeNotScheduled);
+        }
+
+        clear_pending_upgrade(&env);
+        Ok(())
+    }
+
+    /// Return the currently pending upgrade, if any.
+    pub fn get_pending_upgrade(env: Env) -> Result<Option<UpgradePending>, Error> {
+        ensure_initialized(&env)?;
+        Ok(storage_get_pending_upgrade(&env))
     }
 
     // ── Delegation ────────────────────────────────────────────────────────────

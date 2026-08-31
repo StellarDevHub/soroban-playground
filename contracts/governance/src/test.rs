@@ -549,7 +549,143 @@ fn test_cancel_passed_proposal_fails() {
     );
 }
 
-// ── Full lifecycle ────────────────────────────────────────────────────────────
+// ── Upgrade — 2-step timelock ──────────────────────────────────────────────────
+
+/// Build a dummy 32-byte WASM hash for testing (all zeros or arbitrary bytes).
+fn dummy_wasm_hash(env: &Env) -> soroban_sdk::BytesN<32> {
+    soroban_sdk::BytesN::from_array(env, &[0u8; 32])
+}
+
+fn dummy_wasm_hash_b(env: &Env) -> soroban_sdk::BytesN<32> {
+    soroban_sdk::BytesN::from_array(env, &[1u8; 32])
+}
+
+const MIN_DELAY: u64 = 172_800; // 48 hours in seconds
+
+#[test]
+fn test_schedule_upgrade_ok() {
+    let (env, admin, client) = setup();
+    let hash = dummy_wasm_hash(&env);
+    let execute_after = client.schedule_upgrade(&admin, &hash, &MIN_DELAY);
+    // execute_after should be now + delay
+    let now = env.ledger().timestamp();
+    // The schedule call was made at time `now`; execute_after = now + MIN_DELAY
+    // (we can only bound-check since timestamp may tick)
+    assert!(execute_after >= MIN_DELAY);
+    // Pending upgrade should be visible
+    let pending = client.get_pending_upgrade().unwrap();
+    assert_eq!(pending.wasm_hash, hash);
+    assert_eq!(pending.execute_after, execute_after);
+}
+
+#[test]
+fn test_schedule_upgrade_delay_too_short_fails() {
+    let (env, admin, client) = setup();
+    let hash = dummy_wasm_hash(&env);
+    // 47 hours and 59 minutes — one second short
+    let too_short = MIN_DELAY - 1;
+    let result = client.try_schedule_upgrade(&admin, &hash, &too_short);
+    assert_eq!(result, Err(Ok(Error::UpgradeDelayTooShort)));
+}
+
+#[test]
+fn test_schedule_upgrade_unauthorized_fails() {
+    let (env, _admin, client) = setup();
+    let non_admin = Address::generate(&env);
+    let hash = dummy_wasm_hash(&env);
+    let result = client.try_schedule_upgrade(&non_admin, &hash, &MIN_DELAY);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_execute_upgrade_before_timelock_fails() {
+    let (env, admin, client) = setup();
+    let hash = dummy_wasm_hash(&env);
+    client.schedule_upgrade(&admin, &hash, &MIN_DELAY);
+    // Advance only 47 hours — timelock not yet elapsed
+    env.ledger().with_mut(|l| l.timestamp += MIN_DELAY - 1);
+    let result = client.try_execute_upgrade(&admin, &hash);
+    assert_eq!(result, Err(Ok(Error::UpgradeTimelockActive)));
+}
+
+#[test]
+fn test_execute_upgrade_hash_mismatch_fails() {
+    let (env, admin, client) = setup();
+    let hash_a = dummy_wasm_hash(&env);
+    let hash_b = dummy_wasm_hash_b(&env);
+    client.schedule_upgrade(&admin, &hash_a, &MIN_DELAY);
+    env.ledger().with_mut(|l| l.timestamp += MIN_DELAY);
+    // Pass a different hash
+    let result = client.try_execute_upgrade(&admin, &hash_b);
+    assert_eq!(result, Err(Ok(Error::UpgradeHashMismatch)));
+}
+
+#[test]
+fn test_execute_upgrade_no_pending_fails() {
+    let (env, admin, client) = setup();
+    let hash = dummy_wasm_hash(&env);
+    // No schedule_upgrade call — there is no pending upgrade
+    let result = client.try_execute_upgrade(&admin, &hash);
+    assert_eq!(result, Err(Ok(Error::UpgradeNotScheduled)));
+}
+
+#[test]
+fn test_execute_upgrade_unauthorized_fails() {
+    let (env, admin, client) = setup();
+    let non_admin = Address::generate(&env);
+    let hash = dummy_wasm_hash(&env);
+    client.schedule_upgrade(&admin, &hash, &MIN_DELAY);
+    env.ledger().with_mut(|l| l.timestamp += MIN_DELAY);
+    let result = client.try_execute_upgrade(&non_admin, &hash);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_cancel_upgrade_ok() {
+    let (env, admin, client) = setup();
+    let hash = dummy_wasm_hash(&env);
+    client.schedule_upgrade(&admin, &hash, &MIN_DELAY);
+    client.cancel_upgrade(&admin);
+    // After cancel, pending upgrade should be None
+    assert_eq!(client.get_pending_upgrade(), None);
+}
+
+#[test]
+fn test_cancel_upgrade_no_pending_fails() {
+    let (_env, admin, client) = setup();
+    let result = client.try_cancel_upgrade(&admin);
+    assert_eq!(result, Err(Ok(Error::UpgradeNotScheduled)));
+}
+
+#[test]
+fn test_cancel_upgrade_unauthorized_fails() {
+    let (env, admin, client) = setup();
+    let non_admin = Address::generate(&env);
+    let hash = dummy_wasm_hash(&env);
+    client.schedule_upgrade(&admin, &hash, &MIN_DELAY);
+    let result = client.try_cancel_upgrade(&non_admin);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_reschedule_upgrade_overwrites_previous() {
+    let (env, admin, client) = setup();
+    let hash_a = dummy_wasm_hash(&env);
+    let hash_b = dummy_wasm_hash_b(&env);
+    client.schedule_upgrade(&admin, &hash_a, &MIN_DELAY);
+    // Reschedule with a different hash
+    client.schedule_upgrade(&admin, &hash_b, &MIN_DELAY);
+    let pending = client.get_pending_upgrade().unwrap();
+    assert_eq!(pending.wasm_hash, hash_b);
+}
+
+#[test]
+fn test_get_pending_upgrade_none_when_not_scheduled() {
+    let (_env, _admin, client) = setup();
+    assert_eq!(client.get_pending_upgrade(), None);
+}
+
+
 
 #[test]
 fn test_full_proposal_lifecycle() {
