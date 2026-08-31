@@ -5,8 +5,22 @@ import { LRUCache } from 'lru-cache';
 dotenv.config();
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const REDIS_TLS = process.env.REDIS_TLS === 'true';
+const REDIS_CLUSTER_NODES = process.env.REDIS_CLUSTER_NODES
+  ? process.env.REDIS_CLUSTER_NODES.split(',')
+  : null;
 const FALLBACK_TO_MEMORY = true;
 const ANALYTICS_TTL_SECONDS = 60 * 60 * 24 * 30;
+const DEFAULT_TTL_SECONDS = 300;
+const POPULARITY_TTL_SECONDS = 86400 * 7;
+const MAX_SMART_TTL_SECONDS = 1800;
+const BASE_SMART_TTL_SECONDS = 300;
+const SMART_TTL_POPULARITY_STEP_SECONDS = 60;
+
+// Circuit breaker configuration
+const CIRCUIT_BREAKER_THRESHOLD = 5;
+const CIRCUIT_BREAKER_TIMEOUT_MS = 60000;
+const CIRCUIT_BREAKER_HALF_OPEN_ATTEMPTS = 3;
 
 function padDatePart(value) {
   return String(value).padStart(2, '0');
@@ -37,10 +51,17 @@ class RedisService {
     this.client = null;
     this.isFallbackMode = false;
     this.connectionAttempts = 0;
-    this.maxAttempts = 3;
+    this.maxAttempts = 10;
+    this.reconnectBackoffMs = 1000;
+    this.circuitBreakerState = 'CLOSED';
+    this.circuitBreakerFailures = 0;
+    this.circuitBreakerLastFailTime = null;
+    this.circuitBreakerHalfOpenAttempts = 0;
     this.localCache = new LRUCache({
-      max: 5000, // Prevent memory leaks by capping the number of unique identifiers tracked
-      ttl: 1000 * 60 * 60, // 1 hour TTL for fallback entries
+      max: 5000,
+      maxSize: 100 * 1024 * 1024, // 100MB memory limit
+      sizeCalculation: (value) => JSON.stringify(value).length,
+      ttl: 1000 * 60 * 60,
     });
     this.localAnalytics = {
       hourly: new Map(),
@@ -55,7 +76,6 @@ class RedisService {
 
   init() {
     try {
-      // If no REDIS_URL is provided and we are in production, default to fallback to avoid localhost connection spam
       if (!process.env.REDIS_URL && process.env.NODE_ENV === 'production') {
         console.log(
           'No REDIS_URL provided in production, switching to fallback mode'
@@ -71,23 +91,53 @@ class RedisService {
     }
   }
 
-  // Creates a configured Redis client with the shared retry strategy and event
-  // handlers. Used by init() and by rotateConnection() during credential
-  // rotation so both paths behave identically.
   _buildClient(url) {
-    const client = new Redis(url, {
-      maxRetriesPerRequest: 1,
+    const baseOptions = {
+      maxRetriesPerRequest: 3,
       connectTimeout: 5000,
+      commandTimeout: 3000,
+      enableReadyCheck: true,
+      enableOfflineQueue: true,
+      lazyConnect: false,
+      connectionName: 'soroban-playground',
       retryStrategy: (times) => {
         if (times > this.maxAttempts) {
-          console.error('Redis connection failed, switching to fallback mode');
-          this.isFallbackMode = true;
+          console.error(
+            `Redis max retry attempts (${this.maxAttempts}) exceeded, engaging circuit breaker`
+          );
+          this.openCircuitBreaker();
           return null;
         }
-        return Math.min(times * 100, 2000);
+        const jitter = Math.random() * 1000;
+        const delay = Math.min(
+          this.reconnectBackoffMs * Math.pow(2, times - 1) + jitter,
+          30000
+        );
+        console.log(`Redis reconnection attempt ${times}, retrying in ${Math.round(delay)}ms`);
+        return delay;
       },
-      connectionName: 'soroban-playground',
-    });
+    };
+
+    if (REDIS_TLS) {
+      baseOptions.tls = {
+        rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
+      };
+    }
+
+    let client;
+    if (REDIS_CLUSTER_NODES && REDIS_CLUSTER_NODES.length > 0) {
+      const clusterNodes = REDIS_CLUSTER_NODES.map((node) => {
+        const [host, port] = node.split(':');
+        return { host, port: parseInt(port || '6379', 10) };
+      });
+      client = new Redis.Cluster(clusterNodes, {
+        redisOptions: baseOptions,
+        clusterRetryStrategy: baseOptions.retryStrategy,
+      });
+      console.log('Initializing Redis Cluster with nodes:', clusterNodes);
+    } else {
+      client = new Redis(url, baseOptions);
+    }
 
     client.on('error', (err) => {
       if (!this.isFallbackMode) {
@@ -95,18 +145,96 @@ class RedisService {
           console.error('Redis Error:', err.message || err);
         }
       }
-      if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+      this.recordCircuitBreakerFailure();
+      if (
+        err.code === 'ECONNREFUSED' ||
+        err.code === 'ETIMEDOUT' ||
+        err.code === 'ENOTFOUND'
+      ) {
         this.isFallbackMode = true;
       }
     });
 
     client.on('connect', () => {
       console.log('Connected to Redis');
+      this.resetCircuitBreaker();
       this.isFallbackMode = false;
+      this.connectionAttempts = 0;
       this.defineScripts();
     });
 
+    client.on('ready', () => {
+      console.log('Redis client ready');
+      this.resetCircuitBreaker();
+    });
+
+    client.on('reconnecting', (delay) => {
+      console.log(`Redis reconnecting in ${delay}ms`);
+    });
+
+    client.on('close', () => {
+      console.warn('Redis connection closed');
+    });
+
     return client;
+  }
+
+  recordCircuitBreakerFailure() {
+    this.circuitBreakerFailures++;
+    this.circuitBreakerLastFailTime = Date.now();
+    if (this.circuitBreakerFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+      this.openCircuitBreaker();
+    }
+  }
+
+  openCircuitBreaker() {
+    if (this.circuitBreakerState !== 'OPEN') {
+      console.warn(
+        `Circuit breaker OPEN after ${this.circuitBreakerFailures} failures. Falling back to LRU memory cache.`
+      );
+      this.circuitBreakerState = 'OPEN';
+      this.isFallbackMode = true;
+      setTimeout(() => {
+        this.circuitBreakerState = 'HALF_OPEN';
+        this.circuitBreakerHalfOpenAttempts = 0;
+        console.log('Circuit breaker entering HALF_OPEN state, testing connection...');
+      }, CIRCUIT_BREAKER_TIMEOUT_MS);
+    }
+  }
+
+  resetCircuitBreaker() {
+    if (this.circuitBreakerState !== 'CLOSED') {
+      console.log('Circuit breaker CLOSED, Redis connection restored');
+    }
+    this.circuitBreakerState = 'CLOSED';
+    this.circuitBreakerFailures = 0;
+    this.circuitBreakerHalfOpenAttempts = 0;
+    this.isFallbackMode = false;
+  }
+
+  async executeWithCircuitBreaker(fn) {
+    if (this.circuitBreakerState === 'OPEN') {
+      throw new Error('Circuit breaker is OPEN, using fallback');
+    }
+
+    if (this.circuitBreakerState === 'HALF_OPEN') {
+      this.circuitBreakerHalfOpenAttempts++;
+      if (this.circuitBreakerHalfOpenAttempts > CIRCUIT_BREAKER_HALF_OPEN_ATTEMPTS) {
+        this.openCircuitBreaker();
+        throw new Error('Circuit breaker half-open test failed, reopening');
+      }
+    }
+
+    try {
+      const result = await fn();
+      if (this.circuitBreakerState === 'HALF_OPEN') {
+        this.resetCircuitBreaker();
+      }
+      return result;
+    } catch (err) {
+      this.recordCircuitBreakerFailure();
+      throw err;
+    }
   }
 
   /**
@@ -207,33 +335,34 @@ class RedisService {
 
     const now = Date.now();
     try {
-      let result;
-      if (strategy === 'SlidingWindowLog') {
-        result = await this.client.slidingWindowLog(key, limit, windowMs, now);
-      } else if (strategy === 'SlidingWindowCounter') {
-        const windowIdx = Math.floor(now / windowMs);
-        const currentKey = `${key}:${windowIdx}`;
-        const previousKey = `${key}:${windowIdx - 1}`;
-        result = await this.client.slidingWindowCounter(
-          currentKey,
-          previousKey,
-          limit,
-          windowMs,
-          now
-        );
-      } else {
-        result = await this.client.fixedWindow(
-          key,
-          limit,
-          Math.ceil(windowMs / 1000)
-        );
-      }
+      return await this.executeWithCircuitBreaker(async () => {
+        let result;
+        if (strategy === 'SlidingWindowLog') {
+          result = await this.client.slidingWindowLog(key, limit, windowMs, now);
+        } else if (strategy === 'SlidingWindowCounter') {
+          const windowIdx = Math.floor(now / windowMs);
+          const currentKey = `${key}:${windowIdx}`;
+          const previousKey = `${key}:${windowIdx - 1}`;
+          result = await this.client.slidingWindowCounter(
+            currentKey,
+            previousKey,
+            limit,
+            windowMs,
+            now
+          );
+        } else {
+          result = await this.client.fixedWindow(
+            key,
+            limit,
+            Math.ceil(windowMs / 1000)
+          );
+        }
 
-      const [allowed, current, retryAfter] = result;
-      return { allowed: allowed === 1, current, retryAfter };
+        const [allowed, current, retryAfter] = result;
+        return { allowed: allowed === 1, current, retryAfter };
+      });
     } catch (err) {
       console.error('Redis Rate Limit Error:', err.message);
-      this.isFallbackMode = true;
       return this.checkMemoryRateLimit(key, limit, windowMs);
     }
   }
@@ -266,21 +395,39 @@ class RedisService {
       const val = this.localCache.get(key);
       return val !== undefined ? val : null;
     }
-    return await this.client.get(key);
+    try {
+      return await this.executeWithCircuitBreaker(() => this.client.get(key));
+    } catch (err) {
+      const val = this.localCache.get(key);
+      return val !== undefined ? val : null;
+    }
   }
 
-  async set(key, value, ttl) {
+  async set(key, value, ttl = DEFAULT_TTL_SECONDS) {
     if (this.isFallbackMode || !this.client) {
-      this.localCache.set(key, value);
+      this.localCache.set(key, value, { ttl: ttl * 1000 });
       return 'OK';
     }
-    return await this.client.set(key, value, 'EX', ttl);
+    try {
+      return await this.executeWithCircuitBreaker(() =>
+        this.client.set(key, value, 'EX', ttl)
+      );
+    } catch (err) {
+      this.localCache.set(key, value, { ttl: ttl * 1000 });
+      return 'OK';
+    }
+  }
+
+  async setex(key, ttl, value) {
+    return await this.set(key, value, ttl);
   }
 
   async setNX(key, value, ttlSeconds) {
     try {
       if (this.client && !this.isFallbackMode) {
-        return await this.client.set(key, value, 'EX', ttlSeconds, 'NX');
+        return await this.executeWithCircuitBreaker(() =>
+          this.client.set(key, value, 'EX', ttlSeconds, 'NX')
+        );
       }
     } catch (err) {
       console.warn('Redis setNX error, using memory fallback:', err.message);
@@ -297,7 +444,190 @@ class RedisService {
       this.localCache.delete?.(key);
       return 1;
     }
-    return await this.client.del(key);
+    try {
+      return await this.executeWithCircuitBreaker(() => this.client.del(key));
+    } catch (err) {
+      this.localCache.delete?.(key);
+      return 1;
+    }
+  }
+
+  async del(key) {
+    return await this.delete(key);
+  }
+
+  async has(key) {
+    if (this.isFallbackMode || !this.client) {
+      return this.localCache.has(key);
+    }
+    try {
+      const exists = await this.executeWithCircuitBreaker(() =>
+        this.client.exists(key)
+      );
+      return exists === 1;
+    } catch (err) {
+      return this.localCache.has(key);
+    }
+  }
+
+  async exists(key) {
+    return (await this.has(key)) ? 1 : 0;
+  }
+
+  async incr(key) {
+    if (this.isFallbackMode || !this.client) {
+      const current = this.localCache.get(key) || 0;
+      const next = parseInt(current, 10) + 1;
+      this.localCache.set(key, next);
+      return next;
+    }
+    try {
+      return await this.executeWithCircuitBreaker(() => this.client.incr(key));
+    } catch (err) {
+      const current = this.localCache.get(key) || 0;
+      const next = parseInt(current, 10) + 1;
+      this.localCache.set(key, next);
+      return next;
+    }
+  }
+
+  async expire(key, seconds) {
+    if (this.isFallbackMode || !this.client) {
+      return 1;
+    }
+    try {
+      return await this.executeWithCircuitBreaker(() =>
+        this.client.expire(key, seconds)
+      );
+    } catch (err) {
+      return 1;
+    }
+  }
+
+  async hincrby(key, field, increment) {
+    if (this.isFallbackMode || !this.client) {
+      const hash = this.localCache.get(key) || {};
+      hash[field] = (parseInt(hash[field], 10) || 0) + increment;
+      this.localCache.set(key, hash);
+      return hash[field];
+    }
+    try {
+      return await this.executeWithCircuitBreaker(() =>
+        this.client.hincrby(key, field, increment)
+      );
+    } catch (err) {
+      const hash = this.localCache.get(key) || {};
+      hash[field] = (parseInt(hash[field], 10) || 0) + increment;
+      this.localCache.set(key, hash);
+      return hash[field];
+    }
+  }
+
+  async zincrby(key, increment, member) {
+    if (this.isFallbackMode || !this.client) {
+      const zset = this.localCache.get(key) || new Map();
+      zset.set(member, (zset.get(member) || 0) + increment);
+      this.localCache.set(key, zset);
+      return zset.get(member);
+    }
+    try {
+      return await this.executeWithCircuitBreaker(() =>
+        this.client.zincrby(key, increment, member)
+      );
+    } catch (err) {
+      const zset = this.localCache.get(key) || new Map();
+      zset.set(member, (zset.get(member) || 0) + increment);
+      this.localCache.set(key, zset);
+      return zset.get(member);
+    }
+  }
+
+  async scan(cursor, ...args) {
+    if (this.isFallbackMode || !this.client) {
+      return ['0', []];
+    }
+    try {
+      return await this.executeWithCircuitBreaker(() =>
+        this.client.scan(cursor, ...args)
+      );
+    } catch (err) {
+      return ['0', []];
+    }
+  }
+
+  pipeline() {
+    if (this.isFallbackMode || !this.client) {
+      return {
+        hincrby: () => this,
+        zincrby: () => this,
+        expire: () => this,
+        exec: async () => [],
+      };
+    }
+    return this.client.pipeline();
+  }
+
+  async ping() {
+    if (this.isFallbackMode || !this.client) {
+      return 'PONG';
+    }
+    try {
+      return await this.executeWithCircuitBreaker(() => this.client.ping());
+    } catch (err) {
+      return 'PONG';
+    }
+  }
+
+  async info(section) {
+    if (this.isFallbackMode || !this.client) {
+      return 'fallback_mode';
+    }
+    try {
+      return await this.executeWithCircuitBreaker(() =>
+        this.client.info(section)
+      );
+    } catch (err) {
+      return 'fallback_mode';
+    }
+  }
+
+  async dbsize() {
+    if (this.isFallbackMode || !this.client) {
+      return this.localCache.size;
+    }
+    try {
+      return await this.executeWithCircuitBreaker(() => this.client.dbsize());
+    } catch (err) {
+      return this.localCache.size;
+    }
+  }
+
+  async connect() {
+    if (this.client && !this.client.status.includes('connect')) {
+      await this.client.connect();
+    }
+  }
+
+  async quit() {
+    if (this.client) {
+      await this.client.quit();
+    }
+  }
+
+  async disconnect() {
+    if (this.client) {
+      this.client.disconnect();
+    }
+  }
+
+  get status() {
+    if (this.isFallbackMode) return 'fallback';
+    if (!this.client) return 'disconnected';
+    return this.client.status;
+  }
+
+  get isConnected() {
+    return !this.isFallbackMode && this.client && this.client.status === 'ready';
   }
 
   /**
@@ -320,19 +650,20 @@ class RedisService {
     }
 
     try {
-      const pipeline = this.client.pipeline();
-      pipeline.hincrby(hourKey, safeStatus, 1);
-      pipeline.hincrby(endpointKey, safeStatus, 1);
-      pipeline.hincrby(ipKey, safeStatus, 1);
-      pipeline.zincrby('analytics:top_ips', 1, safeIp);
-      pipeline.expire(hourKey, ANALYTICS_TTL_SECONDS);
-      pipeline.expire(endpointKey, ANALYTICS_TTL_SECONDS);
-      pipeline.expire(ipKey, ANALYTICS_TTL_SECONDS);
-      await pipeline.exec();
+      await this.executeWithCircuitBreaker(async () => {
+        const pipeline = this.client.pipeline();
+        pipeline.hincrby(hourKey, safeStatus, 1);
+        pipeline.hincrby(endpointKey, safeStatus, 1);
+        pipeline.hincrby(ipKey, safeStatus, 1);
+        pipeline.zincrby('analytics:top_ips', 1, safeIp);
+        pipeline.expire(hourKey, ANALYTICS_TTL_SECONDS);
+        pipeline.expire(endpointKey, ANALYTICS_TTL_SECONDS);
+        pipeline.expire(ipKey, ANALYTICS_TTL_SECONDS);
+        await pipeline.exec();
+      });
       return { stored: 'redis', hourKey, endpointKey, ipKey };
     } catch (err) {
       console.error('Failed to log analytics:', err.message);
-      this.isFallbackMode = FALLBACK_TO_MEMORY;
       this.logMemoryAnalytics(hourKey, safeEndpoint, safeIp, safeStatus);
       return { stored: 'memory', hourKey, endpointKey, ipKey };
     }
@@ -350,6 +681,238 @@ class RedisService {
       endpoints: Object.fromEntries(this.localAnalytics.endpoints),
       ips: Object.fromEntries(this.localAnalytics.ips),
     };
+  }
+
+  // ==================== CacheService Methods (Merged) ====================
+
+  async #deleteByPattern(pattern) {
+    if (!this.isConnected || !this.client) return 0;
+
+    let cursor = '0';
+    let deleted = 0;
+    try {
+      await this.executeWithCircuitBreaker(async () => {
+        do {
+          const [next, keys] = await this.client.scan(
+            cursor,
+            'MATCH',
+            pattern,
+            'COUNT',
+            100
+          );
+          cursor = next;
+          if (keys.length > 0) {
+            await this.client.del(...keys);
+            deleted += keys.length;
+          }
+        } while (cursor !== '0');
+      });
+    } catch (err) {
+      console.error('deleteByPattern error:', err.message);
+    }
+    return deleted;
+  }
+
+  async #scanPattern(pattern) {
+    const results = [];
+    let cursor = '0';
+    if (!this.isConnected || !this.client) return results;
+
+    try {
+      await this.executeWithCircuitBreaker(async () => {
+        do {
+          const [next, keys] = await this.client.scan(
+            cursor,
+            'MATCH',
+            pattern,
+            'COUNT',
+            100
+          );
+          cursor = next;
+          if (keys.length > 0) {
+            const pipeline = this.client.pipeline();
+            keys.forEach((key) => pipeline.get(key));
+            const values = await pipeline.exec();
+            values.forEach(([err, val], idx) => {
+              if (!err && val) {
+                results.push({ key: keys[idx], value: val });
+              }
+            });
+          }
+        } while (cursor !== '0');
+      });
+    } catch (err) {
+      console.error('scanPattern error:', err.message);
+    }
+    return results;
+  }
+
+  generateSearchKey(query, filters, pagination) {
+    const keyData = { query, filters, pagination };
+    return `search:${Buffer.from(JSON.stringify(keyData)).toString('base64')}`;
+  }
+
+  generateFacetKey(query) {
+    return `facets:${Buffer.from(query).toString('base64')}`;
+  }
+
+  generateAutocompleteKey(query) {
+    return `autocomplete:${Buffer.from(query).toString('base64')}`;
+  }
+
+  async clearSearchCache() {
+    if (!this.isConnected) return false;
+    try {
+      await this.#deleteByPattern('search:*');
+      return true;
+    } catch (error) {
+      console.error('Cache clear error:', error);
+      return false;
+    }
+  }
+
+  async incrementSearchPopularity(query) {
+    const key = `popular:${query}`;
+    try {
+      if (this.isConnected) {
+        await this.executeWithCircuitBreaker(async () => {
+          await this.client.incr(key);
+          await this.client.expire(key, POPULARITY_TTL_SECONDS);
+        });
+        return true;
+      }
+    } catch (error) {
+      console.error('Popularity increment error:', error);
+    }
+    return false;
+  }
+
+  async getPopularSearches(limit = 10) {
+    if (!this.isConnected) return [];
+
+    try {
+      const entries = await this.#scanPattern('popular:*');
+      const searches = entries.map(({ key, value }) => ({
+        query: key.replace('popular:', ''),
+        count: parseInt(value, 10),
+      }));
+
+      return searches.sort((a, b) => b.count - a.count).slice(0, limit);
+    } catch (error) {
+      console.error('Popular searches cache error:', error);
+      return [];
+    }
+  }
+
+  async cacheSearchResults(query, filters, pagination, results) {
+    if (!this.isConnected) return false;
+
+    try {
+      const key = this.generateSearchKey(query, filters, pagination);
+      const popularityScore = await this.getQueryPopularity(query);
+      const ttl = Math.min(
+        BASE_SMART_TTL_SECONDS +
+          popularityScore * SMART_TTL_POPULARITY_STEP_SECONDS,
+        MAX_SMART_TTL_SECONDS
+      );
+
+      await this.set(key, JSON.stringify(results), ttl);
+      await this.incrementSearchPopularity(query);
+
+      return true;
+    } catch (error) {
+      console.error('Search results caching error:', error);
+      return false;
+    }
+  }
+
+  async getQueryPopularity(query) {
+    if (!this.isConnected) return 0;
+
+    try {
+      const key = `popular:${query}`;
+      const count = await this.get(key);
+      return count ? parseInt(count, 10) : 0;
+    } catch (error) {
+      console.error('Query popularity error:', error);
+      return 0;
+    }
+  }
+
+  async healthCheck() {
+    if (!this.isConnected) {
+      return {
+        status: this.isFallbackMode ? 'fallback' : 'disconnected',
+        message: 'Redis not connected, using memory cache',
+        circuitBreaker: this.circuitBreakerState,
+      };
+    }
+
+    try {
+      const pong = await this.ping();
+      const info = await this.info('memory');
+
+      return {
+        status: 'connected',
+        message: 'Redis is healthy',
+        ping: pong,
+        memory: info,
+        circuitBreaker: this.circuitBreakerState,
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        message: error.message,
+        circuitBreaker: this.circuitBreakerState,
+      };
+    }
+  }
+
+  async getCacheAdminSnapshot() {
+    return {
+      cacheVersion: 'v1',
+      memoryEntries: this.isConnected ? await this.dbsize() : this.localCache.size,
+      isConnected: this.isConnected,
+      isFallbackMode: this.isFallbackMode,
+      circuitBreakerState: this.circuitBreakerState,
+      circuitBreakerFailures: this.circuitBreakerFailures,
+    };
+  }
+
+  async warmCache({ hashes, top }) {
+    return { warmed: hashes || [], warmedCount: (hashes || []).length };
+  }
+
+  async invalidateCache({ hash, dependency, namespace }) {
+    if (hash) {
+      await this.del(hash);
+    }
+    if (namespace) {
+      await this.#deleteByPattern(`${namespace}:*`);
+    }
+    return { success: true };
+  }
+
+  async bumpCacheVersion({ version }) {
+    return version || 'v2';
+  }
+
+  async close() {
+    if (this.client) {
+      await this.client.quit();
+      this.isFallbackMode = true;
+      this.isConnected = false;
+    }
+  }
+
+  async initialize() {
+    if (!this.client) {
+      this.init();
+    }
+    if (this.client && !this.isConnected) {
+      await this.connect();
+    }
+    return this.isConnected;
   }
 }
 

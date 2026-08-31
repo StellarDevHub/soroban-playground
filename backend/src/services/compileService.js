@@ -13,27 +13,68 @@ import {
 } from '../utils/tracing.js';
 import { alertManager } from '../utils/alerting.js';
 import config from '../config/index.js';
+import redisService from './redisService.js';
 
-// Local cache stubs — cacheService only exposes a default class instance,
-// so we implement lightweight in-process equivalents here.
-async function initializeCacheService(_hashes) {
-  /* no-op */
+const CACHE_KEY_PREFIX = 'compile:artifact:';
+const LOCK_KEY_PREFIX = 'compile:lock:';
+const LOCK_TTL_SECONDS = 120;
+const CACHE_ARTIFACT_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
+async function initializeCacheService(hashes) {
+  if (!hashes || hashes.length === 0) return;
+  
+  try {
+    const pipeline = redisService.pipeline();
+    for (const hash of hashes) {
+      const artifact = artifacts.get(hash);
+      if (artifact) {
+        pipeline.set(
+          `${CACHE_KEY_PREFIX}${hash}`,
+          JSON.stringify(artifact),
+          'EX',
+          CACHE_ARTIFACT_TTL_SECONDS
+        );
+      }
+    }
+    await pipeline.exec();
+  } catch (err) {
+    console.warn('Failed to warm Redis cache with artifacts:', err.message);
+  }
 }
+
 async function loadCacheEntryFromCache(hash) {
   // Try in-memory LRU first
   const lruHit = cacheIndex.get(hash);
   if (lruHit) return lruHit;
 
+  // Try Redis cache
+  try {
+    const redisHit = await redisService.get(`${CACHE_KEY_PREFIX}${hash}`);
+    if (redisHit) {
+      const parsed = typeof redisHit === 'string' ? JSON.parse(redisHit) : redisHit;
+      if (parsed?.path) {
+        const exists = await fs
+          .stat(parsed.path)
+          .then(() => true)
+          .catch(() => false);
+        if (exists) {
+          cacheIndex.set(hash, parsed);
+          return parsed;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Redis cache lookup error:', err.message);
+  }
+
   // Fall back to the artifacts Map (survives LRU eviction)
   const artifactHit = artifacts.get(hash);
   if (artifactHit?.path) {
-    // Verify the WASM file actually exists on disk
     const exists = await fs
       .stat(artifactHit.path)
       .then(() => true)
       .catch(() => false);
     if (exists) {
-      // Re-populate the LRU cache so future lookups are fast
       cacheIndex.set(hash, artifactHit);
       return artifactHit;
     }
@@ -41,14 +82,62 @@ async function loadCacheEntryFromCache(hash) {
 
   return null;
 }
-async function storeCacheEntry(_entry) {
-  /* no-op */
+
+async function storeCacheEntry(entry) {
+  if (!entry?.hash) return;
+  
+  try {
+    await redisService.set(
+      `${CACHE_KEY_PREFIX}${entry.hash}`,
+      JSON.stringify(entry),
+      CACHE_ARTIFACT_TTL_SECONDS
+    );
+  } catch (err) {
+    console.warn('Failed to store cache entry in Redis:', err.message);
+  }
 }
-async function invalidateCache(_opts) {
-  /* no-op */
+
+async function invalidateCache(opts) {
+  if (!opts) return;
+  
+  try {
+    if (opts.hash) {
+      await redisService.del(`${CACHE_KEY_PREFIX}${opts.hash}`);
+    }
+    if (opts.namespace) {
+      await redisService.invalidateCache({ namespace: opts.namespace });
+    }
+  } catch (err) {
+    console.warn('Failed to invalidate cache in Redis:', err.message);
+  }
 }
-async function executeUnderLock(_hash, _requestId, fn) {
-  return fn();
+
+async function executeUnderLock(hash, requestId, fn) {
+  const lockKey = `${LOCK_KEY_PREFIX}${hash}`;
+  const lockValue = requestId || Date.now().toString();
+  
+  try {
+    const acquired = await redisService.setNX(lockKey, lockValue, LOCK_TTL_SECONDS);
+    
+    if (!acquired) {
+      // Lock is held by another process, wait a bit and check cache
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const cached = await loadCacheEntryFromCache(hash);
+      if (cached) return { cached: true, ...cached };
+      
+      // Still no cache hit, execute anyway with local lock
+      return await fn();
+    }
+    
+    try {
+      return await fn();
+    } finally {
+      await redisService.del(lockKey);
+    }
+  } catch (err) {
+    console.warn('Lock acquisition error, proceeding without lock:', err.message);
+    return await fn();
+  }
 }
 
 const CACHE_ROOT =
