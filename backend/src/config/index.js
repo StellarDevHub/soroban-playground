@@ -1,15 +1,16 @@
 import dotenv from 'dotenv';
+import { z } from 'zod';
 
 // Load .env early
 dotenv.config();
 
-const PRODUCTION_ENV_SCHEMA = {
-  JWT_SECRET: { requiredInProduction: true },
-  DATABASE_URL: { requiredInProduction: true },
-  REDIS_URL: { requiredInProduction: true },
-  SOROBAN_RPC_URL: { requiredInProduction: true },
-  CORS_ALLOWED_ORIGINS: { requiredInProduction: true },
-};
+const PRODUCTION_ENV_SCHEMA = z.object({
+  JWT_SECRET: z.string().trim().min(1),
+  DATABASE_URL: z.string().trim().min(1),
+  REDIS_URL: z.string().trim().min(1),
+  SOROBAN_RPC_URL: z.string().trim().min(1),
+  CORS_ALLOWED_ORIGINS: z.string().trim().min(1),
+});
 
 function validateProductionEnv(env = process.env) {
   const isProduction =
@@ -18,15 +19,12 @@ function validateProductionEnv(env = process.env) {
 
   if (!isProduction) return;
 
-  const missing = Object.entries(PRODUCTION_ENV_SCHEMA)
-    .filter(
-      ([key, rule]) =>
-        rule.requiredInProduction &&
-        (!env[key] || String(env[key]).trim() === '')
-    )
-    .map(([key]) => key);
+  const result = PRODUCTION_ENV_SCHEMA.safeParse(env);
+  if (result.success) return;
 
-  if (missing.length === 0) return;
+  const missing = Object.keys(PRODUCTION_ENV_SCHEMA.shape).filter(
+    (key) => !env[key] || String(env[key]).trim() === ''
+  );
 
   const report = [
     'Invalid production environment configuration:',
