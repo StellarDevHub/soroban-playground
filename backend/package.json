@@ -11,7 +11,7 @@
     "format:check": "npx prettier --check . --ignore-path .prettierjgnore",
     "format:write": "npx prettier --write . --ignore-path .prettierignore",
     "prestart": "node src/config/env.js",
-    "start": "node src/server.js",
+    "start": "node --import ./src/config/env.js src/server.js",
     "predev": "node src/config/env.js",
     "dev": "nodemon src/server.js",
     "test": "NODE_PATH=\\../node_modules jest",
