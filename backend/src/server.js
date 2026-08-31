@@ -12,6 +12,7 @@ import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
 
 import config from './config/index.js';
+import { validateEnv } from './config/env.js';
 import { corsOptions } from './config/cors.js';
 import { applyServerTuning } from './config/http2Config.js';
 import { http2PushMiddleware } from './middleware/http2Push.js';
@@ -80,6 +81,13 @@ import { setupSwagger } from './docs/swagger.js';
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
+
+try {
+  validateEnv();
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 
 const app = express();
 let httpServer = http.createServer(app);
