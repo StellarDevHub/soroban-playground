@@ -8,6 +8,58 @@ import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
 
 const router = express.Router();
 
+// +15% safety buffer applied to resource bounds so submissions are not rejected
+// for underestimating CPU / memory / storage requirements.
+const SAFETY_BUFFER = 1.15;
+
+function applySafetyBuffer(value) {
+  return Math.ceil(value * SAFETY_BUFFER);
+}
+
+function parseSimulationDiagnostics(rpcResult) {
+  const diagnostics = [];
+
+  if (rpcResult.error) {
+    const code = rpcResult.error.code;
+    if (
+      code === 'ERR_UNDERSIZED_RESOURCE_FEE' ||
+      (code === '-32010' && /resource/.test(rpcResult.error.message || ''))
+    ) {
+      diagnostics.push(
+        'Transaction was rejected because the declared resource fee is too low. Increase the fee before re-submitting.'
+      );
+    } else if (
+      /host function|CPU|insufficient.*instruction|overflow/i.test(
+        rpcResult.error.message || ''
+      )
+    ) {
+      diagnostics.push(
+        'The contract exceeded its CPU/resource budget during simulation. Reduce work per call or raise the resource bounds.'
+      );
+    }
+  }
+
+  const results = rpcResult.results || [];
+  for (const result of results) {
+    if (result.error) {
+      const message = result.error.message || 'unknown error';
+      if (/UnauthorizedError|Not authorized|auth/i.test(message)) {
+        diagnostics.push(
+          `Auth failed: the transaction requires authorization for: ${message}. Sign with the correct wallet before submitting.`
+        );
+      } else if (/VM|invalid|wasm|contract invoke/i.test(message)) {
+        diagnostics.push(
+          `Contract invocation error: ${message}. Verify the contract ID, arguments, and that the contract is deployed.`
+        );
+      } else {
+        diagnostics.push(`Simulation error: ${message}`);
+      }
+    }
+  }
+
+  return diagnostics;
+}
+
 function estimateFallback(xdr) {
   const xdrLength = xdr.length;
   return {
@@ -99,6 +151,15 @@ router.post(
       const baseFee = 100;
       const estimatedTotalFee = String(parseInt(minResourceFee, 10) + baseFee);
 
+      const bufferedResourceBounds = {
+        cpuInstructions: applySafetyBuffer(cpuInstructions),
+        memBytes: applySafetyBuffer(memoryBytes),
+        ledgerReadBytes: applySafetyBuffer(ledgerReadBytes),
+        ledgerWriteBytes: applySafetyBuffer(ledgerWriteBytes),
+      };
+
+      const diagnostics = parseSimulationDiagnostics(rpcResult);
+
       return res.json({
         success: true,
         status: 'success',
@@ -112,6 +173,8 @@ router.post(
           readCount,
           writeCount,
           estimatedTotalFee,
+          resourceBounds: bufferedResourceBounds,
+          diagnostics,
           transactionData: rpcResult.transactionData || null,
           eventsCount: Array.isArray(rpcResult.events)
             ? rpcResult.events.length
