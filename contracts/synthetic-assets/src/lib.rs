@@ -1,12 +1,17 @@
 #![no_std]
 
 mod collateral;
+mod math;
 mod oracle;
 mod storage;
+#[cfg(test)]
+mod proptest;
 #[cfg(test)]
 mod test;
 mod trading;
 mod types;
+
+pub use math::FixedPoint;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Symbol, Vec};
 
@@ -261,7 +266,10 @@ impl SyntheticAssetsContract {
 
         // Update total supply
         let mut asset = get_synthetic_asset(&env, &asset_symbol)?;
-        asset.total_supply += mint_amount;
+        asset.total_supply = asset
+            .total_supply
+            .checked_add(mint_amount)
+            .ok_or(Error::Overflow)?;
         set_synthetic_asset(&env, &asset_symbol, &asset);
 
         // Mint synthetic tokens to user (in production, this would call a token contract)
@@ -298,7 +306,10 @@ impl SyntheticAssetsContract {
             &additional_collateral,
         );
 
-        position.collateral_amount += additional_collateral;
+        position.collateral_amount = position
+            .collateral_amount
+            .checked_add(additional_collateral)
+            .ok_or(Error::Overflow)?;
         position.last_updated = env.ledger().timestamp();
         set_collateral_position(&env, position_id, &position);
 
@@ -328,13 +339,22 @@ impl SyntheticAssetsContract {
             return Err(Error::InsufficientBalance);
         }
 
-        // Calculate collateral to return
-        let collateral_to_return =
-            (burn_amount * position.collateral_amount) / position.minted_amount;
+        // Calculate collateral to return (proportional share of the position)
+        let collateral_to_return = burn_amount
+            .checked_mul(position.collateral_amount)
+            .ok_or(Error::Overflow)?
+            .checked_div(position.minted_amount)
+            .ok_or(Error::DivisionByZero)?;
 
         // Update position
-        position.minted_amount -= burn_amount;
-        position.collateral_amount -= collateral_to_return;
+        position.minted_amount = position
+            .minted_amount
+            .checked_sub(burn_amount)
+            .ok_or(Error::Overflow)?;
+        position.collateral_amount = position
+            .collateral_amount
+            .checked_sub(collateral_to_return)
+            .ok_or(Error::Overflow)?;
         position.last_updated = env.ledger().timestamp();
 
         if position.minted_amount == 0 {
@@ -357,7 +377,10 @@ impl SyntheticAssetsContract {
 
         // Update total supply
         let mut asset = get_synthetic_asset(&env, &position.asset_symbol)?;
-        asset.total_supply -= burn_amount;
+        asset.total_supply = asset
+            .total_supply
+            .checked_sub(burn_amount)
+            .ok_or(Error::Overflow)?;
         set_synthetic_asset(&env, &position.asset_symbol, &asset);
 
         // Return collateral to user
@@ -423,8 +446,14 @@ impl SyntheticAssetsContract {
 
         // Update position
         let mut new_position = position.clone();
-        new_position.minted_amount -= repay_amount;
-        new_position.collateral_amount -= collateral_reward;
+        new_position.minted_amount = new_position
+            .minted_amount
+            .checked_sub(repay_amount)
+            .ok_or(Error::Overflow)?;
+        new_position.collateral_amount = new_position
+            .collateral_amount
+            .checked_sub(collateral_reward)
+            .ok_or(Error::Overflow)?;
         new_position.last_updated = env.ledger().timestamp();
 
         if new_position.minted_amount == 0 {
@@ -435,7 +464,10 @@ impl SyntheticAssetsContract {
 
         // Update total supply
         let mut asset = get_synthetic_asset(&env, &position.asset_symbol)?;
-        asset.total_supply -= repay_amount;
+        asset.total_supply = asset
+            .total_supply
+            .checked_sub(repay_amount)
+            .ok_or(Error::Overflow)?;
         set_synthetic_asset(&env, &position.asset_symbol, &asset);
 
         Ok(())
@@ -469,7 +501,11 @@ impl SyntheticAssetsContract {
 
         let price = get_price_internal(&env, &asset_symbol)?;
 
-        let notional = (margin * leverage as i128) / 10000;
+        let notional = margin
+            .checked_mul(leverage as i128)
+            .ok_or(Error::Overflow)?
+            .checked_div(10000)
+            .ok_or(Error::DivisionByZero)?;
         let margin_requirement = calculate_margin_requirement(&env, notional)?;
 
         if margin < margin_requirement {
@@ -526,7 +562,10 @@ impl SyntheticAssetsContract {
         let pnl = calculate_pnl(&position, current_price)?;
 
         // Calculate final settlement
-        let final_amount = position.margin + pnl;
+        let final_amount = position
+            .margin
+            .checked_add(pnl)
+            .ok_or(Error::Overflow)?;
 
         if final_amount < 0 {
             // Position was liquidated - margin lost

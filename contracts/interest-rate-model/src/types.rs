@@ -17,6 +17,8 @@ pub enum Error {
     InvalidTier = 8,
     TooManyTiers = 9,
     InvalidTierThreshold = 10,
+    Overflow = 11,
+    DivisionByZero = 12,
 }
 
 /// Interpolation method for interest rate curves.
