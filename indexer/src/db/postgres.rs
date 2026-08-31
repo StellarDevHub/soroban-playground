@@ -1,4 +1,4 @@
-use crate::db::trait_::{Database, Event, Quorum, Vote, Oracle, AuditEntry};
+use crate::db::trait_::{Database, Event, Quorum, Vote, Oracle, AuditEntry, Ledger, LedgerInsert};
 use async_trait::async_trait;
 use anyhow::Result;
 use sqlx::postgres::PgPool;
@@ -254,6 +254,93 @@ impl Database for PostgresDatabase {
         .fetch_optional(&self.pool)
         .await?;
         Ok(res)
+    }
+
+    // ── Ledger continuity & reorg methods ────────────────────────────────────
+
+    async fn get_ledger_tip(&self) -> Result<Option<Ledger>> {
+        let res = sqlx::query_as::<_, Ledger>(
+            "SELECT sequence, ledger_hash, parent_ledger_hash
+             FROM ledgers ORDER BY sequence DESC LIMIT 1"
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(res)
+    }
+
+    async fn save_ledger(&self, ledger: &Ledger) -> Result<LedgerInsert> {
+        let tip = self.get_ledger_tip().await?;
+
+        if let Some(tip) = tip {
+            if tip.sequence >= ledger.sequence {
+                return Ok(LedgerInsert::Duplicate);
+            }
+            if tip.sequence + 1 == ledger.sequence && !tip.ledger_hash.is_empty()
+                && !ledger.parent_ledger_hash.is_empty()
+                && tip.ledger_hash != ledger.parent_ledger_hash
+            {
+                let fork_sequence = self
+                    .find_fork_sequence(ledger.parent_ledger_hash.as_str())
+                    .await?;
+                return Ok(LedgerInsert::Reorg { fork_sequence });
+            }
+        }
+
+        sqlx::query(
+            "INSERT INTO ledgers (sequence, ledger_hash, parent_ledger_hash)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (sequence) DO NOTHING"
+        )
+        .bind(ledger.sequence as i64)
+        .bind(&ledger.ledger_hash)
+        .bind(&ledger.parent_ledger_hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(LedgerInsert::Inserted)
+    }
+
+    async fn rollback_from_ledger(&self, sequence: u32) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM ledgers WHERE sequence >= $1")
+            .bind(sequence as i64)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM events WHERE ledger >= $1")
+            .bind(sequence as i64)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn find_ledger_gaps(&self) -> Result<Vec<(u32, u32)>> {
+        let rows: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT sequence + 1, next_seq - 1
+             FROM (
+               SELECT sequence,
+                      LEAD(sequence) OVER (ORDER BY sequence) AS next_seq
+               FROM ledgers
+             ) gaps
+             WHERE next_seq IS NOT NULL AND next_seq - sequence > 1"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(start, end)| (start as u32, end as u32))
+            .collect())
+    }
+}
+
+impl PostgresDatabase {
+    async fn find_fork_sequence(&self, parent_hash: &str) -> Result<u32> {
+        let res: Option<(i64,)> = sqlx::query_as(
+            "SELECT sequence FROM ledgers WHERE ledger_hash = $1 LIMIT 1"
+        )
+        .bind(parent_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(res.map(|(s,)| s as u32).unwrap_or(0))
     }
 }
 

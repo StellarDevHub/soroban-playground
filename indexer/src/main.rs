@@ -7,7 +7,7 @@ mod graphql;
 use anyhow::Result;
 use axum::{routing::get, Router};
 use db::{create_db, Database, DbType, Event};
-use std::sync::Arc;
+use db::trait_::LedgerInsert;use std::sync::Arc;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tracing::info;
@@ -136,6 +136,11 @@ async fn main() -> Result<()> {
 
     let writer = Arc::new(DualWriter::new(primary.clone(), secondary, tx.clone()));
 
+    // ── Gap recovery worker ──────────────────────────────────────────────────
+    // Periodically scans for missing ledger sequences and reports gaps for
+    // asynchronous backfill.
+    tokio::spawn(gap_recovery_worker(primary.clone(), 60));
+
     // ── GraphQL Setup ─────────────────────────────────────────────────────────
     let schema = crate::graphql::build_schema(primary.clone(), tx.clone()).finish();
 
@@ -185,6 +190,69 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+// ── Reorg handling & gap recovery ────────────────────────────────────────────
+
+/// Persist an ingested ledger block, detecting duplicate blocks, sequence gaps,
+/// and chain reorgs via parent-hash continuity. On a reorg, performs an atomic
+/// rollback to the fork point before the new block is stored.
+pub async fn save_ledger_block(
+    db: Arc<dyn Database>,
+    sequence: u32,
+    ledger_hash: &str,
+    parent_ledger_hash: &str,
+    on_gap: impl Fn(u32, u32),
+) -> Result<bool> {
+    let tip = db.get_ledger_tip().await?;
+    if let Some(tip) = tip {
+        if sequence > tip.sequence + 1 {
+            on_gap(tip.sequence + 1, sequence - 1);
+        }
+    }
+
+    match db
+        .save_ledger(&db::trait_::Ledger {
+            sequence,
+            ledger_hash: ledger_hash.to_string(),
+            parent_ledger_hash: parent_ledger_hash.to_string(),
+        })
+        .await?
+    {
+        LedgerInsert::Inserted => Ok(true),
+        LedgerInsert::Duplicate => Ok(false),
+        LedgerInsert::Reorg { fork_sequence } => {
+            info!(
+                "Chain reorg detected at ledger {}; rolling back from sequence {}",
+                sequence, fork_sequence
+            );
+            db.rollback_from_ledger(fork_sequence).await?;
+            db.save_ledger(&db::trait_::Ledger {
+                sequence,
+                ledger_hash: ledger_hash.to_string(),
+                parent_ledger_hash: parent_ledger_hash.to_string(),
+            })
+            .await?;
+            Ok(true)
+        }
+    }
+}
+
+/// Background worker that periodically scans for missing ledger sequences and
+/// reports gaps so ingest can backfill them asynchronously.
+pub async fn gap_recovery_worker(db: Arc<dyn Database>, interval_secs: u64) {
+    loop {
+        match db.find_ledger_gaps().await {
+            Ok(gaps) if !gaps.is_empty() => {
+                for (start, end) in gaps {
+                    info!("Ledger gap detected: sequences {}..={} (backfill needed)", start, end);
+                }
+            }
+            Ok(_) => info!("Gap recovery check: ledger chain is contiguous."),
+            Err(e) => tracing::error!("Gap recovery check failed: {}", e),
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(interval_secs)).await;
+    }
 }
 
 // ── Indexer loop ──────────────────────────────────────────────────────────────

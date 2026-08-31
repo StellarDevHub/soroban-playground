@@ -42,7 +42,21 @@ pub struct Oracle {
     pub active: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Ledger {
+    pub sequence: u32,
+    pub ledger_hash: String,
+    pub parent_ledger_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LedgerInsert {
+    Inserted,
+    Duplicate,
+    Reorg { fork_sequence: u32 },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuditEntry {
     pub id: String,
     pub event_type: String,
@@ -84,6 +98,12 @@ pub trait Database: Send + Sync {
     async fn get_audit_trail(&self, limit: usize, offset: usize) -> Result<Vec<AuditEntry>>;
     async fn get_last_audit_entry(&self) -> Result<Option<AuditEntry>>;
     async fn get_audit_entry(&self, id: &str) -> Result<Option<AuditEntry>>;
+
+    // Ledger continuity & reorg methods
+    async fn get_ledger_tip(&self) -> Result<Option<Ledger>>;
+    async fn save_ledger(&self, ledger: &Ledger) -> Result<LedgerInsert>;
+    async fn rollback_from_ledger(&self, sequence: u32) -> Result<()>;
+    async fn find_ledger_gaps(&self) -> Result<Vec<(u32, u32)>>;
 }
 
 
