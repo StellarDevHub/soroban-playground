@@ -85,7 +85,14 @@ const _dirname = path.dirname(_filename);
 try {
   validateEnv();
 } catch (err) {
-  console.error(err.message);
+  console.error('Environment validation failed:');
+  if (err && err.errors) {
+    for (const [key, validationError] of Object.entries(err.errors)) {
+      console.error(`  - ${key}: ${validationError.message || validationError}`);
+    }
+  } else {
+    console.error(err.message);
+  }
   process.exit(1);
 }
 
