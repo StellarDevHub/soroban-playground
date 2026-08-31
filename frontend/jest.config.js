@@ -9,17 +9,22 @@ const frontendModules = path.resolve(__dirname, "node_modules");
 // that ARE hoisted (e.g. jest, jest-environment-jsdom, @testing-library/*).
 const rootModules = path.resolve(__dirname, "../node_modules");
 
+const fs = require("fs");
+
+const reactDir = fs.existsSync(path.resolve(frontendModules, "react"))
+  ? frontendModules
+  : rootModules;
+
 const config = {
   testEnvironment: "jsdom",
   setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
-    // Pin react and react-dom to the frontend's copy.
-    // This ensures root-hoisted packages like @testing-library/react can find React.
-    "^react$": path.resolve(frontendModules, "react"),
-    "^react/(.*)$": path.resolve(frontendModules, "react/$1"),
-    "^react-dom$": path.resolve(frontendModules, "react-dom"),
-    "^react-dom/(.*)$": path.resolve(frontendModules, "react-dom/$1"),
+    // Pin react and react-dom to resolved node_modules.
+    "^react$": path.resolve(reactDir, "react"),
+    "^react/(.*)$": path.resolve(reactDir, "react/$1"),
+    "^react-dom$": path.resolve(reactDir, "react-dom"),
+    "^react-dom/(.*)$": path.resolve(reactDir, "react-dom/$1"),
     "\\.(css|less|scss|sass)$": "identity-obj-proxy",
   },
   // Resolve modules from both the frontend and the workspace root.
