@@ -1,8 +1,8 @@
 [package]
-name = "soroban-vesting"
+name = "cartel-syndicate"
 version = "0.1.0"
 edition = "2021"
-description = "Linear vesting contract with cliff period and milestone-based unlocks"
+description = "Syndicate/DAO-style staking and proposal voting contract"
 
 [lib]
 crate-type = ["cdylib"]

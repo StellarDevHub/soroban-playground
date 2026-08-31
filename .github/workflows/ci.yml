@@ -127,8 +127,11 @@ jobs:
       - name: Rustfmt Check
         run: cargo fmt --all -- --check
 
-      - name: Clippy Check
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Cargo Check (workspace)
+        run: cargo check --workspace --all-targets --all-features
+
+      - name: Clippy Check (workspace)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run Rust Tests
-        run: cargo test --all-targets --all-features
+        run: cargo test --workspace --all-targets --all-features
