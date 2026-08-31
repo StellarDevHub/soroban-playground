@@ -3,13 +3,13 @@ import dotenv from 'dotenv';
 // Load .env early
 dotenv.config();
 
-const REQUIRED_PRODUCTION_ENV_VARS = [
-  'JWT_SECRET',
-  'DATABASE_URL',
-  'REDIS_URL',
-  'SOROBAN_RPC_URL',
-  'CORS_ALLOWED_ORIGINS',
-];
+const PRODUCTION_ENV_SCHEMA = {
+  JWT_SECRET: { requiredInProduction: true },
+  DATABASE_URL: { requiredInProduction: true },
+  REDIS_URL: { requiredInProduction: true },
+  SOROBAN_RPC_URL: { requiredInProduction: true },
+  CORS_ALLOWED_ORIGINS: { requiredInProduction: true },
+};
 
 function validateProductionEnv(env = process.env) {
   const isProduction =
@@ -18,9 +18,13 @@ function validateProductionEnv(env = process.env) {
 
   if (!isProduction) return;
 
-  const missing = REQUIRED_PRODUCTION_ENV_VARS.filter(
-    (key) => !env[key] || String(env[key]).trim() === ''
-  );
+  const missing = Object.entries(PRODUCTION_ENV_SCHEMA)
+    .filter(
+      ([key, rule]) =>
+        rule.requiredInProduction &&
+        (!env[key] || String(env[key]).trim() === '')
+    )
+    .map(([key]) => key);
 
   if (missing.length === 0) return;
 
