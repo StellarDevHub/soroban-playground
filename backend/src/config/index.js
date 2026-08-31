@@ -38,6 +38,46 @@ function validateProductionEnv(env = process.env) {
 
 validateProductionEnv(process.env);
 
+import dotenv from 'dotenv';
+import { z } from 'zod';
+
+// Load .env early
+dotenv.config();
+
+const PRODUCTION_ENV_SCHEMA = z.object({
+  JWT_SECRET: z.string().trim().min(1),
+  DATABASE_URL: z.string().trim().min(1),
+  REDIS_URL: z.string().trim().min(1),
+  SOROBAN_RPC_URL: z.string().trim().min(1),
+  CORS_ALLOWED_ORIGINS: z.string().trim().min(1),
+});
+
+function validateProductionEnv(env = process.env) {
+  const isProduction =
+    String(env.NODE_ENV || '').trim().toLowerCase() === 'production' ||
+    String(env.APP_ENV || '').trim().toLowerCase() === 'production';
+
+  if (!isProduction) return;
+
+  const result = PRODUCTION_ENV_SCHEMA.safeParse(env);
+  if (result.success) return;
+
+  const missing = Object.keys(PRODUCTION_ENV_SCHEMA.shape).filter(
+    (key) => !env[key] || String(env[key]).trim() === ''
+  );
+
+  const report = [
+    'Invalid production environment configuration:',
+    ...missing.map((key) => `  MISSING ${key}`),
+    'All required environment variables must be set when NODE_ENV=production.',
+  ].join('\n');
+
+  console.error(report);
+  process.exit(1);
+}
+
+validateProductionEnv(process.env);
+
 const DEFAULTS = {
   APP_PORT: 5000,
   APP_ENV: 'development',
