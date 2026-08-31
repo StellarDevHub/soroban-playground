@@ -82,6 +82,28 @@ import { setupSwagger } from './docs/swagger.js';
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
 
+const requiredProductionEnvVars = [
+  'JWT_SECRET',
+  'DATABASE_URL',
+  'REDIS_URL',
+  'SOROBAN_RPC_URL',
+  'CORS_ALLOWED_ORIGINS',
+];
+
+if (process.env.NODE_ENV === 'production') {
+  const missingEnvVars = requiredProductionEnvVars.filter(
+    (name) => !process.env[name]
+  );
+
+  if (missingEnvVars.length > 0) {
+    console.error('Environment validation failed:');
+    for (const name of missingEnvVars) {
+      console.error(`  - ${name}: Missing required environment variable`);
+    }
+    process.exit(1);
+  }
+}
+
 try {
   validateEnv();
 } catch (err) {
