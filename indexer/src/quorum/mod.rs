@@ -1,4 +1,4 @@
-use crate::db::{Database, Quorum, Vote, Oracle};
+use crate::db::{Database, Quorum, Vote};
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use chrono::Utc;
@@ -35,7 +35,7 @@ impl AsRef<str> for QuorumState {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsensusStrategy {
     SimpleMajority,
@@ -106,7 +106,15 @@ impl QuorumManager {
     fn calculate_new_state(&self, quorum: &Quorum, votes: &[Vote], total_oracles: usize) -> QuorumState {
         let vote_count = votes.len();
         let strategy = ConsensusStrategy::from(quorum.strategy.as_str());
-        
+
+        // For a unanimous quorum, a split vote can never reach consensus.
+        if strategy == ConsensusStrategy::Unanimous && vote_count > 0 {
+            let distinct = votes.iter().map(|v| v.choice.as_str()).collect::<std::collections::HashSet<_>>();
+            if distinct.len() > 1 {
+                return QuorumState::Failed;
+            }
+        }
+
         // Threshold check (minimum participants)
         if vote_count < quorum.threshold as usize {
             return QuorumState::Collecting;
@@ -119,7 +127,7 @@ impl QuorumManager {
         }
 
         // Check if any choice meets the strategy requirement
-        for (&choice, &count) in counts.iter() {
+        for (&_choice, &count) in counts.iter() {
             let reached = match strategy {
                 ConsensusStrategy::SimpleMajority => count > total_oracles / 2,
                 ConsensusStrategy::SuperMajority => count >= (total_oracles * 2) / 3,

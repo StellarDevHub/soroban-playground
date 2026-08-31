@@ -60,7 +60,7 @@ pub struct Event {
     /// The ID of the contract that emitted this event.
     pub contract_id: String,
     /// The ledger sequence number when this event was recorded.
-    pub ledger: u32,
+    pub ledger: i64,
     /// The timestamp when the ledger was closed.
     pub ledger_closed_at: String,
     /// The type of the event (e.g., 'transfer', 'mint').
@@ -74,7 +74,7 @@ pub struct Event {
 
 #[ComplexObject]
 impl Event {
-    #[graphql(complexity = "2")]
+    #[graphql(complexity = 2)]
     async fn project(&self) -> Project {
         Project {
             id: self.contract_id.clone(),

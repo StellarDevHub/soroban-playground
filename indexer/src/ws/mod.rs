@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
-use crate::db::{Database, Event, Quorum, AuditEntry};
+use crate::db::{Database, Event, Quorum};
+use anyhow::Result;
 
 #[derive(Debug, Serialize)]
 pub struct QuorumUpdate {
@@ -213,7 +214,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
         })
         .unwrap_or_default();
         let _ = socket.send(Message::Text(msg.into())).await;
-        let _ = socket.close().await;
+        let _ = socket.send(Message::Close(None)).await;
         return;
     }
 

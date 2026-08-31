@@ -1,12 +1,9 @@
 use async_graphql::*;
-use async_graphql::extensions::{Analyzer, ApolloPersistedQueries};
+use async_graphql::extensions::{Analyzer, apollo_persisted_queries::{ApolloPersistedQueries, LruCacheStorage}};
 use crate::db::{Database, Event as DbEvent};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tokio::sync::Mutex;
-use std::collections::HashMap;
 use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt;
 use tokio_stream::StreamExt;
 
 use super::types::{Event, Project, Quorum};
@@ -16,15 +13,13 @@ pub struct QueryRoot;
 #[Object]
 impl QueryRoot {
     /// Retrieve a project by its ID.
-    #[graphql(complexity = "1")]
-    #[graphql(cache_control(max_age = 60))]
+    #[graphql(complexity = 1, cache_control(max_age = 60))]
     async fn project(&self, id: String) -> Project {
         Project { id }
     }
 
     /// Retrieve an event by its ID.
-    #[graphql(complexity = "2")]
-    #[graphql(cache_control(max_age = 60))]
+    #[graphql(complexity = 2, cache_control(max_age = 60))]
     async fn event(&self, ctx: &Context<'_>, id: String) -> Result<Option<Event>> {
         use super::dataloaders::EventLoader;
         let loader = ctx.data_unchecked::<dataloader::DataLoader<EventLoader>>();
@@ -32,8 +27,7 @@ impl QueryRoot {
     }
 
     /// Retrieve a quorum by its ID.
-    #[graphql(complexity = "2")]
-    #[graphql(cache_control(max_age = 60))]
+    #[graphql(complexity = 2, cache_control(max_age = 60))]
     async fn quorum(&self, ctx: &Context<'_>, id: String) -> Result<Option<Quorum>> {
         use super::dataloaders::QuorumLoader;
         let loader = ctx.data_unchecked::<dataloader::DataLoader<QuorumLoader>>();
@@ -41,8 +35,7 @@ impl QueryRoot {
     }
     
     /// Retrieve the most recent events, limited by the provided parameter.
-    #[graphql(complexity = "5")]
-    #[graphql(cache_control(max_age = 30))]
+    #[graphql(complexity = 5, cache_control(max_age = 30))]
     async fn recent_events(
         &self,
         ctx: &Context<'_>,
@@ -102,20 +95,6 @@ impl SubscriptionRoot {
 
 pub type AppSchema = Schema<QueryRoot, EmptyMutationRoot, SubscriptionRoot>;
 
-// A simple in-memory cache for Persisted Queries
-#[derive(Clone)]
-pub struct MemoryCache(Arc<Mutex<HashMap<String, String>>>);
-
-#[async_trait::async_trait]
-impl CacheStorage for MemoryCache {
-    async fn get(&self, key: String) -> Option<String> {
-        self.0.lock().await.get(&key).cloned()
-    }
-    async fn set(&self, key: String, query: String) {
-        self.0.lock().await.insert(key, query);
-    }
-}
-
 pub fn build_schema(
     db: Arc<dyn Database>,
     broadcaster: broadcast::Sender<DbEvent>
@@ -126,7 +105,7 @@ pub fn build_schema(
     let project_events_loader = dataloader::DataLoader::new(ProjectEventsLoader { db: db.clone() }, tokio::spawn);
     let quorum_loader = dataloader::DataLoader::new(QuorumLoader { db: db.clone() }, tokio::spawn);
 
-    let persisted_query_cache = MemoryCache(Arc::new(Mutex::new(HashMap::new())));
+    let persisted_query_cache = LruCacheStorage::new(256);
 
     Schema::build(QueryRoot, EmptyMutationRoot, SubscriptionRoot)
         .data(db)

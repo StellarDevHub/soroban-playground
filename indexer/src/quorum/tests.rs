@@ -25,6 +25,10 @@ mod tests {
         async fn get_oracle(&self, _: &str) -> Result<Option<Oracle>> { Ok(None) }
         async fn update_oracle_reputation(&self, _: &str, _: i32) -> Result<()> { Ok(()) }
         async fn get_all_oracles(&self) -> Result<Vec<Oracle>> { Ok(vec![]) }
+        async fn save_audit_entry(&self, _: &crate::db::AuditEntry) -> Result<()> { Ok(()) }
+        async fn get_audit_trail(&self, _: usize, _: usize) -> Result<Vec<crate::db::AuditEntry>> { Ok(vec![]) }
+        async fn get_last_audit_entry(&self) -> Result<Option<crate::db::AuditEntry>> { Ok(None) }
+        async fn get_audit_entry(&self, _: &str) -> Result<Option<crate::db::AuditEntry>> { Ok(None) }
     }
 
     #[test]

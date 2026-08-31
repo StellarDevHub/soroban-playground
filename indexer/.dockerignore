@@ -1,0 +1,19 @@
+# Rust build artifacts (rebuilt inside the image)
+target
+
+# Docker / VCS
+Dockerfile
+.dockerignore
+.git
+.gitignore
+
+# Local data and databases
+*.db
+*.db-*
+data
+
+# Editor and OS cruft
+.vscode
+.idea
+*.swp
+.DS_Store

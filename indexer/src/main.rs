@@ -160,7 +160,7 @@ async fn main() -> Result<()> {
         .route("/api/audit/verify", axum::routing::post(verify_audit))
         .route("/api/graphql", axum::routing::post(graphql_handler))
         .route("/graphiql", get(graphql_playground))
-        .route("/api/graphql/ws", axum::routing::get(GraphQLSubscription::new(schema.clone())))
+        .route("/api/graphql/ws", axum::routing::any_service(GraphQLSubscription::new(schema.clone())))
         .route("/api/graphql/sdl", get(graphql_sdl))
         .layer(axum::Extension(schema))
         .layer(CorsLayer::permissive()) // tighten to specific origins in production
@@ -191,7 +191,7 @@ async fn main() -> Result<()> {
 
 /// Placeholder for the real event-fetching loop.
 /// Replace this with Stellar Horizon / Soroban RPC polling logic.
-async fn indexer_loop(writer: Arc<DualWriter>) -> Result<()> {
+async fn indexer_loop(_writer: Arc<DualWriter>) -> Result<()> {
     info!("Indexer loop started (awaiting events from Stellar network)…");
 
     // In production this loop polls Soroban RPC / Horizon for new contract

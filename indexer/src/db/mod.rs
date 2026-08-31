@@ -2,7 +2,8 @@ pub mod trait_;
 pub mod sqlite;
 pub mod postgres;
 
-pub use trait_::{Database, Event};
+#[allow(unused_imports)] // re-exported for the cfg(test) modules and external consumers
+pub use trait_::{AuditEntry, Database, Event, Oracle, Quorum, Vote};
 pub use sqlite::SqliteDatabase;
 pub use postgres::PostgresDatabase;
 

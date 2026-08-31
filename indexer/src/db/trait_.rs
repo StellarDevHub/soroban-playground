@@ -2,17 +2,17 @@ use async_trait::async_trait;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Event {
     pub id: String,
     pub contract_id: String,
-    pub ledger: u32,
+    pub ledger: i64,
     pub ledger_closed_at: String,
     pub event_type: String,
     pub data: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Quorum {
     pub id: String,
     pub quorum_type: String,
@@ -24,7 +24,7 @@ pub struct Quorum {
     pub expires_at: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Vote {
     pub id: String,
     pub quorum_id: String,
@@ -34,7 +34,7 @@ pub struct Vote {
     pub timestamp: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Oracle {
     pub id: String,
     pub name: String,
@@ -42,7 +42,7 @@ pub struct Oracle {
     pub active: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct AuditEntry {
     pub id: String,
     pub event_type: String,

@@ -1,6 +1,6 @@
 use crate::db::trait_::{Database, Event, Quorum, Vote, Oracle, AuditEntry};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
+use anyhow::Result;
 use sqlx::postgres::PgPool;
 
 pub struct PostgresDatabase {
