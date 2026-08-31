@@ -2,15 +2,18 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { getCompileTempRoot, getCompileTempPrefix } from './buildSandbox.js';
 
 @Injectable()
 export class TempCleanupService {
   private readonly logger = new Logger(TempCleanupService.name);
-  private readonly tempBaseDir = process.env.TMP_BUILD_DIR || '/tmp';
+  private readonly tempBaseDir = getCompileTempRoot();
+  private readonly tempPrefix = getCompileTempPrefix();
   private readonly maxAgeMs = 30 * 60 * 1000; // 30 minutes threshold
 
   /**
-   * Hourly Cron Job: Purges leftover `.tmp_compile_*` directories older than 30 minutes.
+   * Hourly Cron Job: Purges leftover compile temp directories older than 30
+   * minutes. Matches the prefix+root used by compileWorker.js. (issue #1330)
    */
   @Cron(CronExpression.EVERY_HOUR)
   async cleanupWasmTempDirectories(): Promise<{
@@ -29,8 +32,8 @@ export class TempCleanupService {
       const now = Date.now();
 
       for (const entry of entries) {
-        // Target directories matching the compilation pattern '.tmp_compile_*'
-        if (entry.isDirectory() && entry.name.startsWith('.tmp_compile_')) {
+        // Target directories matching the compilation pattern, e.g. '.tmp_compile_*'
+        if (entry.isDirectory() && entry.name.startsWith(this.tempPrefix)) {
           const dirPath = path.join(this.tempBaseDir, entry.name);
 
           try {

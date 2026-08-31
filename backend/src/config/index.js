@@ -15,13 +15,15 @@ const DEFAULTS = {
   DEPLOY_RATE_LIMIT_WINDOW_MS: 60 * 1000,
   DEPLOY_RATE_LIMIT_MAX: 15,
   COMPILE_COMMAND: 'cargo build --target wasm32-unknown-unknown --release',
-  COMPILE_TIMEOUT_MS: 120000,
+  COMPILE_TIMEOUT_MS: 30000,
   COMPILE_MAX_SOURCE_BYTES: 1024 * 1024,
   COMPILE_TEMP_DIR_PREFIX: '.tmp_compile_',
-  COMPILE_WORKER_CONCURRENCY: 4,
-  DEPLOY_WORKER_CONCURRENCY: 4,
-  QUEUE_JOB_ATTEMPTS: 3,
-  QUEUE_RETRY_BACKOFF_MS: 1000,
+  COMPILE_SANDBOX_MODE: 'auto',
+  COMPILE_SANDBOX_IMAGE: 'soroban-compile:latest',
+  COMPILE_SANDBOX_MEMORY_MB: 512,
+  COMPILE_SANDBOX_CPU_CORES: 2,
+  COMPILE_SANDBOX_PIDS_LIMIT: 256,
+  COMPILE_SANDBOX_USER: '1000:1000',
   WASM_TARGET_SUBPATH: 'target/wasm32-unknown-unknown/release',
   WASM_FILENAME: 'soroban_contract.wasm',
   SOROBAN_SDK_VERSION: '20.0.0',
@@ -257,38 +259,41 @@ export function createConfig(env = process.env, options = {}) {
         env.SOROBAN_SDK_VERSION,
         DEFAULTS.SOROBAN_SDK_VERSION
       ),
-      workerConcurrency: toInt(
-        env.COMPILE_WORKER_CONCURRENCY,
-        DEFAULTS.COMPILE_WORKER_CONCURRENCY,
-        'COMPILE_WORKER_CONCURRENCY',
-        warnings,
-        { min: 1, max: 64 }
-      ),
-    },
-    deployment: {
-      workerConcurrency: toInt(
-        env.DEPLOY_WORKER_CONCURRENCY,
-        DEFAULTS.DEPLOY_WORKER_CONCURRENCY,
-        'DEPLOY_WORKER_CONCURRENCY',
-        warnings,
-        { min: 1, max: 64 }
-      ),
-    },
-    queue: {
-      jobAttempts: toInt(
-        env.QUEUE_JOB_ATTEMPTS,
-        DEFAULTS.QUEUE_JOB_ATTEMPTS,
-        'QUEUE_JOB_ATTEMPTS',
-        warnings,
-        { min: 1, max: 20 }
-      ),
-      retryBackoffMs: toInt(
-        env.QUEUE_RETRY_BACKOFF_MS,
-        DEFAULTS.QUEUE_RETRY_BACKOFF_MS,
-        'QUEUE_RETRY_BACKOFF_MS',
-        warnings,
-        { min: 100 }
-      ),
+      sandbox: {
+        mode: cleanString(
+          env.COMPILE_SANDBOX_MODE,
+          DEFAULTS.COMPILE_SANDBOX_MODE
+        ),
+        image: cleanString(
+          env.COMPILE_SANDBOX_IMAGE,
+          DEFAULTS.COMPILE_SANDBOX_IMAGE
+        ),
+        memoryMb: toInt(
+          env.COMPILE_SANDBOX_MEMORY_MB,
+          DEFAULTS.COMPILE_SANDBOX_MEMORY_MB,
+          'COMPILE_SANDBOX_MEMORY_MB',
+          warnings,
+          { min: 64, max: 4096 }
+        ),
+        cpuCores: toInt(
+          env.COMPILE_SANDBOX_CPU_CORES,
+          DEFAULTS.COMPILE_SANDBOX_CPU_CORES,
+          'COMPILE_SANDBOX_CPU_CORES',
+          warnings,
+          { min: 1, max: 32 }
+        ),
+        pidsLimit: toInt(
+          env.COMPILE_SANDBOX_PIDS_LIMIT,
+          DEFAULTS.COMPILE_SANDBOX_PIDS_LIMIT,
+          'COMPILE_SANDBOX_PIDS_LIMIT',
+          warnings,
+          { min: 64, max: 4096 }
+        ),
+        user: cleanString(
+          env.COMPILE_SANDBOX_USER,
+          DEFAULTS.COMPILE_SANDBOX_USER
+        ),
+      },
     },
     network: {
       default: cleanString(env.DEFAULT_NETWORK, DEFAULTS.DEFAULT_NETWORK),

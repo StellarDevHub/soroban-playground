@@ -1,21 +1,25 @@
 import { parentPort } from 'worker_threads';
 import fs from 'fs/promises';
 import path from 'path';
-import os from 'os';
-import { spawn } from 'child_process';
 import {
   assertSandboxedOutputPath,
   createBuildSandboxPaths,
   createSandboxEnv,
+  getCompileTempRoot,
+  getCompileTempPrefix,
 } from './buildSandbox.js';
 import {
-  trackChildProcess,
-  terminateChildProcess,
-} from './childProcessManager.js';
+  runSandboxedCargoBuild,
+  getSandboxDefaults,
+} from './compileSandbox.js';
+
+const sandboxDefaults = getSandboxDefaults();
 
 parentPort.on('message', async (job) => {
   const startedAt = Date.now();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'soroban-compile-'));
+  const tempDir = await fs.mkdtemp(
+    path.join(getCompileTempRoot(), getCompileTempPrefix())
+  );
   const sandbox = createBuildSandboxPaths(tempDir);
   await fs.mkdir(sandbox.sourceRoot, { recursive: true });
   await fs.mkdir(sandbox.cargoHome, { recursive: true });
@@ -44,11 +48,12 @@ parentPort.on('message', async (job) => {
       },
     });
 
-    const result = await runCargoBuild(
-      sandbox.crateRoot,
-      createSandboxEnv(process.env, sandbox),
-      job.timeoutMs
-    );
+    const result = await runSandboxedCargoBuild({
+      crateRoot: sandbox.crateRoot,
+      workspaceDir: tempDir,
+      env: createSandboxEnv(process.env, sandbox),
+      timeoutMs: job.timeoutMs || sandboxDefaults.timeoutMs,
+    });
     assertSandboxedOutputPath(sandbox, sandbox.wasmOutPath);
     const wasmPath = sandbox.wasmOutPath;
     const cachePath = path.join(job.cacheRoot, `${job.hash}.wasm`);
@@ -89,62 +94,9 @@ parentPort.on('message', async (job) => {
       },
     });
   } finally {
+    // RAII-style cleanup: always remove the temp workspace, even on failure,
+    // timeout or an unexpected throw. Stale dirs left behind by a hard crash
+    // are swept by cleanupWorker.js / temp-cleanup.service.ts.
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 });
-
-function runCargoBuild(cwd, env, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const child = trackChildProcess(
-      spawn(
-        'cargo',
-        ['build', '--target', 'wasm32-unknown-unknown', '--release'],
-        {
-          cwd,
-          shell: false,
-          windowsHide: true,
-          env,
-        }
-      )
-    );
-
-    let stdout = '';
-    let stderr = '';
-    let memoryPeakBytes = 0;
-
-    const timer = setTimeout(() => {
-      terminateChildProcess(child);
-      reject(new Error('Compilation timed out'));
-    }, timeoutMs);
-
-    const interval = setInterval(() => {
-      if (typeof child.pid === 'number') {
-        memoryPeakBytes = Math.max(memoryPeakBytes, process.memoryUsage().rss);
-      }
-    }, 500);
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      clearInterval(interval);
-      reject(error);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      clearInterval(interval);
-      if (code !== 0) {
-        reject(new Error(stderr || stdout || `cargo exited with code ${code}`));
-        return;
-      }
-      resolve({
-        logs: (stdout + '\n' + stderr).split('\n').filter(Boolean),
-        memoryPeakBytes,
-      });
-    });
-  });
-}

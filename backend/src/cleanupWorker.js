@@ -4,10 +4,14 @@
 import fs from 'fs';
 import path from 'path';
 import { performance } from 'perf_hooks';
+import {
+  getCompileTempRoot,
+  getCompileTempPrefix,
+} from './services/buildSandbox.js';
 
 const CLEANUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const OLD_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
-const TEMP_DIR_PREFIX = '.tmp_compile_';
+const TEMP_DIR_PREFIX = getCompileTempPrefix();
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1000;
 let intervalId = null;
@@ -84,22 +88,19 @@ async function scanAndCleanupDir(baseDir) {
 }
 
 /**
- * Scans the root and src directories for temporary compilation folders
- * and deletes those older than a specified threshold.
- * Includes comprehensive error handling and monitoring.
+ * Scans the shared compile temp directory for stale build folders and deletes
+ * those older than a threshold. Sweeps the same root+prefix that
+ * compileWorker.js uses, so workspaces orphaned by a killed worker thread or a
+ * process crash are still reclaimed. (issue #1330)
  */
 async function cleanupTempDirectories() {
   console.log('Starting temporary directory cleanup...');
 
-  const rootDir = process.cwd();
-  const srcDir = path.join(rootDir, 'src');
-
-  // Scan root directory
-  await scanAndCleanupDir(rootDir);
-
-  // Scan src directory if it exists
-  if (fs.existsSync(srcDir)) {
-    await scanAndCleanupDir(srcDir);
+  const tempRoot = getCompileTempRoot();
+  if (fs.existsSync(tempRoot)) {
+    await scanAndCleanupDir(tempRoot);
+  } else {
+    console.warn(`Compile temp root does not exist: ${tempRoot}`);
   }
 
   console.log('Temporary directory cleanup finished.');

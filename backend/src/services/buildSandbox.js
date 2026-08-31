@@ -1,6 +1,17 @@
 import os from 'os';
 import path from 'path';
 
+// Shared location + prefix for ephemeral compile workspaces so the GC workers
+// (cleanupWorker.js, temp-cleanup.service.ts) always find what compileWorker.js
+// creates — even after a crash or a killed worker thread. (issue #1330)
+export function getCompileTempRoot() {
+  return process.env.TMP_BUILD_DIR || os.tmpdir();
+}
+
+export function getCompileTempPrefix() {
+  return process.env.COMPILE_TEMP_DIR_PREFIX || '.tmp_compile_';
+}
+
 const ENV_ALLOWLIST = [
   'PATH',
   'PATHEXT',

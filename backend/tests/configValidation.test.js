@@ -37,7 +37,7 @@ describe('environment config validation', () => {
 
     expect(config.app.port).toBe(5000);
     expect(config.rateLimit.global.max).toBe(1000);
-    expect(config.compile.timeoutMs).toBe(120000);
+    expect(config.compile.timeoutMs).toBe(30000);
     expect(config.validation.valid).toBe(false);
     expect(config.validation.warnings).toEqual(
       expect.arrayContaining([
