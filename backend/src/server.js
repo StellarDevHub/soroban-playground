@@ -77,6 +77,8 @@ import corsAdminRoute from './routes/corsAdmin.js';
 import serviceRegistryRoute from './routes/serviceRegistry.js';
 import batchSubmitterRoute from './routes/batchSubmitter.js';
 import { setupSwagger } from './docs/swagger.js';
+import { negotiateApiVersion } from './middleware/apiVersioning.js';
+import { deprecationHeaders } from './middleware/deprecationHeaders.js';
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
@@ -189,7 +191,12 @@ app.use('/api/fee-engine', feeEngineRoute);
 app.use('/api/feature-flags', featureFlagsRoute);
 app.use('/api/webhooks', webhooksRoute);
 app.use('/api/cors-whitelist', corsAdminRoute);
-app.use('/api/v1/events', eventsV1Route);
+app.use(
+  '/api/v1/events',
+  negotiateApiVersion({ uriVersion: 'v1' }),
+  deprecationHeaders,
+  eventsV1Route
+);
 app.use('/api/registry', serviceRegistryRoute);
 app.use('/api/batch', batchSubmitterRoute);
 app.use('/api/credentials', credentialsRoute);
