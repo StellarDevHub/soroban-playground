@@ -7,7 +7,13 @@ import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
 
 const router = express.Router();
 
-const VALID_QUEUE_NAMES = new Set(['indexing', 'email', 'cron', 'compilation']);
+const VALID_QUEUE_NAMES = new Set([
+  'indexing',
+  'email',
+  'cron',
+  'compilation',
+  'deployment',
+]);
 const VALID_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateRequiredFields(body, fields) {

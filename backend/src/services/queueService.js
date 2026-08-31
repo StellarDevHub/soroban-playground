@@ -8,11 +8,20 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getDlqQueueName, routeFailedJobToDlq } from './bullmqDlqService.js';
+import config from '../config/index.js';
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+
+// Distributed-worker concurrency (issue #1333): each queue worker process can
+// process this many jobs in parallel. Tune per environment.
+const COMPILE_WORKER_CONCURRENCY = config.compile.workerConcurrency;
+const DEPLOY_WORKER_CONCURRENCY = config.deployment.workerConcurrency;
+const QUEUE_JOB_ATTEMPTS = config.queue.jobAttempts;
+const QUEUE_RETRY_BACKOFF_MS = config.queue.retryBackoffMs;
 
 // Track connections to prevent leaks
 const activeConnections = [];
@@ -112,12 +121,36 @@ export function initializeQueues() {
   queues.compilation = new Queue('compilation', {
     connection: createConnection('queue-compilation'),
     defaultJobOptions: {
-      attempts: 3,
+      attempts: QUEUE_JOB_ATTEMPTS,
       backoff: {
         type: 'exponential',
-        delay: 1000,
+        delay: QUEUE_RETRY_BACKOFF_MS,
       },
+      removeOnComplete: 1000,
+      removeOnFail: false,
     },
+  });
+
+  queues.deployment = new Queue('deployment', {
+    connection: createConnection('queue-deployment'),
+    defaultJobOptions: {
+      attempts: QUEUE_JOB_ATTEMPTS,
+      backoff: {
+        type: 'exponential',
+        delay: QUEUE_RETRY_BACKOFF_MS,
+      },
+      removeOnComplete: 1000,
+      removeOnFail: false,
+    },
+  });
+
+  // Dead-letter queues: exhausted jobs are routed here so failed compilations
+  // and deployments are never silently dropped. (issue #1333)
+  queues.compilationDlq = new Queue(getDlqQueueName('compilation'), {
+    connection: createConnection('queue-compilation-dlq'),
+  });
+  queues.deploymentDlq = new Queue(getDlqQueueName('deployment'), {
+    connection: createConnection('queue-deployment-dlq'),
   });
 
   for (const [name, queue] of Object.entries(queues)) {
@@ -163,6 +196,10 @@ export function initializeQueues() {
       _dirname,
       '../workers/compilationProcessor.js'
     );
+    const deploymentWorkerPath = path.resolve(
+      _dirname,
+      '../workers/deploymentProcessor.js'
+    );
 
     workers.indexing = new Worker('indexing', indexingWorkerPath, {
       connection: createConnection('worker-indexing'),
@@ -185,6 +222,14 @@ export function initializeQueues() {
     workers.compilation = new Worker('compilation', compilationWorkerPath, {
       connection: createConnection('worker-compilation'),
       useWorkerThreads: false,
+      concurrency: COMPILE_WORKER_CONCURRENCY,
+      settings: { backoffStrategies },
+    });
+
+    workers.deployment = new Worker('deployment', deploymentWorkerPath, {
+      connection: createConnection('worker-deployment'),
+      useWorkerThreads: false,
+      concurrency: DEPLOY_WORKER_CONCURRENCY,
       settings: { backoffStrategies },
     });
 
@@ -200,6 +245,22 @@ export function initializeQueues() {
           `[BullMQ Worker] Job ${job?.id} of queue ${name} has failed:`,
           err.message
         );
+        // Route exhausted jobs to their dead-letter queue so they can be
+        // inspected or replayed later. (issue #1333)
+        const dlqQueue = queues[`${name}Dlq`];
+        if (dlqQueue && job) {
+          routeFailedJobToDlq({
+            job,
+            error: err,
+            dlqQueue,
+            removeOriginal: true,
+          }).catch((dlqErr) => {
+            console.error(
+              `[BullMQ DLQ] Failed to route job ${job.id} to DLQ:`,
+              dlqErr.message
+            );
+          });
+        }
       });
       worker.on('error', (err) => {
         if (process.env.NODE_ENV !== 'test') {
@@ -224,6 +285,9 @@ export function initializeQueues() {
       new BullMQAdapter(queues.email),
       new BullMQAdapter(queues.cron),
       new BullMQAdapter(queues.compilation),
+      new BullMQAdapter(queues.deployment),
+      new BullMQAdapter(queues.compilationDlq),
+      new BullMQAdapter(queues.deploymentDlq),
     ],
     serverAdapter,
   });

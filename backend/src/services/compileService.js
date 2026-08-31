@@ -671,6 +671,37 @@ export async function getCompileSnapshot() {
   };
 }
 
+// Compiles a single contract source and returns a compact result shape used by
+// the async BullMQ compilation worker (workers/compilationProcessor.js). This
+// keeps heavy cargo work off the HTTP event loop and inside the worker process.
+export async function compileContract({
+  source,
+  contractName = 'soroban_contract',
+} = {}) {
+  const job = {
+    code: source,
+    dependencies: {},
+    requestId: `async-${contractName}-${Date.now()}`,
+  };
+
+  const result = await compileQueued(job);
+
+  if (!result.success) {
+    const error = new Error(
+      (result.logs || []).join('\n') || 'Compilation failed'
+    );
+    error.code = 'COMPILE_FAILED';
+    throw error;
+  }
+
+  return {
+    hash: result.hash,
+    wasmUrl: result.artifact?.path || '',
+    sizeBytes: result.artifact?.sizeBytes || 0,
+    durationMs: result.durationMs,
+  };
+}
+
 export async function initializeCompileService() {
   await ensureDirs();
   await hydrateState();

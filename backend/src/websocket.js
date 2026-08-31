@@ -41,6 +41,12 @@ export function broadcastTreasuryEvent(event) {
 
 let wssInstance = null;
 
+// Exposes the active WebSocket server so BullMQ worker processors (compilation,
+// deployment) can push progress notifications to connected clients. (issue #1333)
+export function getWss() {
+  return wssInstance;
+}
+
 export function setupWebsocketServer(httpServer) {
   if (wssInstance) {
     try {

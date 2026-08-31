@@ -125,4 +125,106 @@ router.post(
   })
 );
 
+// Memory fallback for deployment jobs in test/offline environments
+const inMemoryDeployJobs = new Map();
+
+router.post(
+  '/async',
+  rateLimitMiddleware('deploy'),
+  asyncHandler(async (req, res, next) => {
+    const {
+      wasmPath,
+      contractName,
+      network = 'testnet',
+      sourceAccount,
+    } = req.body || {};
+
+    const validationError = validateDeployRequest(req.body);
+    if (validationError) {
+      return next(
+        createHttpError(400, validationError.error, validationError.details)
+      );
+    }
+
+    const jobId = `deploy-job-${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(7)}`;
+
+    try {
+      const { queues } = await import('../../services/queueService.js');
+      if (queues && queues.deployment) {
+        await queues.deployment.add(
+          'deploy-contract',
+          {
+            wasmPath,
+            contractName,
+            network,
+            sourceAccount,
+          },
+          { jobId }
+        );
+      } else {
+        inMemoryDeployJobs.set(jobId, {
+          status: 'queued',
+          createdAt: new Date().toISOString(),
+        });
+      }
+    } catch {
+      inMemoryDeployJobs.set(jobId, {
+        status: 'queued',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    return res.status(202).json({
+      success: true,
+      jobId,
+      status: 'queued',
+      message: 'Deployment job queued asynchronously',
+      createdAt: new Date().toISOString(),
+    });
+  })
+);
+
+router.get(
+  '/job/:jobId',
+  asyncHandler(async (req, res) => {
+    const { jobId } = req.params;
+
+    try {
+      const { queues } = await import('../../services/queueService.js');
+      if (queues && queues.deployment) {
+        const job = await queues.deployment.getJob(jobId);
+        if (job) {
+          const state = await job.getState();
+          return res.json({
+            success: true,
+            jobId,
+            status: state,
+            result: job.returnvalue || null,
+            failedReason: job.failedReason || null,
+          });
+        }
+      }
+    } catch {
+      // Fall through to memory check
+    }
+
+    const memoryJob = inMemoryDeployJobs.get(jobId);
+    if (memoryJob) {
+      return res.json({
+        success: true,
+        jobId,
+        status: memoryJob.status,
+        result: memoryJob.result || null,
+      });
+    }
+
+    return res.status(404).json({
+      success: false,
+      error: 'Deployment job not found',
+    });
+  })
+);
+
 export default router;

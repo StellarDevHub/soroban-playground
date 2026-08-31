@@ -17,6 +17,10 @@ class MockQueue {
     this.opts = opts;
     this.add = mockQueueAdd;
     this.close = mockQueueClose;
+    this.eventListeners = {};
+  }
+  on(event, handler) {
+    this.eventListeners[event] = handler;
   }
 }
 
@@ -38,6 +42,10 @@ class MockFlowProducer {
     this.opts = opts;
     this.add = mockFlowProducerAdd;
     this.close = mockFlowProducerClose;
+    this.eventListeners = {};
+  }
+  on(event, handler) {
+    this.eventListeners[event] = handler;
   }
 }
 
@@ -124,6 +132,10 @@ describe('queueService', () => {
     expect(queueService.queues.indexing).toBeDefined();
     expect(queueService.queues.email).toBeDefined();
     expect(queueService.queues.cron).toBeDefined();
+    expect(queueService.queues.compilation).toBeDefined();
+    expect(queueService.queues.deployment).toBeDefined();
+    expect(queueService.queues.compilationDlq).toBeDefined();
+    expect(queueService.queues.deploymentDlq).toBeDefined();
 
     // Workers should not start in test mode
     expect(Object.keys(queueService.workers).length).toBe(0);
@@ -138,6 +150,12 @@ describe('queueService', () => {
     expect(queueService.workers.indexing).toBeDefined();
     expect(queueService.workers.email).toBeDefined();
     expect(queueService.workers.cron).toBeDefined();
+    expect(queueService.workers.compilation).toBeDefined();
+    expect(queueService.workers.deployment).toBeDefined();
+
+    // Compilation and deployment workers should carry configurable concurrency
+    expect(queueService.workers.compilation.opts.concurrency).toBe(4);
+    expect(queueService.workers.deployment.opts.concurrency).toBe(4);
 
     // Verify repeatable job added
     expect(mockQueueAdd).toHaveBeenCalledWith(
@@ -208,8 +226,8 @@ describe('queueService', () => {
 
     await queueService.shutdownQueues();
 
-    expect(mockWorkerClose).toHaveBeenCalledTimes(3);
-    expect(mockQueueClose).toHaveBeenCalledTimes(3);
+    expect(mockWorkerClose).toHaveBeenCalledTimes(5);
+    expect(mockQueueClose).toHaveBeenCalledTimes(7);
     expect(mockFlowProducerClose).toHaveBeenCalledTimes(1);
     const { mockQuit } = require('ioredis');
     expect(mockQuit).toHaveBeenCalled();

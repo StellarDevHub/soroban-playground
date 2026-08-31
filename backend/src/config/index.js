@@ -16,6 +16,10 @@ const DEFAULTS = {
   COMPILE_TIMEOUT_MS: 120000,
   COMPILE_MAX_SOURCE_BYTES: 1024 * 1024,
   COMPILE_TEMP_DIR_PREFIX: '.tmp_compile_',
+  COMPILE_WORKER_CONCURRENCY: 4,
+  DEPLOY_WORKER_CONCURRENCY: 4,
+  QUEUE_JOB_ATTEMPTS: 3,
+  QUEUE_RETRY_BACKOFF_MS: 1000,
   WASM_TARGET_SUBPATH: 'target/wasm32-unknown-unknown/release',
   WASM_FILENAME: 'soroban_contract.wasm',
   SOROBAN_SDK_VERSION: '20.0.0',
@@ -234,6 +238,38 @@ export function createConfig(env = process.env, options = {}) {
       sorobanSdkVersion: cleanString(
         env.SOROBAN_SDK_VERSION,
         DEFAULTS.SOROBAN_SDK_VERSION
+      ),
+      workerConcurrency: toInt(
+        env.COMPILE_WORKER_CONCURRENCY,
+        DEFAULTS.COMPILE_WORKER_CONCURRENCY,
+        'COMPILE_WORKER_CONCURRENCY',
+        warnings,
+        { min: 1, max: 64 }
+      ),
+    },
+    deployment: {
+      workerConcurrency: toInt(
+        env.DEPLOY_WORKER_CONCURRENCY,
+        DEFAULTS.DEPLOY_WORKER_CONCURRENCY,
+        'DEPLOY_WORKER_CONCURRENCY',
+        warnings,
+        { min: 1, max: 64 }
+      ),
+    },
+    queue: {
+      jobAttempts: toInt(
+        env.QUEUE_JOB_ATTEMPTS,
+        DEFAULTS.QUEUE_JOB_ATTEMPTS,
+        'QUEUE_JOB_ATTEMPTS',
+        warnings,
+        { min: 1, max: 20 }
+      ),
+      retryBackoffMs: toInt(
+        env.QUEUE_RETRY_BACKOFF_MS,
+        DEFAULTS.QUEUE_RETRY_BACKOFF_MS,
+        'QUEUE_RETRY_BACKOFF_MS',
+        warnings,
+        { min: 100 }
       ),
     },
     network: {
