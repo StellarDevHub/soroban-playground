@@ -1,0 +1,31 @@
+[package]
+name = "common-utils"
+version = "0.1.0"
+edition = "2021"
+description = "Standardized StorageManager helper that automatically extends contract storage TTL on read/write operations"
+publish = false
+
+# Standalone workspace root so this crate builds independently of the parent
+# `soroban-playground` workspace (it is intentionally not a workspace member).
+[workspace]
+
+[lib]
+# rlib allows other contracts in the repo to depend on `StorageManager` directly,
+# cdylib compiles to a deployable Wasm contract.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "21.0.6"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.6", features = ["testutils"] }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
