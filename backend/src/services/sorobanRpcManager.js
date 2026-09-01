@@ -19,6 +19,10 @@ const RPC_TIMEOUT_MS = Number.parseInt(
   process.env.RPC_TIMEOUT_MS || '15000',
   10
 );
+const HEALTH_CHECK_INTERVAL_MS = Number.parseInt(
+  process.env.RPC_HEALTH_CHECK_INTERVAL_MS || '10000',
+  10
+);
 
 class SorobanRpcManager {
   constructor() {
@@ -43,6 +47,8 @@ class SorobanRpcManager {
       10
     );
     this.activeEndpointIndex = 0;
+    this.healthTimer = null;
+    if (process.env.NODE_ENV !== 'test') this.startHealthChecks();
   }
 
   get activeEndpoint() {
@@ -68,6 +74,61 @@ class SorobanRpcManager {
     console.warn(
       `[RPC Circuit Breaker] Tripped OPEN for endpoint ${ep.url} (failures: ${ep.failCount})`
     );
+  }
+
+  async checkEndpointHealth(ep) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+    try {
+      const request = (method) =>
+        fetch(ep.url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params: [] }),
+          signal: controller.signal,
+        }).then(async (response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = await response.json();
+          if (payload.error) throw new Error(payload.error.message || `${method} failed`);
+          return payload.result;
+        });
+
+      const [health, latestLedger] = await Promise.all([
+        request('getHealth'),
+        request('getLatestLedger'),
+      ]);
+      if (health?.status && health.status !== 'healthy') {
+        throw new Error(`RPC health status: ${health.status}`);
+      }
+      ep.isHealthy = true;
+      ep.failCount = 0;
+      ep.state = CIRCUIT_STATES.CLOSED;
+      ep.lastHealthyAt = Date.now();
+      ep.latestLedger = latestLedger?.sequence ?? latestLedger;
+      return true;
+    } catch {
+      ep.isHealthy = false;
+      ep.lastFailureTime = Date.now();
+      if (ep.state === CIRCUIT_STATES.CLOSED) ep.state = CIRCUIT_STATES.OPEN;
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  startHealthChecks() {
+    if (this.healthTimer || this.endpoints.length === 0) return;
+    const poll = () => {
+      Promise.all(this.endpoints.map((endpoint) => this.checkEndpointHealth(endpoint))).catch(() => {});
+    };
+    poll();
+    this.healthTimer = setInterval(poll, HEALTH_CHECK_INTERVAL_MS);
+    this.healthTimer.unref?.();
+  }
+
+  stopHealthChecks() {
+    if (this.healthTimer) clearInterval(this.healthTimer);
+    this.healthTimer = null;
   }
 
   async executeRpcCall(callFn) {
@@ -155,6 +216,10 @@ class SorobanRpcManager {
         lastFailureTime: ep.lastFailureTime
           ? new Date(ep.lastFailureTime).toISOString()
           : null,
+        lastHealthyAt: ep.lastHealthyAt
+          ? new Date(ep.lastHealthyAt).toISOString()
+          : null,
+        latestLedger: ep.latestLedger ?? null,
       })),
     };
   }
@@ -165,6 +230,8 @@ class SorobanRpcManager {
       ep.failCount = 0;
       ep.lastFailureTime = null;
       ep.isHealthy = true;
+      ep.lastHealthyAt = null;
+      ep.latestLedger = null;
     }
     this.activeEndpointIndex = 0;
   }

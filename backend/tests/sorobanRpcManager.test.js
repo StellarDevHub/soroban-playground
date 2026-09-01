@@ -10,6 +10,10 @@ describe('SorobanRpcManager Circuit Breaker', () => {
     sorobanRpcManager.reset();
   });
 
+  afterAll(() => {
+    sorobanRpcManager.stopHealthChecks();
+  });
+
   it('initializes with default endpoints and CLOSED circuit breaker state', () => {
     const status = sorobanRpcManager.getStatus();
     expect(status.activeEndpoint).toBeDefined();
@@ -70,5 +74,23 @@ describe('SorobanRpcManager Circuit Breaker', () => {
     expect(status.activeEndpoint).toBe(sorobanRpcManager.endpoints[0].url);
     expect(status.circuitBreakerState).toBe(CIRCUIT_STATES.CLOSED);
     expect(status.endpoints[0].failCount).toBe(0);
+  });
+
+  it('records a healthy endpoint after getHealth and getLatestLedger succeed', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ result: { status: 'healthy', sequence: 123 } }),
+    });
+
+    try {
+      const endpoint = sorobanRpcManager.endpoints[0];
+      await sorobanRpcManager.checkEndpointHealth(endpoint);
+      expect(endpoint.isHealthy).toBe(true);
+      expect(endpoint.latestLedger).toBe(123);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });
