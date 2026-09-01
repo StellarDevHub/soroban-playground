@@ -90,7 +90,6 @@ const app = express();
 app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal', '10.0.0.0/8']);
 let httpServer = http.createServer(app);
 applyServerTuning(httpServer); // HTTP/2: keep-alive + headers-timeout tuning
-let server;
 
 // TLS/SSL Hardening configuration — HTTP/2 ALPN prefers h2, falls back to 1.1.
 const httpsOptions = {
@@ -161,6 +160,10 @@ app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
 app.use(compressionMiddleware);
 app.use(http2PushMiddleware);
+
+// Apply the Redis-backed global limiter before any API route is dispatched.
+// Route-specific compile/deploy limits remain available through the factory.
+app.use(rateLimitMiddleware('global'));
 
 // Strict Transport Security (HSTS) headers
 app.use((req, res, next) => {

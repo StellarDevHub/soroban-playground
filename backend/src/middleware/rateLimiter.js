@@ -9,7 +9,7 @@ import config from '../config/index.js';
 /**
  * Production-grade Rate Limiter Middleware
  * @param {Object} options
- * @param {number} options.limit - Max requests in window
+ * @param {number|function} options.limit - Max requests in window, or a request-aware limit function
  * @param {number} options.windowMs - Window size in milliseconds
  * @param {string} options.strategyName - Strategy name (FixedWindow, SlidingWindowLog, SlidingWindowCounter)
  * @param {string} options.identifier - 'ip', 'apiKey', or 'endpoint'
@@ -48,7 +48,8 @@ export const rateLimiter = (options = {}) => {
 
     try {
       const start = performance.now();
-      const result = await strategy.check(redisService, key, limit, windowMs);
+      const requestLimit = typeof limit === 'function' ? limit(req) : limit;
+      const result = await strategy.check(redisService, key, requestLimit, windowMs);
       const duration = performance.now() - start;
 
       // Observability: Log if check exceeds performance threshold
@@ -62,8 +63,8 @@ export const rateLimiter = (options = {}) => {
       );
 
       res.set({
-        'X-RateLimit-Limit': limit,
-        'X-RateLimit-Remaining': Math.max(0, limit - (result.current || 0)),
+        'X-RateLimit-Limit': requestLimit,
+        'X-RateLimit-Remaining': Math.max(0, requestLimit - (result.current || 0)),
         'X-RateLimit-Reset': String(resetTimestamp),
       });
 
@@ -117,8 +118,12 @@ export const rateLimitMiddleware = (configKey, options = {}) => {
     }
 
     const limiter = rateLimiter({
-      limit: options.limit || rateLimitConfig.max,
-      windowMs: options.windowMs || rateLimitConfig.windowMs,
+      limit:
+        options.limit ??
+        (configKey === 'compile' || configKey === 'deploy'
+          ? 15
+          : rateLimitConfig.max),
+      windowMs: options.windowMs ?? rateLimitConfig.windowMs,
       strategyName: options.strategyName || 'SlidingWindowCounter',
       identifier: options.identifier || 'apiKeyOrIp',
     });
