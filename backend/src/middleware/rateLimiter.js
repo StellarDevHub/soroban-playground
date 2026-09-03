@@ -96,19 +96,33 @@ export const rateLimiter = (options = {}) => {
  * @returns {Function} Express middleware function
  */
 export const rateLimitMiddleware = (configKey, options = {}) => {
-  const rateLimitConfig =
+  const defaultRateLimitConfig =
     config.rateLimit[configKey] || config.rateLimit['global'];
 
-  if (!rateLimitConfig) {
+  if (!defaultRateLimitConfig) {
     throw new Error(
       `Rate limit config not found for key: ${configKey} and fallback 'global' also not found`
     );
   }
 
-  return rateLimiter({
-    limit: rateLimitConfig.max,
-    windowMs: rateLimitConfig.windowMs,
-    strategyName: options.strategyName || 'SlidingWindowCounter',
-    identifier: options.identifier || 'apiKeyOrIp',
-  });
+  return (req, res, next) => {
+    let rateLimitConfig = defaultRateLimitConfig;
+    if (configKey === 'global') {
+      const isAuthenticated = Boolean(
+        req.user || req.headers['x-api-key'] || req.headers['authorization']
+      );
+      if (isAuthenticated && config.rateLimit.authenticated) {
+        rateLimitConfig = config.rateLimit.authenticated;
+      }
+    }
+
+    const limiter = rateLimiter({
+      limit: options.limit || rateLimitConfig.max,
+      windowMs: options.windowMs || rateLimitConfig.windowMs,
+      strategyName: options.strategyName || 'SlidingWindowCounter',
+      identifier: options.identifier || 'apiKeyOrIp',
+    });
+
+    return limiter(req, res, next);
+  };
 };

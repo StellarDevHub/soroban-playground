@@ -55,4 +55,5 @@ members = [
     "contracts/bug-bounty",
     "contracts/nft-fractional",
     "contracts/subscription",
+    "contracts/charity-tracker",
 ]

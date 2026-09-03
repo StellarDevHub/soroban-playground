@@ -846,3 +846,163 @@ fn test_legacy_market_api_remains_available() {
     client.resolve_market(&market_id, &1);
     assert_eq!(client.calculate_payout(&market_id, &trader), 100);
 }
+
+#[test]
+fn test_spot_price_extreme_reserves() {
+    let fixture = setup_conditional(2);
+    let buyer = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&buyer, &100_000);
+
+    fixture
+        .client
+        .buy_shares(&buyer, &fixture.market_id, &1, &50_000, &1);
+
+    let price_yes = fixture.client.spot_price(&fixture.market_id, &1);
+    let price_no = fixture.client.spot_price(&fixture.market_id, &0);
+
+    assert!(price_yes > 9_500);
+    assert!(price_no < 500);
+    assert!(price_yes + price_no <= 10_001);
+}
+
+#[test]
+fn test_dispute_resolution_bond_repayment_math() {
+    let fixture = setup_conditional(2);
+    let challenger = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&challenger, &1_000);
+
+    fixture.env.ledger().set_timestamp(fixture.deadline);
+    fixture.client.propose_resolution(&fixture.market_id, &0);
+
+    let result = fixture.client.try_dispute_resolution(&challenger, &fixture.market_id, &9);
+    assert!(result.is_err());
+
+    fixture.client.dispute_resolution(&challenger, &fixture.market_id, &15);
+    fixture.client.resolve_dispute(&fixture.market_id, &1);
+
+    assert_eq!(fixture.token_client.balance(&challenger), 1_000);
+}
+
+#[test]
+fn test_mint_complete_set_credits_every_outcome_and_merges_back() {
+    let fixture = setup_conditional(3);
+    let minter = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&minter, &400);
+
+    fixture
+        .client
+        .mint_complete_set(&minter, &fixture.market_id, &200);
+    assert_eq!(
+        fixture
+            .client
+            .outcome_balance(&fixture.market_id, &minter, &0),
+        200
+    );
+    assert_eq!(
+        fixture
+            .client
+            .outcome_balance(&fixture.market_id, &minter, &1),
+        200
+    );
+    assert_eq!(
+        fixture
+            .client
+            .outcome_balance(&fixture.market_id, &minter, &2),
+        200
+    );
+    assert_eq!(fixture.token_client.balance(&minter), 200);
+
+    fixture
+        .client
+        .redeem_complete_set(&minter, &fixture.market_id, &200);
+    assert_eq!(fixture.token_client.balance(&minter), 400);
+    assert_eq!(
+        fixture.client.get_conditional_market(&fixture.market_id).collateral_locked,
+        1_000
+    );
+}
+
+#[test]
+fn test_sell_shares_is_inverse_of_buy_within_rounding() {
+    let fixture = setup_conditional(2);
+    let trader = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&trader, &500);
+
+    let bought = fixture
+        .client
+        .buy_shares(&trader, &fixture.market_id, &1, &100, &1);
+    let quote = fixture.client.quote_sell(&fixture.market_id, &1, &bought);
+    let received = fixture
+        .client
+        .sell_shares(&trader, &fixture.market_id, &1, &bought, &quote);
+
+    assert_eq!(received, quote);
+    assert!(received <= 100);
+    assert!(received >= 90);
+    assert_eq!(
+        fixture
+            .client
+            .outcome_balance(&fixture.market_id, &trader, &1),
+        0
+    );
+}
+
+#[test]
+fn test_sell_shares_slippage_and_balance_guards() {
+    let fixture = setup_conditional(2);
+    let trader = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&trader, &200);
+    fixture
+        .client
+        .buy_shares(&trader, &fixture.market_id, &0, &50, &1);
+
+    assert_eq!(
+        fixture
+            .client
+            .try_sell_shares(&trader, &fixture.market_id, &0, &10, &10_000),
+        Err(Ok(Error::SlippageExceeded))
+    );
+    assert_eq!(
+        fixture
+            .client
+            .try_sell_shares(&trader, &fixture.market_id, &1, &1, &1),
+        Err(Ok(Error::InsufficientShares))
+    );
+}
+
+#[test]
+fn test_legacy_resolve_is_blocked_on_conditional_markets() {
+    let fixture = setup_conditional(2);
+    assert_eq!(
+        fixture.client.try_resolve_market(&fixture.market_id, &1),
+        Err(Ok(Error::ConditionalMarketRequired))
+    );
+    assert_eq!(
+        fixture.client.try_cancel_market(&fixture.market_id),
+        Err(Ok(Error::ConditionalMarketRequired))
+    );
+}
+
+#[test]
+fn test_second_dispute_and_closed_window_are_rejected() {
+    let fixture = setup_conditional(2);
+    let first = Address::generate(&fixture.env);
+    let second = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&first, &50);
+    fixture.token_admin.mint(&second, &50);
+    fixture.env.ledger().set_timestamp(fixture.deadline);
+    fixture.client.propose_resolution(&fixture.market_id, &1);
+    fixture
+        .client
+        .dispute_resolution(&first, &fixture.market_id, &20);
+    assert_eq!(
+        fixture
+            .client
+            .try_dispute_resolution(&second, &fixture.market_id, &20),
+        Err(Ok(Error::ResolutionAlreadyDisputed))
+    );
+    assert_eq!(
+        fixture.client.try_finalize_resolution(&fixture.market_id),
+        Err(Ok(Error::ResolutionAlreadyDisputed))
+    );
+}

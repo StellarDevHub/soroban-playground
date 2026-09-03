@@ -1,0 +1,124 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: End-to-end (standalone Soroban)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      E2E_SOROBAN_RPC_URL: http://localhost:8000/soroban/rpc
+      E2E_FRONTEND_URL: http://localhost:3000
+      E2E_BACKEND_URL: http://localhost:5000
+    services:
+      # Stellar Quickstart in Standalone mode provides a local Soroban RPC and
+      # Friendbot, so the whole deploy/invoke lifecycle runs without the public
+      # testnet.
+      quickstart:
+        image: stellar/quickstart:latest
+        ports:
+          - 8000:8000
+        env:
+          NETWORK: standalone
+          ENABLE_SOROBAN_RPC: "true"
+          QUICKSTART_MODE: standalone-rpc
+        options: >-
+          --health-cmd "curl -sf http://localhost:8000/soroban/rpc >
+          /dev/null"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+          --health-start-period 60s
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The backend needs the Soroban CLI for real WASM compilation. Install it
+      # via cargo from the Stellar tap rather than a fork-specific action.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install Soroban CLI
+        run: cargo install soroban-cli --locked --root /usr/local
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start backend
+        env:
+          NODE_ENV: test
+          SOROBAN_RPC_URL: ${{ env.E2E_SOROBAN_RPC_URL }}
+        run: |
+          npm run start --workspace backend &
+          echo "$!" > /tmp/backend.pid
+
+      - name: Wait for backend health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:5000/api/health >/dev/null; then
+              echo "backend up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "backend failed to start" >&2
+          exit 1
+
+      - name: Build & start frontend
+        run: |
+          npm run build --workspace frontend
+          npm run start --workspace frontend &
+          echo "$!" > /tmp/frontend.pid
+
+      - name: Wait for frontend
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000 >/dev/null; then
+              echo "frontend up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "frontend failed to start" >&2
+          exit 1
+
+      - name: Run Playwright e2e
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+
+      - name: Stop services
+        if: always()
+        run: |
+          test -f /tmp/backend.pid  && kill "$(cat /tmp/backend.pid)" || true
+          test -f /tmp/frontend.pid && kill "$(cat /tmp/frontend.pid)" || true

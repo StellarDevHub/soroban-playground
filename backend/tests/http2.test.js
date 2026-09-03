@@ -4,7 +4,11 @@ import {
   SESSION_TIMEOUT_MS,
   PUSH_RULES,
   HTTP2_SERVER_OPTIONS,
+  ALPN_PROTOCOLS,
   applyServerTuning,
+  createAlpnServer,
+  attachAcmeHttp01,
+  watchTlsCertificates,
 } from '../src/config/http2Config.js';
 import {
   buildLinkHeader,

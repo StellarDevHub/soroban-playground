@@ -64,6 +64,29 @@ pub struct Donation {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DonorImpact {
+    pub donor: Address,
+    pub campaign_id: u32,
+    pub total_donated: i128,
+    pub allocated_amount: i128,
+    pub milestones_supported: u32,
+    pub last_donation_timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneValidation {
+    pub campaign_id: u32,
+    pub milestone_id: u32,
+    pub votes_for: u32,
+    pub votes_against: u32,
+    pub validation_status: bool,
+    pub proof_hash: String,
+    pub verified_at: u64,
+}
+
+#[contracttype]
 pub enum DataKey {
     Admin,
     Token,
@@ -75,6 +98,10 @@ pub enum DataKey {
     CampaignDonations(u32, u32),
     TotalDonations(u32),
     MilestoneReleaseStatus(u32, u32),
+    DonorImpact(Address, u32),
+    MilestoneValidation(u32, u32),
+    DAOValidator(Address),
+    MilestoneValidatorVote(u32, u32, Address),
 }
 
 #[contract]
@@ -138,7 +165,7 @@ impl CharityTrackerContract {
             .set(&DataKey::CampaignCount, &id);
         env.storage()
             .instance()
-            .set(&DataKey::TotalDonations(id), &0i128);
+            .set(&DataKey::TotalDonations(id), &0u32);
 
         env.events()
             .publish((symbol_short!("ch"), symbol_short!("campaign")), id);
@@ -155,7 +182,7 @@ impl CharityTrackerContract {
     ) -> Result<(), CharityError> {
         organizer.require_auth();
 
-        let mut campaign: CharityCampaign = env
+        let campaign: CharityCampaign = env
             .storage()
             .instance()
             .get(&DataKey::Campaign(campaign_id))
@@ -257,6 +284,23 @@ impl CharityTrackerContract {
         env.storage()
             .instance()
             .set(&DataKey::TotalDonations(campaign_id), &(donation_index + 1));
+
+        let impact_key = DataKey::DonorImpact(donor.clone(), campaign_id);
+        let mut impact: DonorImpact = env
+            .storage()
+            .persistent()
+            .get(&impact_key)
+            .unwrap_or(DonorImpact {
+                donor: donor.clone(),
+                campaign_id,
+                total_donated: 0,
+                allocated_amount: 0,
+                milestones_supported: 0,
+                last_donation_timestamp: env.ledger().timestamp(),
+            });
+        impact.total_donated += amount;
+        impact.last_donation_timestamp = env.ledger().timestamp();
+        env.storage().persistent().set(&impact_key, &impact);
 
         campaign.raised_amount += amount;
         if campaign.raised_amount >= campaign.goal_amount {
@@ -366,11 +410,15 @@ impl CharityTrackerContract {
             .get(&DataKey::Token)
             .ok_or(CharityError::NotInitialized)?;
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &stored_admin,
-            &milestone.target_amount,
-        );
+        let balance = token_client.balance(&env.current_contract_address());
+        let release_amount = milestone.target_amount.min(balance);
+        if release_amount > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &stored_admin,
+                &release_amount,
+            );
+        }
 
         env.events().publish(
             (symbol_short!("ch"), symbol_short!("verified")),
@@ -410,6 +458,208 @@ impl CharityTrackerContract {
             .instance()
             .get(&DataKey::TotalDonations(campaign_id))
             .unwrap_or(0)
+    }
+
+    pub fn add_dao_validator(
+        env: Env,
+        admin: Address,
+        validator: Address,
+    ) -> Result<(), CharityError> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(CharityError::NotInitialized)?;
+        if admin != stored_admin {
+            return Err(CharityError::Unauthorized);
+        }
+        let val_key = DataKey::DAOValidator(validator);
+        env.storage().persistent().set(&val_key, &true);
+        env.storage().persistent().extend_ttl(
+            &val_key,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_EXTEND_TO,
+        );
+        Ok(())
+    }
+
+    pub fn allocate_direct_impact(
+        env: Env,
+        donor: Address,
+        campaign_id: u32,
+        milestone_id: u32,
+        amount: i128,
+    ) -> Result<(), CharityError> {
+        donor.require_auth();
+        if amount <= 0 {
+            return Err(CharityError::InvalidParameters);
+        }
+
+        let campaign: CharityCampaign = env
+            .storage()
+            .instance()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(CharityError::CampaignNotFound)?;
+
+        if milestone_id == 0 || milestone_id > campaign.milestone_count {
+            return Err(CharityError::InvalidParameters);
+        }
+
+        let milestone_key = DataKey::Milestone(campaign_id, milestone_id);
+        if !env.storage().persistent().has(&milestone_key) {
+            return Err(CharityError::MilestoneNotFound);
+        }
+
+        let impact_key = DataKey::DonorImpact(donor.clone(), campaign_id);
+        let mut impact: DonorImpact = env
+            .storage()
+            .persistent()
+            .get(&impact_key)
+            .unwrap_or(DonorImpact {
+                donor: donor.clone(),
+                campaign_id,
+                total_donated: 0,
+                allocated_amount: 0,
+                milestones_supported: 0,
+                last_donation_timestamp: env.ledger().timestamp(),
+            });
+
+        impact.allocated_amount += amount;
+        impact.milestones_supported += 1;
+        impact.last_donation_timestamp = env.ledger().timestamp();
+
+        env.storage().persistent().set(&impact_key, &impact);
+        env.storage().persistent().extend_ttl(
+            &impact_key,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_EXTEND_TO,
+        );
+
+        env.events().publish(
+            (symbol_short!("ch"), symbol_short!("impact")),
+            (campaign_id, milestone_id, donor, amount),
+        );
+        Ok(())
+    }
+
+    pub fn vote_validate_milestone(
+        env: Env,
+        validator: Address,
+        campaign_id: u32,
+        milestone_id: u32,
+        approve: bool,
+    ) -> Result<(), CharityError> {
+        validator.require_auth();
+
+        let is_dao_validator: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DAOValidator(validator.clone()))
+            .unwrap_or(false);
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(CharityError::NotInitialized)?;
+
+        if !is_dao_validator && validator != stored_admin {
+            return Err(CharityError::Unauthorized);
+        }
+
+        let vote_key = DataKey::MilestoneValidatorVote(campaign_id, milestone_id, validator.clone());
+        if env.storage().persistent().has(&vote_key) {
+            return Err(CharityError::InvalidMilestoneStatus);
+        }
+
+        let milestone_key = DataKey::Milestone(campaign_id, milestone_id);
+        let mut milestone: Milestone = env
+            .storage()
+            .persistent()
+            .get(&milestone_key)
+            .ok_or(CharityError::MilestoneNotFound)?;
+
+        if !milestone.completed {
+            return Err(CharityError::MilestoneNotApproved);
+        }
+
+        let val_key = DataKey::MilestoneValidation(campaign_id, milestone_id);
+        let mut validation: MilestoneValidation = env
+            .storage()
+            .persistent()
+            .get(&val_key)
+            .unwrap_or(MilestoneValidation {
+                campaign_id,
+                milestone_id,
+                votes_for: 0,
+                votes_against: 0,
+                validation_status: false,
+                proof_hash: milestone.proof_hash.clone(),
+                verified_at: 0,
+            });
+
+        if approve {
+            validation.votes_for += 1;
+        } else {
+            validation.votes_against += 1;
+        }
+
+        env.storage().persistent().set(&vote_key, &true);
+
+        if validation.votes_for >= 1 && !milestone.verified {
+            milestone.verified = true;
+            milestone.released_amount = milestone.target_amount;
+            validation.validation_status = true;
+            validation.verified_at = env.ledger().timestamp();
+            env.storage().persistent().set(&milestone_key, &milestone);
+
+            let token: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::Token)
+                .ok_or(CharityError::NotInitialized)?;
+            let token_client = token::Client::new(&env, &token);
+            let balance = token_client.balance(&env.current_contract_address());
+            let release_amount = milestone.target_amount.min(balance);
+            if release_amount > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &stored_admin,
+                    &release_amount,
+                );
+            }
+        }
+
+        env.storage().persistent().set(&val_key, &validation);
+
+        env.events().publish(
+            (symbol_short!("ch"), symbol_short!("validate")),
+            (campaign_id, milestone_id, approve),
+        );
+        Ok(())
+    }
+
+    pub fn get_donor_impact(
+        env: Env,
+        donor: Address,
+        campaign_id: u32,
+    ) -> Result<DonorImpact, CharityError> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::DonorImpact(donor, campaign_id))
+            .ok_or(CharityError::InvalidParameters)
+    }
+
+    pub fn get_milestone_validation(
+        env: Env,
+        campaign_id: u32,
+        milestone_id: u32,
+    ) -> Result<MilestoneValidation, CharityError> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MilestoneValidation(campaign_id, milestone_id))
+            .ok_or(CharityError::MilestoneNotFound)
     }
 }
 

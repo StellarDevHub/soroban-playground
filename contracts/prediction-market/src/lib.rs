@@ -37,6 +37,8 @@ const EVT_SHARES: Symbol = symbol_short!("shares");
 const EVT_PROPOSED: Symbol = symbol_short!("proposed");
 const EVT_DISPUTED: Symbol = symbol_short!("disputed");
 const EVT_REDEEMED: Symbol = symbol_short!("redeemed");
+const EVT_MINT: Symbol = symbol_short!("ct_mint");
+const EVT_SELL: Symbol = symbol_short!("ct_sell");
 
 #[contract]
 pub struct PredictionMarket;
@@ -217,7 +219,7 @@ impl PredictionMarket {
             .pool_balances
             .get(outcome)
             .ok_or(Error::InsufficientLiquidity)?;
-        conditional.pool_balances.set(outcome, selected - shares);
+        conditional.pool_balances.set(outcome, checked_sub(selected, shares)?);
         conditional.collateral_locked =
             checked_add(conditional.collateral_locked, collateral_amount)?;
 
@@ -235,6 +237,116 @@ impl PredictionMarket {
             (buyer, collateral_amount, shares),
         );
         Ok(shares)
+    }
+
+    /// Quote collateral returned for selling conditional shares into the pool.
+    pub fn quote_sell(
+        env: Env,
+        market_id: u32,
+        outcome: u32,
+        shares: i128,
+    ) -> Result<i128, Error> {
+        let conditional = get_conditional_market(&env, market_id)?;
+        quote_sell_shares(&conditional, outcome, shares)
+    }
+
+    /// Sell conditional shares back into the fixed-product pool.
+    /// `min_collateral` protects the caller from price movement before execution.
+    pub fn sell_shares(
+        env: Env,
+        seller: Address,
+        market_id: u32,
+        outcome: u32,
+        shares: i128,
+        min_collateral: i128,
+    ) -> Result<i128, Error> {
+        ensure_initialized(&env)?;
+        seller.require_auth();
+        let market = get_market(&env, market_id)?;
+        ensure_trading_open(&env, &market)?;
+        let mut conditional = get_conditional_market(&env, market_id)?;
+        let collateral = quote_sell_shares(&conditional, outcome, shares)?;
+        if collateral < min_collateral {
+            return Err(Error::SlippageExceeded);
+        }
+        let held = get_outcome_balance(&env, market_id, &seller, outcome);
+        if held < shares {
+            return Err(Error::InsufficientShares);
+        }
+
+        let selected = conditional
+            .pool_balances
+            .get(outcome)
+            .ok_or(Error::InsufficientLiquidity)?;
+        conditional
+            .pool_balances
+            .set(outcome, checked_add(selected, shares)?);
+        for index in 0..conditional.pool_balances.len() {
+            let reserve = conditional
+                .pool_balances
+                .get(index)
+                .ok_or(Error::InsufficientLiquidity)?;
+            conditional
+                .pool_balances
+                .set(index, checked_sub(reserve, collateral)?);
+        }
+        conditional.collateral_locked = checked_sub(conditional.collateral_locked, collateral)?;
+        set_outcome_balance(
+            &env,
+            market_id,
+            &seller,
+            outcome,
+            checked_sub(held, shares)?,
+        );
+        set_conditional_market(&env, &conditional);
+        token::Client::new(&env, &conditional.collateral_token).transfer(
+            &env.current_contract_address(),
+            &seller,
+            &collateral,
+        );
+        env.events().publish(
+            (EVT_SELL, market_id, outcome),
+            (seller, shares, collateral),
+        );
+        Ok(collateral)
+    }
+
+    /// Split collateral into one unit of every outcome token (complete set).
+    /// The minted tokens are credited to the caller, not the AMM pool.
+    pub fn mint_complete_set(
+        env: Env,
+        minter: Address,
+        market_id: u32,
+        amount: i128,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        minter.require_auth();
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        let market = get_market(&env, market_id)?;
+        ensure_trading_open(&env, &market)?;
+        let mut conditional = get_conditional_market(&env, market_id)?;
+        token::Client::new(&env, &conditional.collateral_token).transfer(
+            &minter,
+            &env.current_contract_address(),
+            &amount,
+        );
+        for outcome in 0..conditional.outcomes.len() {
+            let balance = get_outcome_balance(&env, market_id, &minter, outcome);
+            set_outcome_balance(
+                &env,
+                market_id,
+                &minter,
+                outcome,
+                checked_add(balance, amount)?,
+            );
+        }
+        conditional.collateral_locked = checked_add(conditional.collateral_locked, amount)?;
+        set_conditional_market(&env, &conditional);
+        env.events()
+            .publish((EVT_MINT, market_id), (minter, amount));
+        Ok(())
     }
 
     /// Add a complete set of collateral-backed outcome shares to the pool.
@@ -337,7 +449,7 @@ impl PredictionMarket {
             if amount <= 0 {
                 return Err(Error::InvalidAmount);
             }
-            conditional.pool_balances.set(outcome, reserve - amount);
+            conditional.pool_balances.set(outcome, checked_sub(reserve, amount)?);
             let balance = get_outcome_balance(&env, market_id, &provider, outcome);
             set_outcome_balance(
                 &env,
@@ -348,12 +460,12 @@ impl PredictionMarket {
             );
             withdrawn.push_back(amount);
         }
-        conditional.total_liquidity_shares -= liquidity_shares;
+        conditional.total_liquidity_shares = checked_sub(conditional.total_liquidity_shares, liquidity_shares)?;
         set_liquidity_balance(
             &env,
             market_id,
             &provider,
-            provider_balance - liquidity_shares,
+            checked_sub(provider_balance, liquidity_shares)?,
         );
         set_conditional_market(&env, &conditional);
         env.events()
@@ -385,9 +497,9 @@ impl PredictionMarket {
         }
         for outcome in 0..conditional.outcomes.len() {
             let balance = get_outcome_balance(&env, market_id, &owner, outcome);
-            set_outcome_balance(&env, market_id, &owner, outcome, balance - amount);
+            set_outcome_balance(&env, market_id, &owner, outcome, checked_sub(balance, amount)?);
         }
-        conditional.collateral_locked -= amount;
+        conditional.collateral_locked = checked_sub(conditional.collateral_locked, amount)?;
         set_conditional_market(&env, &conditional);
         token::Client::new(&env, &conditional.collateral_token).transfer(
             &env.current_contract_address(),
@@ -548,8 +660,8 @@ impl PredictionMarket {
         if balance < amount {
             return Err(Error::InsufficientShares);
         }
-        set_outcome_balance(&env, market_id, &owner, outcome, balance - amount);
-        conditional.collateral_locked -= amount;
+        set_outcome_balance(&env, market_id, &owner, outcome, checked_sub(balance, amount)?);
+        conditional.collateral_locked = checked_sub(conditional.collateral_locked, amount)?;
         set_conditional_market(&env, &conditional);
         token::Client::new(&env, &conditional.collateral_token).transfer(
             &env.current_contract_address(),
@@ -927,11 +1039,93 @@ fn quote_buy_shares(
             checked_add(reserve, collateral_amount)?,
         )?;
     }
-    let shares = checked_add(selected_reserve, collateral_amount)? - ending_selected;
+    let shares = checked_sub(checked_add(selected_reserve, collateral_amount)?, ending_selected)?;
     if shares <= 0 {
         return Err(Error::InsufficientLiquidity);
     }
     Ok(shares)
+}
+
+/// Largest collateral payout that preserves the fixed-product invariant after
+/// `shares` of `outcome` are sold into the pool.
+fn quote_sell_shares(
+    conditional: &ConditionalMarket,
+    outcome: u32,
+    shares: i128,
+) -> Result<i128, Error> {
+    validate_outcome(conditional, outcome)?;
+    if shares <= 0 {
+        return Err(Error::InvalidAmount);
+    }
+    let mut max_extractable = i128::MAX;
+    for index in 0..conditional.pool_balances.len() {
+        let reserve = conditional
+            .pool_balances
+            .get(index)
+            .ok_or(Error::InsufficientLiquidity)?;
+        let after_sale = if index == outcome {
+            checked_add(reserve, shares)?
+        } else {
+            reserve
+        };
+        if after_sale <= 1 {
+            return Err(Error::InsufficientLiquidity);
+        }
+        let candidate = checked_sub(after_sale, 1)?;
+        if candidate < max_extractable {
+            max_extractable = candidate;
+        }
+    }
+    if max_extractable <= 0 {
+        return Err(Error::InsufficientLiquidity);
+    }
+
+    let mut low = 1i128;
+    let mut high = max_extractable;
+    let mut best = 0i128;
+    while low <= high {
+        let mid = low + (high - low) / 2;
+        if sell_invariant_holds(conditional, outcome, shares, mid)? {
+            best = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    if best <= 0 {
+        return Err(Error::InsufficientLiquidity);
+    }
+    Ok(best)
+}
+
+fn sell_invariant_holds(
+    conditional: &ConditionalMarket,
+    outcome: u32,
+    shares: i128,
+    collateral: i128,
+) -> Result<bool, Error> {
+    const RATIO_SCALE: i128 = 1_000_000_000;
+    let mut ratio = RATIO_SCALE;
+    for index in 0..conditional.pool_balances.len() {
+        let original = conditional
+            .pool_balances
+            .get(index)
+            .ok_or(Error::InsufficientLiquidity)?;
+        if original <= 0 {
+            return Err(Error::InsufficientLiquidity);
+        }
+        let after_sale = if index == outcome {
+            checked_add(original, shares)?
+        } else {
+            original
+        };
+        let remaining = checked_sub(after_sale, collateral)?;
+        if remaining <= 0 {
+            return Ok(false);
+        }
+        ratio = mul_div_floor(ratio, remaining, original)?;
+    }
+    Ok(ratio >= RATIO_SCALE)
 }
 
 fn finalize_market(env: &Env, market: &mut Market, outcome: u32) {
@@ -943,6 +1137,10 @@ fn finalize_market(env: &Env, market: &mut Market, outcome: u32) {
 
 fn checked_add(left: i128, right: i128) -> Result<i128, Error> {
     left.checked_add(right).ok_or(Error::ArithmeticOverflow)
+}
+
+fn checked_sub(left: i128, right: i128) -> Result<i128, Error> {
+    left.checked_sub(right).ok_or(Error::ArithmeticOverflow)
 }
 
 fn mul_div_floor(left: i128, right: i128, denominator: i128) -> Result<i128, Error> {

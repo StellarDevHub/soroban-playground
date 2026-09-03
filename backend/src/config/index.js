@@ -6,12 +6,14 @@ dotenv.config();
 const DEFAULTS = {
   APP_PORT: 5000,
   APP_ENV: 'development',
-  GLOBAL_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
-  GLOBAL_RATE_LIMIT_MAX: 1000,
+  GLOBAL_RATE_LIMIT_WINDOW_MS: 60 * 1000,
+  GLOBAL_RATE_LIMIT_MAX: 60,
+  AUTHENTICATED_RATE_LIMIT_WINDOW_MS: 60 * 1000,
+  AUTHENTICATED_RATE_LIMIT_MAX: 300,
   COMPILE_RATE_LIMIT_WINDOW_MS: 60 * 1000,
-  COMPILE_RATE_LIMIT_MAX: 10,
+  COMPILE_RATE_LIMIT_MAX: 15,
   DEPLOY_RATE_LIMIT_WINDOW_MS: 60 * 1000,
-  DEPLOY_RATE_LIMIT_MAX: 10,
+  DEPLOY_RATE_LIMIT_MAX: 15,
   COMPILE_COMMAND: 'cargo build --target wasm32-unknown-unknown --release',
   COMPILE_TIMEOUT_MS: 120000,
   COMPILE_MAX_SOURCE_BYTES: 1024 * 1024,
@@ -169,6 +171,22 @@ export function createConfig(env = process.env, options = {}) {
           env.GLOBAL_RATE_LIMIT_MAX,
           DEFAULTS.GLOBAL_RATE_LIMIT_MAX,
           'GLOBAL_RATE_LIMIT_MAX',
+          warnings,
+          { min: 1 }
+        ),
+      },
+      authenticated: {
+        windowMs: toInt(
+          env.AUTHENTICATED_RATE_LIMIT_WINDOW_MS,
+          DEFAULTS.AUTHENTICATED_RATE_LIMIT_WINDOW_MS,
+          'AUTHENTICATED_RATE_LIMIT_WINDOW_MS',
+          warnings,
+          { min: 1 }
+        ),
+        max: toInt(
+          env.AUTHENTICATED_RATE_LIMIT_MAX,
+          DEFAULTS.AUTHENTICATED_RATE_LIMIT_MAX,
+          'AUTHENTICATED_RATE_LIMIT_MAX',
           warnings,
           { min: 1 }
         ),

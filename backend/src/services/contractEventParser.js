@@ -105,17 +105,23 @@ export function registerHandler(contractType, fn) {
   handlers.set(contractType, fn);
 }
 
+function invokeHandler(fn, parsed, type) {
+  if (typeof fn !== 'function') return;
+  try {
+    fn(parsed);
+  } catch (e) {
+    console.error(
+      `[EventParser] Handler error for contract type "${type}":`,
+      e.message
+    );
+  }
+}
+
 export function dispatchEvent(parsed) {
-  const type = String(parsed.topics[0] ?? 'unknown');
-  const fn = handlers.get(type) ?? handlers.get('*');
-  if (fn) {
-    try {
-      fn(parsed);
-    } catch (e) {
-      console.error(
-        `[EventParser] Handler error for contract type "${type}":`,
-        e.message
-      );
-    }
+  const type = String(parsed.topics?.[0] ?? 'unknown');
+  invokeHandler(handlers.get(type), parsed, type);
+  const wildcard = handlers.get('*');
+  if (wildcard && wildcard !== handlers.get(type)) {
+    invokeHandler(wildcard, parsed, '*');
   }
 }
