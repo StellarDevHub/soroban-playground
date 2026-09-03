@@ -15,31 +15,24 @@ import { alertManager } from '../utils/alerting.js';
 import config from '../config/index.js';
 import redisService from './redisService.js';
 
-const CACHE_KEY_PREFIX = 'compile:artifact:';
-const LOCK_KEY_PREFIX = 'compile:lock:';
-const LOCK_TTL_SECONDS = 120;
-const CACHE_ARTIFACT_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+// Cache integration using the shared redisService singleton.
+const COMPILE_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
-async function initializeCacheService(hashes) {
-  if (!hashes || hashes.length === 0) return;
-  
-  try {
-    const pipeline = redisService.pipeline();
-    for (const hash of hashes) {
-      const artifact = artifacts.get(hash);
-      if (artifact) {
-        pipeline.set(
-          `${CACHE_KEY_PREFIX}${hash}`,
-          JSON.stringify(artifact),
-          'EX',
-          CACHE_ARTIFACT_TTL_SECONDS
-        );
+async function initializeCacheService(hashes = []) {
+  if (!redisService || redisService.isFallbackMode) return false;
+  // Warm Redis with known artifacts metadata so lookups hit redis quickly.
+  for (const h of hashes) {
+    const art = artifacts.get(h);
+    if (art) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await redisService.set(`wasm:artifact:${h}`, JSON.stringify(art), COMPILE_CACHE_TTL_SECONDS);
+      } catch (err) {
+        // ignore warming errors
       }
     }
-    await pipeline.exec();
-  } catch (err) {
-    console.warn('Failed to warm Redis cache with artifacts:', err.message);
   }
+  return true;
 }
 
 async function loadCacheEntryFromCache(hash) {
@@ -70,13 +63,29 @@ async function loadCacheEntryFromCache(hash) {
   // Fall back to the artifacts Map (survives LRU eviction)
   const artifactHit = artifacts.get(hash);
   if (artifactHit?.path) {
-    const exists = await fs
-      .stat(artifactHit.path)
-      .then(() => true)
-      .catch(() => false);
+    const exists = await fs.stat(artifactHit.path).then(() => true).catch(() => false);
     if (exists) {
       cacheIndex.set(hash, artifactHit);
       return artifactHit;
+    }
+  }
+
+  // Finally consult Redis-backed cache
+  if (redisService && !redisService.isFallbackMode) {
+    try {
+      const raw = await redisService.get(`wasm:artifact:${hash}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Verify file still exists on disk
+        const exists = await fs.stat(parsed.path).then(() => true).catch(() => false);
+        if (exists) {
+          cacheIndex.set(hash, parsed);
+          artifacts.set(hash, parsed);
+          return parsed;
+        }
+      }
+    } catch (err) {
+      // ignore redis errors and continue
     }
   }
 
@@ -84,59 +93,51 @@ async function loadCacheEntryFromCache(hash) {
 }
 
 async function storeCacheEntry(entry) {
-  if (!entry?.hash) return;
-  
+  if (!entry || !entry.hash) return;
+  artifacts.set(entry.hash, entry);
+  cacheIndex.set(entry.hash, entry);
   try {
-    await redisService.set(
-      `${CACHE_KEY_PREFIX}${entry.hash}`,
-      JSON.stringify(entry),
-      CACHE_ARTIFACT_TTL_SECONDS
-    );
+    if (redisService && !redisService.isFallbackMode) {
+      await redisService.set(`wasm:artifact:${entry.hash}`, JSON.stringify(entry), COMPILE_CACHE_TTL_SECONDS);
+    }
   } catch (err) {
-    console.warn('Failed to store cache entry in Redis:', err.message);
+    // swallow cache persistence errors
   }
 }
 
-async function invalidateCache(opts) {
-  if (!opts) return;
-  
-  try {
-    if (opts.hash) {
-      await redisService.del(`${CACHE_KEY_PREFIX}${opts.hash}`);
+async function invalidateCache({ hash } = {}) {
+  if (hash) {
+    artifacts.delete(hash);
+    cacheIndex.delete(hash);
+    try {
+      if (redisService) await redisService.delete(`wasm:artifact:${hash}`);
+    } catch (err) {
+      // ignore
     }
-    if (opts.namespace) {
-      await redisService.invalidateCache({ namespace: opts.namespace });
-    }
-  } catch (err) {
-    console.warn('Failed to invalidate cache in Redis:', err.message);
   }
 }
 
 async function executeUnderLock(hash, requestId, fn) {
-  const lockKey = `${LOCK_KEY_PREFIX}${hash}`;
-  const lockValue = requestId || Date.now().toString();
-  
+  // Try a simple distributed lock using setNX; if unavailable, fall back to local execution
+  if (!redisService || redisService.isFallbackMode) return fn();
+
+  const lockKey = `lock:compile:${hash}`;
+  const lockVal = requestId || String(Date.now());
+  const ttl = 30; // seconds
   try {
-    const acquired = await redisService.setNX(lockKey, lockValue, LOCK_TTL_SECONDS);
-    
-    if (!acquired) {
-      // Lock is held by another process, wait a bit and check cache
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const cached = await loadCacheEntryFromCache(hash);
-      if (cached) return { cached: true, ...cached };
-      
-      // Still no cache hit, execute anyway with local lock
-      return await fn();
+    const res = await redisService.setNX(lockKey, lockVal, ttl);
+    if (res === 'OK') {
+      try {
+        return await fn();
+      } finally {
+        await redisService.delete(lockKey);
+      }
     }
-    
-    try {
-      return await fn();
-    } finally {
-      await redisService.del(lockKey);
-    }
-  } catch (err) {
-    console.warn('Lock acquisition error, proceeding without lock:', err.message);
+    // Could not acquire lock; wait briefly and try to run anyway
+    await new Promise((r) => setTimeout(r, 150));
     return await fn();
+  } catch (err) {
+    return fn();
   }
 }
 

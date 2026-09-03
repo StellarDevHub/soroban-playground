@@ -56,6 +56,7 @@ impl LendingProtocol {
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
         }
+        admin.require_auth();
         set_admin(&env, &admin);
         set_initialized(&env);
         Ok(())
