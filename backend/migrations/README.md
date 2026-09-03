@@ -1,116 +1,63 @@
-# Migration System
+# Legacy Raw SQL Migrations
 
-A comprehensive database migration system with rollback support, validation, and tracking.
+> **These files are NOT used by Knex and are kept for historical reference only.**
+>
+> The active Knex migration files live in
+> `backend/src/database/migrations/*.js`.
 
-## Features
+---
 
-- ✅ **Up/Down Migrations**: Every migration has corresponding rollback
-- ✅ **Checksum Verification**: Detects modified migrations
-- ✅ **Dry-Run Support**: Preview changes without executing
-- ✅ **Migration Validation**: Pre/post migration checks
-- ✅ **Automated Rollback**: Auto-rollback on failure
-- ✅ **Status Tracking**: Complete migration history
-- ✅ **CLI Interface**: Command-line management
-- ✅ **REST API**: HTTP endpoints for migration management
+## Background
 
-## File Convention
+Before the Knex migration system was established, this directory held raw SQL
+migration pairs in Flyway-style naming (`V001__name.up.sql` / `.down.sql`).
+They were never executed by Knex and are not part of any automated pipeline.
 
-Migrations follow the naming convention: `{timestamp}_{description}.{direction}.sql`
+The raw SQL has been ported to dialect-agnostic Knex migration files that work
+with both **SQLite** (development/test) and **PostgreSQL** (production).
 
-- `timestamp`: Unix timestamp for ordering
-- `description`: Snake_case description of the migration
-- `direction`: `up` for applying, `down` for rolling back
+## Mapping: raw SQL → Knex migration
 
-Example:
+| Raw SQL file                                | Knex migration file                                                    |
+|---------------------------------------------|------------------------------------------------------------------------|
+| `V001__create_users_table.{up,down}.sql`    | `20260701000001_create_users_table.js`                                 |
+| `V002__add_rate_limiting.{up,down}.sql`     | `20260701000002_add_rate_limiting.js`                                  |
+| `V003__synthetic_assets.{up,down}.sql`      | `20260701000003_synthetic_assets.js` (PG-specific SQL converted)       |
+| `V004__add_webhooks_and_cors_whitelist.*`   | `20260701000004_add_webhooks_and_cors_whitelist.js`                    |
+| `V004__contract_events.{up,down}.sql`       | `20260701000005_contract_events.js` (duplicate version resolved)       |
+| `V005__zero_downtime_helpers.{up,down}.sql` | `20260701000006_zero_downtime_helpers.js`                              |
+| `V006__multi_tenant_isolation.{up,down}.sql`| `20260701000007_multi_tenant_isolation.js`                             |
+| `V007__contract_verification.{up,down}.sql` | `20260701000008_contract_verification.js`                              |
+| `001_initial_schema.{up,down}.sql`          | `20260630000000_initial_schema.js` (reads `schema.sql`)                |
 
-```
-1234567890_create_users_table.up.sql
-1234567890_create_users_table.down.sql
-```
+## Why Knex instead of raw SQL?
 
-## CLI Usage
+- **Dialect safety** — Knex schema builder generates correct SQL for SQLite and
+  PostgreSQL without manual `IF` branches.
+- **Reversibility** — every `.js` migration has both `up()` and `down()` hooks.
+- **Tooling** — `knex migrate:latest`, `knex migrate:rollback`, and
+  `knex migrate:status` work out of the box.
+- **CI integration** — the test suite in `backend/tests/knexMigrations.test.js`
+  runs all migrations on an in-memory SQLite database to catch regressions.
+
+## Running migrations
 
 ```bash
-# Initialize migration system
-node src/utils/migrationCli.js init
+# Apply all pending migrations (SQLite in development)
+cd backend
+npx knex migrate:latest
 
-# Create new migration
-node src/utils/migrationCli.js create "add_user_profiles"
+# Apply with PostgreSQL
+DATABASE_CLIENT=pg DATABASE_URL=postgres://... npx knex migrate:latest
 
-# Run pending migrations
-node src/utils/migrationCli.js up
-
-# Dry-run (preview only)
-node src/utils/migrationCli.js up --dry-run
-
-# Rollback last migration
-node src/utils/migrationCli.js down
-
-# Rollback to specific version
-node src/utils/migrationCli.js down 1234567890
+# Roll back one step
+npx knex migrate:rollback
 
 # Check status
-node src/utils/migrationCli.js status
-
-# Validate migration files
-node src/utils/migrationCli.js validate
-
-# View history
-node src/utils/migrationCli.js history
+npx knex migrate:status
 ```
 
-## API Endpoints
+## Indexer migrations
 
-- `GET /api/migrations/status` - Get migration status
-- `GET /api/migrations/history` - Get migration history
-- `GET /api/migrations/validate` - Validate migration files
-- `POST /api/migrations/up` - Run migrations (body: `{dryRun: boolean}`)
-- `POST /api/migrations/down` - Rollback migrations (body: `{targetVersion?: string, dryRun: boolean}`)
-
-## Database Schema
-
-The system tracks migrations in the `_schema_migrations` table:
-
-```sql
-CREATE TABLE _schema_migrations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  version VARCHAR(255) NOT NULL UNIQUE,
-  checksum VARCHAR(64) NOT NULL,
-  applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  execution_time INTEGER NOT NULL,
-  status VARCHAR(20) DEFAULT 'applied'
-);
-```
-
-## Testing
-
-Run the migration tests:
-
-```bash
-npm run test:migrations
-```
-
-Tests cover:
-
-- Migration file validation
-- Migration execution and rollback
-- Checksum verification
-- Dry-run functionality
-- Status tracking
-- SQL validation
-
-## Security Features
-
-- **Checksum Detection**: Prevents modified migrations from being applied
-- **Destructive Operation Warnings**: Alerts for potentially dangerous SQL
-- **Transaction Wrapping**: Ensures atomic migration execution
-- **Rollback on Failure**: Automatically attempts rollback on migration failure
-
-## Error Handling
-
-The system provides detailed error messages and attempts automatic recovery:
-
-- Validation errors prevent migration execution
-- Failed migrations trigger automatic rollback attempts
-- Rollback failures are logged and reported
-- All errors include context and suggested actions
+The `indexer/migrations/postgres/` directory contains **separate** DDL managed
+by the Rust/sqlx indexer.  See that directory's `README.md` for details.
