@@ -3,7 +3,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey, Proposal};
+use crate::types::{DataKey, Error, InstanceKey, Proposal, UpgradePending};
 
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&InstanceKey::Admin)
@@ -79,4 +79,16 @@ pub fn has_voted(env: &Env, proposal_id: u32, voter: &Address) -> bool {
 }
 pub fn record_vote(env: &Env, proposal_id: u32, voter: &Address) {
     env.storage().persistent().set(&DataKey::Voted(proposal_id, voter.clone()), &true);
+}
+
+// ── Pending upgrade ───────────────────────────────────────────────────────────
+
+pub fn set_pending_upgrade(env: &Env, pending: &UpgradePending) {
+    env.storage().instance().set(&InstanceKey::PendingUpgrade, pending);
+}
+pub fn get_pending_upgrade(env: &Env) -> Option<UpgradePending> {
+    env.storage().instance().get(&InstanceKey::PendingUpgrade)
+}
+pub fn clear_pending_upgrade(env: &Env) {
+    env.storage().instance().remove(&InstanceKey::PendingUpgrade);
 }

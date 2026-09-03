@@ -1,7 +1,19 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, BytesN, String};
+
+// ── Upgrade ───────────────────────────────────────────────────────────────────
+
+/// Stored when an upgrade is scheduled; cleared on execution or cancellation.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpgradePending {
+    /// The WASM hash that was scheduled.
+    pub wasm_hash: BytesN<32>,
+    /// Unix timestamp after which `execute_upgrade` may proceed.
+    pub execute_after: u64,
+}
 
 // ── Proposal lifecycle ────────────────────────────────────────────────────────
 
@@ -69,6 +81,8 @@ pub enum InstanceKey {
     ExecDelay,
     /// Required deposit in stroops.
     Deposit,
+    /// Pending upgrade (set by schedule_upgrade, cleared by execute_upgrade).
+    PendingUpgrade,
 }
 
 #[contracttype]
@@ -103,4 +117,12 @@ pub enum Error {
     InsufficientDeposit = 13,
     SelfDelegation = 14,
     ProposalNotActive = 15,
+    /// No upgrade has been scheduled via schedule_upgrade.
+    UpgradeNotScheduled = 16,
+    /// The 48-hour timelock has not yet elapsed since schedule_upgrade.
+    UpgradeTimelockActive = 17,
+    /// The wasm_hash passed to execute_upgrade does not match the scheduled hash.
+    UpgradeHashMismatch = 18,
+    /// The requested delay is below the mandatory 48-hour minimum.
+    UpgradeDelayTooShort = 19,
 }
