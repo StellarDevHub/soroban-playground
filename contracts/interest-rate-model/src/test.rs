@@ -397,9 +397,12 @@ fn test_set_tiers_zero_threshold_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_compute_rate_panics_before_init() {
-    // compute_rate calls get_config().expect("Not initialized") — panics when not yet initialized.
+    // compute_rate returns Error::NotInitialized when not yet initialized.
+    // The generated contract client escalates the contract error into a
+    // panic (Error(Contract, #2)) so arithmetic failures are surfaced
+    // explicitly rather than silently corrupting accounting.
     let (_, _, client) = setup();
     client.compute_rate(&500i128, &1000i128);
 }

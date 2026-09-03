@@ -12,6 +12,8 @@ node_modules
 # Soroban test snapshots (auto-generated, not committed)
 test_snapshots/
 **/test_snapshots/
+# proptest regression corpus (auto-generated)
+**/proptest-regressions/
 
 # Next.js
 /.next/

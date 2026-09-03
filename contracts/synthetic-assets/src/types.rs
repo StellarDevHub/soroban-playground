@@ -49,6 +49,7 @@ pub enum Error {
 
     // Arithmetic errors
     Overflow = 26,
+    DivisionByZero = 27,
 }
 
 /// Synthetic asset structure

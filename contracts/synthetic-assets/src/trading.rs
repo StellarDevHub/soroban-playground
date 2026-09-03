@@ -14,11 +14,20 @@ pub fn calculate_pnl(position: &TradingPosition, current_price: i128) -> Result<
     }
 
     let price_diff = match position.direction {
-        TradeDirection::Long => current_price - position.entry_price,
-        TradeDirection::Short => position.entry_price - current_price,
+        TradeDirection::Long => current_price
+            .checked_sub(position.entry_price)
+            .ok_or(Error::Overflow)?,
+        TradeDirection::Short => position
+            .entry_price
+            .checked_sub(current_price)
+            .ok_or(Error::Overflow)?,
     };
 
-    Ok((price_diff * position.notional) / position.entry_price)
+    Ok(price_diff
+        .checked_mul(position.notional)
+        .ok_or(Error::Overflow)?
+        .checked_div(position.entry_price)
+        .ok_or(Error::DivisionByZero)?)
 }
 
 /// Calculate required margin for a trade
@@ -30,7 +39,13 @@ pub fn calculate_margin_requirement(_env: &Env, notional: i128) -> Result<i128, 
     // Minimum margin is based on maximum leverage (10x = 10% margin)
     let min_margin_ratio: i128 = 1000; // 10% minimum margin
 
-    Ok(((notional * min_margin_ratio) / 10000).max(MIN_TRADE_MARGIN))
+    let min_margin = notional
+        .checked_mul(min_margin_ratio)
+        .ok_or(Error::Overflow)?
+        .checked_div(10000)
+        .ok_or(Error::DivisionByZero)?
+        .max(MIN_TRADE_MARGIN);
+    Ok(min_margin)
 }
 
 /// Check if trade is safe (not over-leveraged)
@@ -57,16 +72,25 @@ pub fn calculate_liquidation_price(position: &TradingPosition) -> Result<i128, E
         return Err(Error::InvalidAmount);
     }
 
-    let margin_ratio = (position.margin * 10000) / position.notional;
+    let margin_ratio = position
+        .margin
+        .checked_mul(10000)
+        .ok_or(Error::Overflow)?
+        .checked_div(position.notional)
+        .ok_or(Error::DivisionByZero)?;
+
+    let margin_impact = position
+        .entry_price
+        .checked_mul(margin_ratio)
+        .ok_or(Error::Overflow)?
+        .checked_div(10000)
+        .ok_or(Error::DivisionByZero)?;
 
     let liquidation_price = match position.direction {
-        TradeDirection::Long => {
-            position.entry_price - (position.entry_price * margin_ratio) / 10000
-        }
-        TradeDirection::Short => {
-            position.entry_price + (position.entry_price * margin_ratio) / 10000
-        }
-    };
+        TradeDirection::Long => position.entry_price.checked_sub(margin_impact),
+        TradeDirection::Short => position.entry_price.checked_add(margin_impact),
+    }
+    .ok_or(Error::Overflow)?;
 
     Ok(liquidation_price)
 }
@@ -80,26 +104,46 @@ pub fn calculate_pnl_percentage(
     if position.margin == 0 {
         return Err(Error::InvalidAmount);
     }
-    Ok((pnl * 10000) / position.margin)
+    Ok(pnl
+        .checked_mul(10000)
+        .ok_or(Error::Overflow)?
+        .checked_div(position.margin)
+        .ok_or(Error::DivisionByZero)?)
 }
 
 /// Calculate trading fee (basis points)
 pub fn calculate_trading_fee(env: &Env, notional: i128) -> Result<i128, Error> {
     let fee_percentage = get_fee_percentage(env)?;
-    Ok((notional * fee_percentage as i128) / 10000)
+    Ok(notional
+        .checked_mul(fee_percentage as i128)
+        .ok_or(Error::Overflow)?
+        .checked_div(10000)
+        .ok_or(Error::DivisionByZero)?)
 }
 
 /// Calculate effective notional after fees
 pub fn calculate_effective_notional(env: &Env, margin: i128, leverage: u32) -> Result<i128, Error> {
-    let gross_notional = (margin * leverage as i128) / 10000;
+    let gross_notional = margin
+        .checked_mul(leverage as i128)
+        .ok_or(Error::Overflow)?
+        .checked_div(10000)
+        .ok_or(Error::DivisionByZero)?;
     let fee = calculate_trading_fee(env, gross_notional)?;
-    Ok(gross_notional - fee)
+    Ok(gross_notional.checked_sub(fee).ok_or(Error::Overflow)?)
 }
 
 /// Suggest conservative leverage based on volatility (bps)
 pub fn calculate_safe_leverage(volatility: u32) -> u32 {
-    let vol_component = volatility / 100 + 10000;
-    (10000000 / vol_component).min(100000).max(10000)
+    let vol_component = volatility
+        .checked_div(100)
+        .and_then(|v| v.checked_add(10000))
+        .unwrap_or(u32::MAX);
+    if vol_component == 0 {
+        return 10000;
+    }
+    (10000000_u32.checked_div(vol_component).unwrap_or(0))
+        .min(100000)
+        .max(10000)
 }
 
 /// Should the trading position be liquidated?
@@ -108,5 +152,6 @@ pub fn should_liquidate_trading_position(
     current_price: i128,
 ) -> Result<bool, Error> {
     let pnl = calculate_pnl(position, current_price)?;
-    Ok(position.margin + pnl <= 0)
+    let combined = position.margin.checked_add(pnl).ok_or(Error::Overflow)?;
+    Ok(combined <= 0)
 }
