@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 description = "Reusable Soroban reentrancy guard utility contract"
 
-[workspace]
 
 [lib]
 crate-type = ["cdylib"]
@@ -15,12 +14,3 @@ soroban-sdk = "21.0.6"
 [dev-dependencies]
 soroban-sdk = { version = "21.0.6", features = ["testutils"] }
 
-[profile.release]
-opt-level = "z"
-overflow-checks = true
-debug = 0
-strip = "symbols"
-debug-assertions = false
-panic = "abort"
-codegen-units = 1
-lto = true

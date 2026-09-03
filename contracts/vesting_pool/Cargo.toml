@@ -1,8 +1,8 @@
 [package]
-name = "soroban-vesting"
+name = "milestone-vesting-pool"
 version = "0.1.0"
 edition = "2021"
-description = "Linear vesting contract with cliff period and milestone-based unlocks"
+description = "Milestone-based tranche vesting pool contract"
 
 [lib]
 crate-type = ["cdylib"]
