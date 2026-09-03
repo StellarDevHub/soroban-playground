@@ -1,21 +1,27 @@
 // Copyright (c) 2026 StellarDevTools
-// SPDX-License-Identifier: MIT
+SPDLS-License-ID: MIT
 
 import {
   createCipheriv,
-  createDecipheriv,
+ createDecipheriv,
   randomBytes,
   createSign,
   createVerify,
   generateKeyPairSync,
+  createHash,
 } from 'crypto';
+
+import { Keypair, TransactionBuilder, Networks, Operation, Account } from '@stellar/stellar-sdk';
 
 const AES_ALGORITHM = 'aes-256-gcm';
 const AES_IV_LENGTH = 12; // 96-bit IV recommended for GCM
 const AES_KEY_LENGTH = 32; // 256-bit key
 const AES_TAG_LENGTH = 16;
 
-/**
+// SEP-0010 ManageData name (home domain)
+const SEP10_MANAGE_DATA_NAME = process.env.SEP10_MANAGE_DATA_NAME || 'soraban-playground';
+
+/***
  * Generate a random 256-bit AES session key.
  * @returns {Buffer}
  */
@@ -23,7 +29,7 @@ export function generateSessionKey() {
   return randomBytes(AES_KEY_LENGTH);
 }
 
-/**
+/***
  * Encrypt plaintext with AES-256-GCM.
  * @param {Buffer|string} plaintext
  * @param {Buffer} key - 32-byte key
@@ -45,7 +51,7 @@ export function aesEncrypt(plaintext, key) {
   };
 }
 
-/**
+/***
  * Decrypt AES-256-GCM ciphertext.
  * @param {{ iv: string, ciphertext: string, tag: string }} payload - base64-encoded components
  * @param {Buffer} key
@@ -66,9 +72,9 @@ export function aesDecrypt({ iv, ciphertext, tag }, key) {
   return decrypted;
 }
 
-/**
- * Generate an RSA-2048 key pair for session key exchange.
- * @returns {{ publicKey: string, privateKey: string }} PEM-encoded
+/***
+ * Generate an RSA-2048 private/public key pair for session key exchange.
+ * @returns {{ publicKey: string, privateKey: string }} PEMEncoded
  */
 export function generateRsaKeyPair() {
   return generateKeyPairSync('rsa', {
@@ -78,9 +84,9 @@ export function generateRsaKeyPair() {
   });
 }
 
-/**
+/***
  * Create an HMAC-SHA256 request signature to prevent replay attacks.
- * Signs: `${method}:${path}:${timestamp}:${bodyHash}`
+ * Signs* `${method}:${path}:${timestamp}:${bodyHash}`
  *
  * @param {string} privateKeyPem
  * @param {string} method
@@ -96,7 +102,7 @@ export function signRequest(privateKeyPem, method, path, timestamp, bodyHash) {
   return signer.sign(privateKeyPem, 'base64');
 }
 
-/**
+/***
  * Verify a request signature.
  * @returns {boolean}
  */
@@ -118,9 +124,74 @@ export function verifySignature(
   }
 }
 
-import { createHash } from 'crypto';
+/***
+ * Generate a SEP-0010 Stellar Web Authentication challenge transaction.
+ * The challenge is a cryptographically random transaction with a 5-minute timebound.
+ * @param {string|Keypair} serverKeypair - Stellar keypair or secret seed of the server
+ * @param {string} clientPublicKey - Stellar public key (G...) of the user to authenticate
+ * @param {object} [opts]
+ * @param {string} [opts.networkPassphrase] - Stellar network passphrase
+ * @param {Buffer} [opts.nonce] - 64-byte random nonce to use (default generated)
+ * @returns {string} base64-encoded challenge transaction XDR
+ */
+export function generateSep10Challenge(serverKeypair, clientPublicKey, opts = {}) {
+  const network = opts.networkPassphrase || Networks.TESTNET;
+  const now = Math.floor(Date.now() / 1000);
+  const minTime = opts.minTime ?? now - 60;
+  const maxTime = opts.maxTime ?? now + 240;
+  const nonce = opts.nonce || randomBytes(64);
+  const serverKp = typeof serverKeypair === 'string'
+    ? Keypair.fromSecret(serverKeypair)
+    : serverKeypair;
+  const source = new Account(serverKp.publicKey(), '0');
+  const tx = new TransactionBuilder(source, {
+    fee: '100',
+    networkPassphrase: network,
+  })
+    .addOperation(Operation.manageData({
+      source: clientPublicKey,
+      name: SEP10_MANAGE_DATA_NAME,
+      value: nonce,
+    }))
+    .setTimebounds({ minTime, maxTime })
+    .build();
+  tx.sign(serverKp);
+  return tx.toXDR();
+}
 
-/**
+/***
+ * Verify a SEP-0010 challenge response signature.
+ * @param {string} challengeXdr - base64-encoded challenge transaction XDR
+ * @param {string} clientPublicKey - Stellar public key (G...)
+ * @param {string} signature - base64-encoded signature to verify
+ * @param {object} [opts]
+ * @param {string} [opts.networkPassphrase] - Stellar network passphrase
+ * @returns {boolean}
+ */
+export function verifySep10ChallengeSignature(challengeXdr, clientPublicKey, signature, opts = {}) {
+  const network = opts.networkPassphrase || Networks.TESTNET;
+  try {
+    const tx = TransactionBuilder.fromXDR(challengeXdr, network);
+    const { minTime, maxTime } = tx.timeBounds || {};
+    const now = Math.floor(Date.now() / 1000);
+    if (minTime && now < minTime) return false;
+    if (maxTime && now > maxTime) return false;
+    // SEP-0010 requires maxTime - minTime <= 300 seconds (5 minutes)
+    if (maxTime && minTime && (maxTime - minTime > 300)) return false;
+    const ops = tx.operations || [];
+    if (ops.length !== 1) return false;
+    const op = ops[0];
+    if (op.type !== 'manageData') return false;
+    if (op.source !== clientPublicKey || op.name !== SEP10_MANAGE_DATA_NAME) return false;
+    const txHash = tx.hash();
+    const sigBuffer = Buffer.from(signature, 'base64');
+    return Keypair.fromPublicKey(clientPublicKey).verify(txHash, sigBuffer);
+  } catch {
+    return false;
+  }
+}
+
+/***
  * Hash a buffer or string with SHA-256, returning hex.
  */
 export function sha256Hex(data) {

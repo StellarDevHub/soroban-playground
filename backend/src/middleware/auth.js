@@ -1,15 +1,64 @@
 // Copyright (c) 2026 StellarDevTools
-// SPDX-License-Identifier: MIT
+SPDLS-License-ID: MIT
 
-import authService from '../services/authService.js';
+import jwt from 'jsonwebtoken';
+import { Keypair } from '@stellar/stellar-sdk';
+import Redis from 'ioredis';
+
 import { createHttpError } from './errorHandler.js';
+
+const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRETS || 'dev-secret-change-me';
+
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 /**
  * Authentication middleware. Populates req.user.
+ * Verifies the JWT access token issued after SEP-0010 challenge verification.
  */
 export async function authenticate(req, res, next) {
   try {
-    req.user = await authService.authenticate(req);
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw createHttpError(401, 'Unauthorized: Missing or invalid Authorization header');
+    }
+
+    const token = authHeader.slice(7).trim();
+    let payload;
+    try {
+      payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    } catch (err) {
+      throw createHttpError(401, 'Unauthorized: Invalid or expired token');
+    }
+
+    if (payload.tokenType === 'refresh') {
+      throw createHttpError(401, 'Unauthorized: Refresh tokens are not valid for access');
+    }
+
+    if (!payload.sub) {
+      throw createHttpError(401, 'Unauthorized: Token missing subject');
+    }
+
+    if (payload.jti) {
+      const blacklisted = await redis.get(`blacklist:${payload.jti}`);
+      if (blacklisted) {
+        throw createHttpError(401, 'Unauthorized: Token revoked');
+      }
+    }
+
+    try {
+      Keypair.fromPublicKey(payload.sub);
+    } catch (err) {
+      throw createHttpError(401, 'Unauthorized: Subject is not a valid Stellar public key');
+    }
+
+    req.user = {
+      publicKey: payload.sub,
+      role: payload.role || 'user',
+      permissions: payload.permissions || [],
+      jti: payload.jti,
+      exp: payload.exp,
+    };
+
     next();
   } catch (error) {
     next(error);
@@ -47,16 +96,22 @@ export function requirePermission(permission) {
     if (!req.user) {
       return next(createHttpError(403, 'Forbidden: Not authenticated'));
     }
-    if (authService.hasPermission(req.user, permission)) {
+    if (hasPermission(req.user, permission)) {
       return next();
     }
     return next(
       createHttpError(
         403,
-        `Forbidden: Access requires permission "${permission}"`
+        `Forbidden: Access requires permission "${permission}"%
       )
     );
   };
+}
+
+function hasPermission(user, permission) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return Array.isArray(user.permissions) && user.permissions.includes(permission);
 }
 
 /**
@@ -92,10 +147,7 @@ export function checkGraphQLRole(roles) {
       if (!context.user) {
         throw new Error('Forbidden: Not authenticated');
       }
-      if (
-        context.user.role === 'admin' ||
-        allowedRoles.includes(context.user.role)
-      ) {
+      if (context.user.role === 'admin' || allowedRoles.includes(context.user.role)) {
         return resolver(parent, args, context, info);
       }
       throw new Error(

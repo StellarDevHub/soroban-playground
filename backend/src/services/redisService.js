@@ -333,35 +333,19 @@ class RedisService {
         return {1, count, 0}
       `,
     });
-
-    this.client.defineCommand('acquireConnection', {
-      numberOfKeys: 1,
+    this.client.defineCommand('consumeChallenge', {
+      numberOfKeys: 2,
       lua: `
-        local key = KEYS[1]
-        local limit = tonumber(ARGV[1])
-        local ttl = tonumber(ARGV[2])
-        local current = redis.call('INCR', key)
-        if current == 1 then
-          redis.call('EXPIRE', key, ttl)
-        end
-        if current > limit then
-          redis.call('DECR', key)
-          return {0, current - 1}
-        end
-        return {1, current}
-      `,
-    });
-
-    this.client.defineCommand('releaseConnection', {
-      numberOfKeys: 1,
-      lua: `
-        local key = KEYS[1]
-        local current = redis.call('DECR', key)
-        if current <= 0 then
-          redis.call('DEL', key)
+        local challenge_key = KEYS[1]
+        local used_key = KEYS[2]
+        if not redis.call('GET', challenge_key) then
           return 0
         end
-        return current
+        if redis.call('SET', used_key, '1', 'EX', ARGV[1], 'NX') then
+          redis.call('DEL', challenge_key)
+          return 1
+        end
+        return 0
       `,
     });
   }
@@ -630,7 +614,7 @@ class RedisService {
 
   async set(key, value, ttl = DEFAULT_TTL_SECONDS) {
     if (this.isFallbackMode || !this.client) {
-      this.localCache.set(key, value, { ttl: ttl * 1000 });
+      this.localCache.set(key, value, ttl ? { ttl: ttl * 1000 } : undefined);
       return 'OK';
     }
     try {
@@ -853,6 +837,112 @@ class RedisService {
 
   get isConnected() {
     return !this.isFallbackMode && this.client && this.client.status === 'ready';
+  }
+  /**
+   * Stores a SEP-0010 challenge nonce for replay protection.
+   * The nonce is the random 64-byte value included in the auth transaction.
+   * TTL defaults to 300s to match the SEP-0010 5-minute timebound window.
+   */
+  async setChallengeNonce(nonce, ttlSeconds = 300) {
+    return this.set(`challenge:${nonce}`, '1', ttlSeconds);
+  }
+
+  /**
+   * Atomically consumes a SEP-0010 challenge nonce.
+   * Returns true only if the nonce was previously issued and not already used.
+   */
+  async consumeChallengeNonce(nonce, ttlSeconds = 300) {
+    const challengeKey = `challenge:${nonce}`;
+    const usedKey = `challenge:used:${nonce}`;
+    if (this.client && !this.isFallbackMode) {
+      try {
+        const result = await this.client.consumeChallenge(
+          challengeKey,
+          usedKey,
+          ttlSeconds
+        );
+        return result === 1;
+      } catch (err) {
+        console.warn(
+          'Redis consumeChallengeNonce error, using fallback:',
+          err.message
+        );
+        this.isFallbackMode = true;
+      }
+    }
+    const issued = await this.get(challengeKey);
+    if (!issued) return false;
+    const reserved = await this.setNX(usedKey, '1', ttlSeconds);
+    if (!reserved) return false;
+    await this.delete(challengeKey);
+    return true;
+  }
+
+  /**
+   * Stores a refresh token binding its jti to a user and opaque token hash.
+   */
+  async setRefreshToken(jti, userId, tokenHash, ttlSeconds = 60 * 60 * 24 * 30) {
+    const value = JSON.stringify({ userId, tokenHash });
+    return this.set(`refresh:${jti}`, value, ttlSeconds);
+  }
+
+  async getRefreshToken(jti) {
+    const raw = await this.get(`refresh:${jti}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteRefreshToken(jti) {
+    return this.delete(`refresh:${jti}`);
+  }
+
+  /**
+   * Rotates a refresh token by revoking the old jti and storing the replacement.
+   * Uses a Redis transaction so rotation and revocation happen atomically.
+   */
+  async rotateRefreshToken(
+    oldJti,
+    newJti,
+    userId,
+    tokenHash,
+    ttlSeconds = 60 * 60 * 24 * 30
+  ) {
+    const value = JSON.stringify({ userId, tokenHash });
+    if (this.client && !this.isFallbackMode) {
+      try {
+        const results = await this.client
+          .multi()
+          .set(`refresh:${newJti}`, value, 'EX', ttlSeconds)
+          .set(`jti:revoked:${oldJti}`, '1', 'EX', ttlSeconds)
+          .del(`refresh:${oldJti}`)
+          .exec();
+        return (
+          Array.isArray(results) &&
+          results.every((entry) => entry && !entry[0])
+        );
+      } catch (err) {
+        console.warn(
+          'Redis rotateRefreshToken error, using fallback:',
+          err.message
+        );
+        this.isFallbackMode = true;
+      }
+    }
+    await this.revokeJti(oldJti, ttlSeconds);
+    await this.deleteRefreshToken(oldJti);
+    return this.setRefreshToken(newJti, userId, tokenHash, ttlSeconds);
+  }
+
+  async revokeJti(jti, ttlSeconds = 60 * 60 * 24 * 30) {
+    return this.set(`jti:revoked:${jti}`, '1', ttlSeconds);
+  }
+
+  async isJtiRevoked(jti) {
+    return !!(await this.get(`jti:revoked:${jti}`));
   }
 
   /**

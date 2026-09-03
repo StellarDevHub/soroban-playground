@@ -1,6 +1,6 @@
 import express from 'express';
 import authService from '../services/authService.js';
-import { requireAuth } from '../middleware/authMiddleware.js';
+import { authenticate as requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -18,31 +18,36 @@ const setCookies = (res, accessToken, refreshToken) => {
     httpOnly: true,
     secure: isProd,
     sameSite: 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge: 7 * 24 * 60 * 1000, // 7 days
   });
 };
 
-router.post('/login', async (req, res) => {
+// SEP-0010 Challenge Generation
+router.get('/challenge', async (req, res) => {
+  const { address } = req.query;
+  if (!address) {
+    return res.status(400).json({ error: 'address query parameter required' });
+  }
   try {
-    const { username, password } = req.body;
-
-    // In a real application, verify username and password against DB.
-    // For this implementation we will accept dummy credentials to demonstrate token rotation.
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
-    }
-
-    const dummyUser = { id: 'user_123', username };
-
-    const { accessToken, refreshToken } = authService.generateTokens(dummyUser);
-
-    setCookies(res, accessToken, refreshToken);
-
-    return res
-      .status(200)
-      .json({ success: true, message: 'Logged in successfully' });
+    const challenge = await authService.generateStellarChallenge(address);
+    return res.json(challenge);
   } catch (error) {
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+// SEP-0010 Challenge Verification and Token Issuance
+router.post('/verify', async (req, res) => {
+  const { address, transactionXDR } = req.body;
+  if (!address || !transactionXDR) {
+    return res.status(400).json({ error: 'address and transactionXDR required' });
+  }
+  try {
+    const tokens = await authService.verifyStellarChallengeAndIssueTokens(address, transactionXDR);
+    setCookies(res, tokens.accessToken, tokens.refreshToken);
+    return res.json({ success: true, ...tokens });
+  } catch (error) {
+    return res.status(401).json({ error: error.message });
   }
 });
 
