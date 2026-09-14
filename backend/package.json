@@ -87,7 +87,7 @@
     "@faker-js/faker": "^10.5.0",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
-    "babel-jest": "^29.7.0",
+    "babel-jest": "^30.5.1",
     "babel-plugin-transform-import-meta": "^2.3.3",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
