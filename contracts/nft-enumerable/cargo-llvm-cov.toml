@@ -1,0 +1,11 @@
+# cargo-llvm-cov configuration
+# Run coverage: cargo llvm-cov --package nft-enumerable --json --output-path coverage-baseline.json
+
+[output]
+# Default report format
+format = "lcov"
+
+[report]
+# Minimum line coverage threshold (as a percentage).
+# New branches must not drop below this floor.
+line-coverage-threshold = 85

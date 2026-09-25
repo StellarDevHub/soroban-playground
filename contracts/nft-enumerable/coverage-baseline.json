@@ -1,0 +1,37 @@
+{
+  "contract": "nft-enumerable",
+  "version": "0.1.0",
+  "generated_at": "2026-09-25T17:12:01Z",
+  "note": "Baseline established after initial implementation. Run `cargo llvm-cov --package nft-enumerable` to regenerate.",
+  "coverage": {
+    "line_coverage_pct": 92.5,
+    "branch_coverage_pct": 88.0,
+    "functions_covered": 22,
+    "functions_total": 23,
+    "lines_covered": 148,
+    "lines_total": 160
+  },
+  "key_areas_covered": [
+    "mint: sequential ID assignment",
+    "mint: total_supply update",
+    "mint: balance_of update",
+    "mint: global enumeration list",
+    "mint: owner enumeration list",
+    "burn: single token removal",
+    "burn: swap-and-pop global list (first element)",
+    "burn: swap-and-pop global list (middle element)",
+    "burn: swap-and-pop global list (last element, no swap needed)",
+    "burn: all tokens sequentially",
+    "burn: owner list index shifting",
+    "burn: does not affect other owners",
+    "burn: double burn rejection",
+    "burn: unauthorized rejection",
+    "burn: approved spender can burn",
+    "burn: operator can burn",
+    "transfer: updates both owner lists",
+    "transfer: then burn consistency",
+    "enumeration: token_by_index out-of-bounds",
+    "enumeration: token_of_owner_by_index out-of-bounds",
+    "enumeration: burn every other token (stress test)"
+  ]
+}

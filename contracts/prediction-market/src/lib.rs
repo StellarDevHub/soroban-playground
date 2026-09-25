@@ -3,6 +3,7 @@
 
 #![no_std]
 
+pub mod deadline;
 mod storage;
 mod types;
 
