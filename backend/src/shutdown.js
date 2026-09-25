@@ -1,16 +1,19 @@
 import { logger } from './utils/logger.js';
+import { shutdownQueues } from './services/queueService.js';
+import { closeDatabase } from './database/connection.js';
+import { endAllPools } from './database/pool.js';
 
 /**
- * Registers process signal listeners to gracefully close active network connections
- * and drain database connection pools upon shutdown.
+ * Registers process signal listeners to gracefully close active network connections,
+ * drain BullMQ queues, complete active transactions, and close database connection pools cleanly upon shutdown.
  *
  * @param {object} params
- * @param {import('http').Server} params.server - Running HTTP/HTTPS server instance
- * @param {import('ws').WebSocketServer} params.wss - Active WebSocket server instance
- * @param {import('knex').Knex} params.db - Knex database instance/pool
- * @param {object} [params.queues] - BullMQ queue instances whose workers must drain
- * @param {import('ioredis').Redis} [params.redis] - Redis client to flush pipelines
- * @param {number} [params.timeoutMs=20000] - Hard shutdown timeout in milliseconds (20s drain)
+ * @param {import('http').Server} [params.server] - Running HTTP/HTTPS server instance
+ * @param {import('ws').WebSocketServer} [params.wss] - Active WebSocket server instance
+ * @param {import('knex').Knex} [params.db] - Knex database instance/pool
+ * @param {object} [params.queues] - BullMQ queue instances or queue manager
+ * @param {import('ioredis').Redis} [params.redis] - Redis client instance
+ * @param {number} [params.timeoutMs=30000] - Hard shutdown timeout in milliseconds
  */
 export function setupGracefulShutdown({
   server,
@@ -18,8 +21,8 @@ export function setupGracefulShutdown({
   db,
   queues = [],
   redis,
-  timeoutMs = 20000,
-}) {
+  timeoutMs = 30000,
+} = {}) {
   let isShuttingDown = false;
 
   const handleSignal = async (signal) => {
@@ -33,7 +36,6 @@ export function setupGracefulShutdown({
     isShuttingDown = true;
     logger.info(`Received ${signal}. Initiating graceful shutdown...`);
 
-    // Forceful termination timer if process hangs beyond timeout threshold
     const forceExitTimer = setTimeout(() => {
       logger.error(
         `Graceful shutdown timed out after ${timeoutMs}ms. Forcing exit.`
@@ -41,82 +43,88 @@ export function setupGracefulShutdown({
       process.exit(1);
     }, timeoutMs);
 
-    // Prevent timeout handle from keeping node event loop alive if cleanup finishes early
     if (forceExitTimer.unref) {
       forceExitTimer.unref();
     }
 
     try {
-      // 1. Stop accepting new incoming HTTP connections
-      if (server) {
-        logger.info('Closing HTTP server to stop accepting new requests...');
+      // 1. Stop accepting new HTTP/HTTPS connections
+      if (server && typeof server.close === 'function') {
+        logger.info('[Shutdown] Closing HTTP server to stop accepting new requests...');
         await new Promise((resolve) => server.close(resolve));
-        logger.info('HTTP server closed successfully.');
+        logger.info('[Shutdown] HTTP server stopped accepting new connections.');
       }
 
-      // 2. Notify and close active WebSocket clients cleanly
+      // 2. Close active WebSocket connections cleanly
       if (wss) {
         logger.info(
-          `Closing WebSocket server (${wss.clients.size} connected clients)...`
+          `[Shutdown] Closing WebSocket server (${wss.clients?.size || 0} connected clients)...`
         );
-
-        for (const client of wss.clients) {
-          if (client.readyState === 1 /* OPEN */) {
-            client.close(1001, 'Server is shutting down');
+        if (wss.clients) {
+          for (const client of wss.clients) {
+            if (client.readyState === 1 /* OPEN */) {
+              client.close(1001, 'Server is shutting down');
+            }
           }
         }
-
         await new Promise((resolve) => wss.close(resolve));
-        logger.info('WebSocket connections terminated and server closed.');
+        logger.info('[Shutdown] WebSocket connections terminated and server closed.');
       }
 
-      // 3. Wait for active BullMQ workers to complete in-flight jobs
-      if (queues && queues.length > 0) {
-        logger.info(
-          `Waiting for ${queues.length} BullMQ queues to drain active jobs...`
-        );
-        await Promise.all(
-          queues.map(async (queue) => {
-            if (queue && typeof queue.close === 'function') {
-              await queue.close();
-              logger.info(`Queue drained: ${queue.name}`);
-            }
-          })
-        );
+      // 3. Drain and close BullMQ queues and workers
+      logger.info('[Shutdown] Draining BullMQ queues and workers...');
+      try {
+        await shutdownQueues();
+        logger.info('[Shutdown] BullMQ queues successfully drained and closed.');
+      } catch (err) {
+        logger.error('[Shutdown] Error draining BullMQ queues:', err.message);
       }
 
-      // 4. Flush pending Redis pipelines before closing
-      if (redis && typeof redis.pipeline === 'function') {
-        logger.info('Flushing pending Redis pipelines...');
+      // 4. Drain Knex database connection pool and SQLite/PG handles
+      if (db && typeof db.destroy === 'function') {
+        logger.info('[Shutdown] Draining Knex connection pool...');
+        await db.destroy();
+        logger.info('[Shutdown] Knex pool destroyed.');
+      }
+
+      logger.info('[Shutdown] Closing internal database connection handles...');
+      await closeDatabase().catch((err) =>
+        logger.warn('[Shutdown] SQLite close error:', err.message)
+      );
+      await endAllPools().catch((err) =>
+        logger.warn('[Shutdown] PG pools close error:', err.message)
+      );
+
+      // 5. Close Redis connections
+      if (redis && typeof redis.quit === 'function' && redis.status !== 'end') {
+        logger.info('[Shutdown] Closing Redis client...');
         try {
-          await new Promise((resolve, reject) => {
-            const pipeline = redis.pipeline();
-            pipeline.exec().then(resolve).catch(reject);
-          });
-        } catch (err) {
-          logger.warn('Non-fatal error flushing Redis pipelines:', err.message);
+          await redis.quit();
+        } catch (_) {
+          redis.disconnect();
         }
       }
 
-      // 5. Drain and destroy Knex database connection pool
-      if (db && typeof db.destroy === 'function') {
-        logger.info('Draining Knex database connection pool...');
-        await db.destroy();
-        logger.info('Database connection pool drained.');
+      logger.info('[Shutdown] Graceful shutdown completed cleanly.');
+      clearTimeout(forceExitTimer);
+      if (process.env.NODE_ENV !== 'test') {
+        process.exit(0);
       }
-
-      logger.info('Graceful shutdown completed successfully. Exiting process.');
-      process.exit(0);
     } catch (error) {
       logger.error(
-        'Error encountered during graceful shutdown execution:',
+        '[Shutdown] Error encountered during graceful shutdown execution:',
         error
       );
-      process.exit(1);
+      clearTimeout(forceExitTimer);
+      if (process.env.NODE_ENV !== 'test') {
+        process.exit(1);
+      }
     }
   };
 
-  // Register OS Process Signals
   process.on('SIGINT', () => handleSignal('SIGINT'));
   process.on('SIGTERM', () => handleSignal('SIGTERM'));
+
+  return { handleSignal };
 }
+

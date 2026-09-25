@@ -4,7 +4,10 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/tests/**/*.test.js', '**/tests/syntheticAssets.*.test.js'],
   setupFiles: [path.resolve(__dirname, 'tests/setupEnv.js')],
-  modulePaths: [path.resolve(__dirname, '../node_modules')],
+  modulePaths: [
+    path.resolve(__dirname, 'node_modules'),
+    path.resolve(__dirname, '../node_modules'),
+  ],
   transform: {
     '^.+\\.js$': [
       'babel-jest',

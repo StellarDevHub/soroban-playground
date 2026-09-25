@@ -313,6 +313,9 @@ let ledgerSyncServiceInstance = null;
 // Initialize Database & Boot Services
 initializeDatabase()
   .then(async (db) => {
+    await runStartupMigrations().catch((err) =>
+      console.warn('[StartupMigrations] Warning:', err.message)
+    );
     if (
       redisService.client?.duplicate &&
       redisService.client.status === 'ready'
