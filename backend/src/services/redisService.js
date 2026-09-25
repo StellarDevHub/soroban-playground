@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import dotenv from 'dotenv';
 import { LRUCache } from 'lru-cache';
+import { TOKEN_BUCKET_LUA, tokenBucketStep } from './tokenBucket.js';
 
 dotenv.config();
 
@@ -340,6 +341,11 @@ class RedisService {
         return {1, count, 0}
       `,
     });
+    // Distributed token bucket — see services/tokenBucket.js.
+    this.client.defineCommand('tokenBucket', {
+      numberOfKeys: 1,
+      lua: TOKEN_BUCKET_LUA,
+    });
     this.client.defineCommand('consumeChallenge', {
       numberOfKeys: 2,
       lua: `
@@ -359,14 +365,18 @@ class RedisService {
 
   async checkRateLimit(strategy, key, limit, windowMs) {
     if (this.isFallbackMode || !this.client) {
-      return this.checkMemoryRateLimit(key, limit, windowMs);
+      return strategy === 'TokenBucket'
+        ? this.checkMemoryTokenBucket(key, limit, windowMs)
+        : this.checkMemoryRateLimit(key, limit, windowMs);
     }
 
     const now = Date.now();
     try {
       return await this.executeWithCircuitBreaker(async () => {
         let result;
-        if (strategy === 'SlidingWindowLog') {
+        if (strategy === 'TokenBucket') {
+          result = await this.client.tokenBucket(key, limit, windowMs, 1);
+        } else if (strategy === 'SlidingWindowLog') {
           result = await this.client.slidingWindowLog(
             key,
             limit,
@@ -397,8 +407,27 @@ class RedisService {
       });
     } catch (err) {
       console.error('Redis Rate Limit Error:', err.message);
-      return this.checkMemoryRateLimit(key, limit, windowMs);
+      return strategy === 'TokenBucket'
+        ? this.checkMemoryTokenBucket(key, limit, windowMs)
+        : this.checkMemoryRateLimit(key, limit, windowMs);
     }
+  }
+
+  /**
+   * Process-local token bucket used when Redis is unavailable. Mirrors the
+   * `tokenBucket` Lua script so limits stay enforced (per node) in fallback.
+   */
+  checkMemoryTokenBucket(key, limit, windowMs, now = Date.now()) {
+    const bucketKey = `tb:${key}`;
+    const { state, result } = tokenBucketStep(
+      this.localCache.get(bucketKey),
+      limit,
+      windowMs,
+      now
+    );
+    this.localCache.set(bucketKey, state, { ttl: windowMs * 2 });
+    const [allowed, current, retryAfter] = result;
+    return { allowed: allowed === 1, current, retryAfter, fallback: true };
   }
 
   checkMemoryRateLimit(key, limit, windowMs) {

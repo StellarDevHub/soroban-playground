@@ -8,52 +8,20 @@ import {
 } from '../../middleware/errorHandler.js';
 import { deployBatchContracts } from '../../services/deployService.js';
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
+import { validateRequest } from '../../middleware/validation.js';
+import {
+  deployBodyV1,
+  deployBatchBodyV1,
+  jobIdParams,
+} from '../../schemas/sorobanSchemas.js';
 
 const router = express.Router();
-
-/**
- * Validates the deploy request payload
- * @param {Object} body - Request body
- * @returns {Object|null} - Validation error object or null if valid
- */
-function validateDeployRequest(body) {
-  const { wasmPath, contractName } = body;
-  const errors = [];
-
-  if (!wasmPath) {
-    errors.push('wasmPath is required');
-  } else if (typeof wasmPath !== 'string') {
-    errors.push('wasmPath must be a string');
-  }
-
-  if (!contractName) {
-    errors.push('contractName is required');
-  } else if (typeof contractName !== 'string') {
-    errors.push('contractName must be a string');
-  }
-
-  if (errors.length > 0) {
-    return {
-      error: 'Validation failed',
-      details: errors,
-    };
-  }
-
-  return null;
-}
 
 router.post(
   '/',
   rateLimitMiddleware('deploy'),
-  asyncHandler(async (req, res, next) => {
-    // Validate request payload
-    const validationError = validateDeployRequest(req.body);
-    if (validationError) {
-      return next(
-        createHttpError(400, validationError.error, validationError.details)
-      );
-    }
-
+  validateRequest({ body: deployBodyV1 }, { format: 'httpError' }),
+  asyncHandler(async (req, res) => {
     const { wasmPath, contractName, network = 'testnet' } = req.body;
 
     // In a real implementation this would receive a WASM buffer or path
@@ -86,23 +54,11 @@ router.post(
   })
 );
 
-function validateBatchRequest(body) {
-  const { contracts } = body || {};
-  if (!Array.isArray(contracts) || contracts.length === 0) {
-    return ['contracts must be a non-empty array'];
-  }
-  return null;
-}
-
 router.post(
   '/batch',
   rateLimitMiddleware('deploy'),
+  validateRequest({ body: deployBatchBodyV1 }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
-    const errors = validateBatchRequest(req.body);
-    if (errors) {
-      return next(createHttpError(400, 'Validation failed', errors));
-    }
-
     const controller = new AbortController();
     req.on('aborted', () => controller.abort());
 
@@ -131,20 +87,14 @@ const inMemoryDeployJobs = new Map();
 router.post(
   '/async',
   rateLimitMiddleware('deploy'),
-  asyncHandler(async (req, res, next) => {
+  validateRequest({ body: deployBodyV1 }, { format: 'httpError' }),
+  asyncHandler(async (req, res) => {
     const {
       wasmPath,
       contractName,
       network = 'testnet',
       sourceAccount,
-    } = req.body || {};
-
-    const validationError = validateDeployRequest(req.body);
-    if (validationError) {
-      return next(
-        createHttpError(400, validationError.error, validationError.details)
-      );
-    }
+    } = req.body;
 
     const jobId = `deploy-job-${Date.now()}-${Math.random()
       .toString(36)
@@ -188,6 +138,7 @@ router.post(
 
 router.get(
   '/job/:jobId',
+  validateRequest({ params: jobIdParams }, { format: 'httpError' }),
   asyncHandler(async (req, res) => {
     const { jobId } = req.params;
 

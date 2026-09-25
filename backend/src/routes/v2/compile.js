@@ -5,6 +5,8 @@ import {
 } from '../../middleware/errorHandler.js';
 import { sanitizeDependenciesInput } from '../compile_utils.js';
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
+import { validateRequest } from '../../middleware/validation.js';
+import { compileBody, compileBatchBody } from '../../schemas/sorobanSchemas.js';
 import {
   compileQueued,
   compileBatch,
@@ -16,6 +18,7 @@ const router = express.Router();
 router.post(
   '/',
   rateLimitMiddleware('compile'),
+  validateRequest({ body: compileBody }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     const code = req.body?.code || req.body?.source || req.body?.sourceCode;
     const { dependencies } = req.body || {};
@@ -96,6 +99,7 @@ router.post(
 router.post(
   '/batch',
   rateLimitMiddleware('compile'),
+  validateRequest({ body: compileBatchBody }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     const { contracts } = req.body || {};
     if (!Array.isArray(contracts) || contracts.length === 0) {

@@ -56,14 +56,34 @@ export class SlidingWindowCounterStrategy extends RateLimitStrategy {
   }
 }
 
+/**
+ * Token bucket: allows bursts up to `limit` and refills continuously at
+ * limit/windowMs, so clients cannot double their quota at window boundaries.
+ */
+export class TokenBucketStrategy extends RateLimitStrategy {
+  async check(redisService, key, limit, windowMs) {
+    return redisService.checkRateLimit(
+      'TokenBucket',
+      `rl:tb:${key}`,
+      limit,
+      windowMs
+    );
+  }
+  getName() {
+    return 'TokenBucket';
+  }
+}
+
 export const STRATEGIES = {
   FIXED: new FixedWindowStrategy(),
   LOG: new SlidingWindowLogStrategy(),
   COUNTER: new SlidingWindowCounterStrategy(),
+  TOKEN_BUCKET: new TokenBucketStrategy(),
 };
 
 export const getStrategy = (name) => {
   if (name === 'FixedWindow') return STRATEGIES.FIXED;
   if (name === 'SlidingWindowLog') return STRATEGIES.LOG;
+  if (name === 'TokenBucket') return STRATEGIES.TOKEN_BUCKET;
   return STRATEGIES.COUNTER; // Default
 };

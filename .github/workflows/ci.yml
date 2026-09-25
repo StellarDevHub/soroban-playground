@@ -139,3 +139,94 @@ jobs:
 
       - name: Run Rust Tests
         run: cargo test --all-targets --all-features
+  backend-security-tests:
+    name: Backend Rate Limit & Validation Tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Issues #1573 / #1574 and the static compose checks for #1571 / #1572.
+      - name: Run rate limiter, IP spoofing, validation and compose tests
+        working-directory: backend
+        env:
+          RATE_LIMIT_TEST_REDIS_URL: redis://127.0.0.1:6379
+        run: >-
+          npx jest
+          tests/rateLimiter.test.js
+          tests/tokenBucket.test.js
+          tests/clientIpSpoofing.test.js
+          tests/ddosMitigation.test.js
+          tests/sorobanSchemas.test.js
+          tests/validationZod.test.js
+          tests/invoke.test.js
+          tests/compile.test.js
+          tests/compileBatch.test.js
+          tests/deployBatch.test.js
+          tests/issues_1024_1029_1027_1026.test.js
+          tests/dockerCompose.test.js
+
+  compose-stack:
+    name: Docker Compose Data Stack & Local RPC
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate compose files
+        run: |
+          docker compose config -q
+          docker compose -f docker-compose.yml -f docker-compose.local-rpc.yml \
+            --profile local-rpc config -q
+
+      # #1571: data stores must come up healthy on their own.
+      - name: Boot redis and postgres
+        run: docker compose up -d --wait --wait-timeout 120 redis postgres
+
+      # #1572: offline Stellar network for integration tests.
+      - name: Boot Stellar Quickstart local RPC
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.local-rpc.yml \
+            --profile local-rpc up -d --wait --wait-timeout 600 stellar-rpc
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run local RPC integration tests
+        working-directory: backend
+        env:
+          STELLAR_LOCAL_RPC_URL: http://127.0.0.1:8000/rpc
+        run: npx jest tests/localRpc.integration.test.js
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose --profile local-rpc logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose --profile local-rpc down -v

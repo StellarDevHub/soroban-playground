@@ -29,13 +29,13 @@ describe('client IP resolution', () => {
     expect(ip).toBe('203.0.113.10');
   });
 
-  it('parses X-Forwarded-For with trust proxy hops', () => {
+  it('walks X-Forwarded-For right-to-left past trusted proxies', () => {
     const ip = resolveClientIp(
       {
         headers: { 'x-forwarded-for': '203.0.113.5, 10.0.0.2' },
         socket: { remoteAddress: '10.0.0.1' },
       },
-      { trustProxy: true, trustProxyHops: 1 }
+      { trustProxy: true }
     );
     expect(ip).toBe('203.0.113.5');
   });

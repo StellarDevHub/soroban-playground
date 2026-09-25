@@ -32,6 +32,7 @@ import metricsRoute, {
 } from './routes/metrics.js';
 import oracleRoute from './routes/oracle.js';
 import { rateLimitMiddleware } from './middleware/rateLimiter.js';
+import { rejectPrototypePollution } from './middleware/validation.js';
 import oracleQueueRoute from './routes/oracleQueue.js';
 import { oracleWorkerPool } from './services/oracleWorkerPool.js';
 import migrationRoute from './routes/migration.js';
@@ -174,17 +175,18 @@ const PORT = process.env.PORT || 5000;
 // Basic middleware
 applyDdosProtection(app);
 applySecurityHeaders(app);
+// Redis-backed global token bucket, applied once before any route. Route
+// limits for compile/deploy/invoke use separate buckets (scoped by name).
 app.use(rateLimitMiddleware('global'));
 app.use(morgan('combined'));
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
+// Reject __proto__/constructor/prototype keys before any handler or
+// transformer copies request data into objects.
+app.use(rejectPrototypePollution);
 app.use(cookieParser());
 app.use(compressionMiddleware);
 app.use(http2PushMiddleware);
-
-// Apply the Redis-backed global limiter before any API route is dispatched.
-// Route-specific compile/deploy limits remain available through the factory.
-app.use(rateLimitMiddleware('global'));
 
 // Strict Transport Security (HSTS) headers
 app.use((req, res, next) => {

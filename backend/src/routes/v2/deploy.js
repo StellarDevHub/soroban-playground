@@ -8,49 +8,19 @@ import {
 } from '../../middleware/errorHandler.js';
 import { deployBatchContracts } from '../../services/deployService.js';
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
+import { validateRequest } from '../../middleware/validation.js';
+import {
+  deployBodyV2,
+  deployBatchBodyV2,
+} from '../../schemas/sorobanSchemas.js';
 
 const router = express.Router();
-
-/**
- * Validates the deploy request payload (v2 snake_case)
- */
-function validateDeployRequest(body) {
-  const { wasm_path, contract_name } = body;
-  const errors = [];
-
-  if (!wasm_path) {
-    errors.push('wasm_path is required');
-  } else if (typeof wasm_path !== 'string') {
-    errors.push('wasm_path must be a string');
-  }
-
-  if (!contract_name) {
-    errors.push('contract_name is required');
-  } else if (typeof contract_name !== 'string') {
-    errors.push('contract_name must be a string');
-  }
-
-  if (errors.length > 0) {
-    return {
-      error: 'Validation failed',
-      details: errors,
-    };
-  }
-
-  return null;
-}
 
 router.post(
   '/',
   rateLimitMiddleware('deploy'),
-  asyncHandler(async (req, res, next) => {
-    const validationError = validateDeployRequest(req.body);
-    if (validationError) {
-      return next(
-        createHttpError(400, validationError.error, validationError.details)
-      );
-    }
-
+  validateRequest({ body: deployBodyV2 }, { format: 'httpError' }),
+  asyncHandler(async (req, res) => {
     const { wasm_path, contract_name, network = 'testnet' } = req.body;
 
     setTimeout(() => {
@@ -74,15 +44,9 @@ router.post(
 router.post(
   '/batch',
   rateLimitMiddleware('deploy'),
+  validateRequest({ body: deployBatchBodyV2 }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
-    const { contracts, batch_id } = req.body || {};
-    if (!Array.isArray(contracts) || contracts.length === 0) {
-      return next(
-        createHttpError(400, 'Validation failed', [
-          'contracts must be a non-empty array',
-        ])
-      );
-    }
+    const { contracts, batch_id } = req.body;
 
     const controller = new AbortController();
     req.on('aborted', () => controller.abort());

@@ -41,12 +41,38 @@ describe('Issue #1024: Distributed Rate Limiting & Headers', () => {
   });
 
   it('supports API Key identification from headers', async () => {
-    const res = await request(app)
+    // Verified keys get their own bucket (#1574).
+    const keyed = express();
+    keyed.post(
+      '/api/v1/compile',
+      rateLimiter({
+        limit: 2,
+        windowMs: 60000,
+        strategyName: 'SlidingWindowCounter',
+        identifier: 'apiKeyOrIp',
+        scope: 'issue-1024-keyed',
+        validateApiKey: async (key) =>
+          key === 'test-api-key-123' ? { id: 'k-123', tier: 'free' } : null,
+      }),
+      (req, res) => res.json({ success: true })
+    );
+
+    const res = await request(keyed)
       .post('/api/v1/compile')
       .set('x-api-key', 'test-api-key-123');
 
     expect(res.status).toBe(200);
     expect(res.headers['x-ratelimit-limit']).toBe('2');
+  });
+
+  it('does not let unverified API keys escape an exhausted IP bucket', async () => {
+    // The previous tests exhausted this IP's bucket; a made-up key must not
+    // mint a fresh one (#1574).
+    const res = await request(app)
+      .post('/api/v1/compile')
+      .set('x-api-key', 'made-up-key');
+
+    expect(res.status).toBe(429);
   });
 });
 

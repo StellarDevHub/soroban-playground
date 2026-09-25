@@ -1,0 +1,23 @@
+# Offline / CI overlay (issue #1572): point the backend at the standalone
+# Stellar Quickstart node instead of the public testnet.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local-rpc.yml \
+#     --profile local-rpc up -d
+#
+# The standalone network is private and ephemeral: it resets whenever the
+# stellar-rpc container is recreated. Fund accounts through Friendbot at
+# http://localhost:8000/friendbot?addr=G...
+
+services:
+  backend:
+    environment:
+      - SOROBAN_RPC_URL=http://stellar-rpc:8000/rpc
+      # Never fall back to a public network when running offline.
+      - SOROBAN_RPC_FALLBACK_URLS=http://stellar-rpc:8000/rpc
+      - STELLAR_NETWORK_PASSPHRASE=Standalone Network ; February 2017
+      # Picked up by the stellar CLI used for contract invocation.
+      - STELLAR_RPC_URL=http://stellar-rpc:8000/rpc
+      - DEFAULT_NETWORK=local
+    depends_on:
+      stellar-rpc:
+        condition: service_healthy

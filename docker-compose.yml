@@ -7,7 +7,7 @@
 # Two build profiles are exposed via the FRONTEND_TARGET / BACKEND_TARGET
 # environment variables:
 #   * default (`docker compose up`)            - local dev with hot reload
-#   * prod    (FRONTEND_TARGET=runtime FRONTEND_TARGET=runtime
+#   * prod    (FRONTEND_TARGET=runtime BACKEND_TARGET=runtime
 #              docker compose up)
 #                                              - hardened production images
 #                                                (`runtime` stage from each
@@ -23,6 +23,18 @@
 #     every service.
 #   - Gated `depends_on` behind `condition: service_started` so the
 #     frontend waits for its peers before booting.
+#
+# Issue #1571 (production data stack):
+#   - Added `redis` (redis:7-alpine, AOF persistence) and `postgres`
+#     (postgres:16-alpine) with health checks and named data volumes.
+#   - Stateful services live on `data-net`, an `internal: true` network with
+#     no host port bindings and no egress; only backend/indexer can reach them.
+#   - backend/indexer wait for `service_healthy` data stores before booting.
+#
+# Issue #1572 (offline local RPC):
+#   - Added an opt-in `stellar-rpc` service (stellar/quickstart, standalone
+#     network with Soroban RPC + Friendbot) under the `local-rpc` profile.
+#     See docker-compose.local-rpc.yml for pointing the backend at it.
 
 name: soroban-playground
 
@@ -77,6 +89,15 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=${NODE_ENV:-development}
+      - REDIS_URL=redis://redis:6379
+      - SOROBAN_RPC_URL=${SOROBAN_RPC_URL:-https://soroban-testnet.stellar.org}
+      - STELLAR_NETWORK_PASSPHRASE=${STELLAR_NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}
+      # Rate limiter: only honour X-Forwarded-For from hops on these ranges
+      # (the compose bridge networks are private/uniquelocal).
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-loopback,linklocal,uniquelocal}
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s
@@ -91,6 +112,7 @@ services:
         max-file: "3"
     networks:
       - soroban-net
+      - data-net
 
   indexer:
     build:
@@ -107,8 +129,104 @@ services:
       - DATABASE_URL=sqlite:///app/data/indexer.db
       - WS_PORT=3001
       - MAX_WS_CONNECTIONS=200
-      # Optional dual-write to Postgres:
-      # - SECONDARY_DATABASE_URL=postgres://user:pass@postgres:5432/indexer
+      # Dual-write every indexed event to the Postgres service.
+      - SECONDARY_DATABASE_URL=postgres://${POSTGRES_USER:-soroban}:${POSTGRES_PASSWORD:-soroban_dev_password}@postgres:5432/${POSTGRES_DB:-soroban_playground}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - soroban-net
+      - data-net
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # No `ports:` — Redis is reachable only from services on data-net.
+    networks:
+      - data-net
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-soroban}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-soroban_dev_password}
+      - POSTGRES_DB=${POSTGRES_DB:-soroban_playground}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    shm_size: 128mb
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # No `ports:` — Postgres is reachable only from services on data-net.
+    networks:
+      - data-net
+
+  # Offline Stellar network: stellar-core + Soroban RPC + Friendbot running
+  # a private standalone ledger. Opt-in because the image is large:
+  #   docker compose -f docker-compose.yml -f docker-compose.local-rpc.yml \
+  #     --profile local-rpc up
+  stellar-rpc:
+    image: stellar/quickstart:${STELLAR_QUICKSTART_TAG:-latest}
+    profiles: ["local-rpc"]
+    command:
+      # core + horizon + rpc (the default set); Friendbot needs horizon.
+      - --local
+      - --limits
+      - ${STELLAR_QUICKSTART_LIMITS:-unlimited}
+    ports:
+      - "127.0.0.1:${STELLAR_RPC_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -sf -X POST -H 'Content-Type: application/json'
+          -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}'
+          http://localhost:8000/rpc | grep -q '"healthy"'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     restart: unless-stopped
     logging:
       driver: json-file
@@ -121,6 +239,12 @@ services:
 networks:
   soroban-net:
     driver: bridge
+  # Internal-only network for stateful services: no egress, no host exposure.
+  data-net:
+    driver: bridge
+    internal: true
 
 volumes:
   indexer-db:
+  redis-data:
+  postgres-data:

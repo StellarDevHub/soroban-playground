@@ -107,6 +107,37 @@ This repository uses a monorepo setup:
    npm run dev
    ```
 
+### Docker Compose
+
+`docker compose up --build` starts the frontend, backend and indexer together
+with Redis 7 and Postgres 16. Redis and Postgres keep their data in named
+volumes (`redis-data`, `postgres-data`), run health checks, and live on an
+internal `data-net` network that has no host ports and no outbound access.
+Override the Postgres credentials with `POSTGRES_USER`, `POSTGRES_PASSWORD` and
+`POSTGRES_DB`.
+
+#### Offline local Stellar network
+
+To develop or run CI without the public testnet, start the bundled Stellar
+Quickstart node (stellar-core, Soroban RPC and Friendbot on a private
+standalone network):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local-rpc.yml \
+  --profile local-rpc up -d --wait
+```
+
+The overlay points the backend at `http://stellar-rpc:8000/rpc` with the
+`Standalone Network ; February 2017` passphrase and turns off public RPC
+fallbacks. From the host, RPC is on `http://localhost:8000/rpc` and Friendbot
+is on `http://localhost:8000/friendbot?addr=G...`. The ledger is thrown away
+whenever the container is recreated. To run the integration tests against it:
+
+```bash
+cd backend && STELLAR_LOCAL_RPC_URL=http://localhost:8000/rpc \
+  npx jest tests/localRpc.integration.test.js
+```
+
 ## Contributing
 
 We welcome contributions! Please see our [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on how to get started.
