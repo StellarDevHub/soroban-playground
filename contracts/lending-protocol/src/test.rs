@@ -339,14 +339,6 @@ fn setup_position(
         set_total_deposited(env, get_total_deposited(env) + deposited);
         set_total_borrowed(env, get_total_borrowed(env) + borrowed);
     });
-
-    let topic0 = Symbol::try_from_val(&env, &last_event.1.get(0).unwrap()).unwrap();
-    assert_eq!(topic0, symbol_short!("repayment"));
-    let topic1 = Address::try_from_val(&env, &last_event.1.get(1).unwrap()).unwrap();
-    assert_eq!(topic1, user);
-
-    let data = <(i128, i128)>::try_from_val(&env, &last_event.2).unwrap();
-    assert_eq!(data, (20i128, 5i128));
 }
 
 // ── Liquidate ─────────────────────────────────────────────────────────────────

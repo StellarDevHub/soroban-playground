@@ -12,6 +12,7 @@
 
 #![no_std]
 
+mod proptest;
 mod storage;
 mod test;
 mod types;
