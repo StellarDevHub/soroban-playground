@@ -22,6 +22,9 @@ pub enum Error {
     DuplicateSymbol = 12,
     /// Latest observation is older than the asset's staleness window.
     StaleObservation = 13,
+    /// Submitted price deviates from the cross-feeder median by more than
+    /// the asset's maximum deviation tolerance.
+    PriceOutlier = 14,
 }
 
 /// A single price observation recorded by a feeder.
@@ -50,6 +53,16 @@ pub struct TwapResult {
     pub window_end: u64,
     /// Number of observations included.
     pub observation_count: u32,
+}
+
+/// Cross-feeder median price for an asset.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MedianPrice {
+    /// Median of every active feeder's latest submitted price.
+    pub median: i128,
+    /// How many feeder prices went into the median.
+    pub feeder_count: u32,
 }
 
 /// Per-asset metadata stored in instance storage.
@@ -81,4 +94,12 @@ pub enum DataKey {
     Observations(u32),
     /// Asset symbol → asset_id lookup.
     AssetSymbol(String),
+    /// Every address ever activated as a feeder (append-only; reads filter
+    /// by [`Feeder`](DataKey::Feeder) so deactivated feeders drop out).
+    FeederList,
+    /// Latest observation per (asset, feeder) pair for median computation.
+    LatestByFeeder(u32, Address),
+    /// Maximum accepted deviation from the cross-feeder median, in basis
+    /// points. Absent entries use [`DEFAULT_MAX_DEVIATION_BPS`].
+    MaxDeviation(u32),
 }

@@ -3,7 +3,7 @@
 use super::{types::Error, TwapOracle, TwapOracleClient};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, Env, String,
+    Address, Env, String, Vec,
 };
 
 fn setup() -> (Env, TwapOracleClient<'static>, Address, Address, u32) {
@@ -206,4 +206,114 @@ fn test_submit_price_negative_fails() {
     let (_env, client, _admin, feeder, asset_id) = setup();
     let result = client.try_submit_price(&feeder, &asset_id, &-1i128);
     assert!(matches!(result, Err(Ok(Error::InvalidPrice))));
+}
+
+// ── Multi-source medianizer & outlier filter (issue #1557) ───────────────────
+
+fn setup_three_feeders() -> (Env, TwapOracleClient<'static>, Address, Vec<Address>, u32) {
+    let (env, client, admin, feeder_a, asset_id) = setup();
+    let feeder_b = Address::generate(&env);
+    let feeder_c = Address::generate(&env);
+    client.set_feeder(&admin, &feeder_b, &true);
+    client.set_feeder(&admin, &feeder_c, &true);
+    let mut feeders = Vec::new(&env);
+    feeders.push_back(feeder_a);
+    feeders.push_back(feeder_b);
+    feeders.push_back(feeder_c);
+    (env, client, admin, feeders, asset_id)
+}
+
+#[test]
+fn test_median_price_of_three_feeders() {
+    let (_env, client, _admin, feeders, asset_id) = setup_three_feeders();
+    // All within the default 5% tolerance of the running median.
+    client.submit_price(&feeders.get(0).unwrap(), &asset_id, &100i128);
+    client.submit_price(&feeders.get(1).unwrap(), &asset_id, &102i128);
+    client.submit_price(&feeders.get(2).unwrap(), &asset_id, &101i128);
+
+    let median = client.get_median_price(&asset_id);
+    assert_eq!(median.median, 101);
+    assert_eq!(median.feeder_count, 3);
+}
+
+#[test]
+fn test_median_price_with_no_prices_fails() {
+    let (_env, client, _admin, _feeders, asset_id) = setup_three_feeders();
+    let result = client.try_get_median_price(&asset_id);
+    assert!(matches!(result, Err(Ok(Error::InsufficientObservations))));
+}
+
+#[test]
+fn test_outlier_submission_is_rejected() {
+    let (_env, client, _admin, feeders, asset_id) = setup_three_feeders();
+    client.submit_price(&feeders.get(0).unwrap(), &asset_id, &100i128);
+    client.submit_price(&feeders.get(1).unwrap(), &asset_id, &102i128);
+
+    // 200 deviates ~98% from the 101 median at the default 5% tolerance.
+    let result = client.try_submit_price(&feeders.get(2).unwrap(), &asset_id, &200i128);
+    assert!(matches!(result, Err(Ok(Error::PriceOutlier))));
+}
+
+#[test]
+fn test_in_tolerance_submission_is_accepted() {
+    let (_env, client, _admin, feeders, asset_id) = setup_three_feeders();
+    client.submit_price(&feeders.get(0).unwrap(), &asset_id, &100i128);
+    client.submit_price(&feeders.get(1).unwrap(), &asset_id, &102i128);
+    client.submit_price(&feeders.get(2).unwrap(), &asset_id, &101i128);
+
+    // {100, 102, 101} → sorted {100, 101, 102}, median 101.
+    let median = client.get_median_price(&asset_id);
+    assert_eq!(median.median, 101);
+    assert_eq!(median.feeder_count, 3);
+}
+
+#[test]
+fn test_first_feeder_bootstraps_without_reference() {
+    let (_env, client, _admin, feeder, asset_id) = setup();
+    // No other feeder has reported yet, so there is nothing to compare
+    // against: the submission must be accepted.
+    client.submit_price(&feeder, &asset_id, &1_000_000i128);
+    let median = client.get_median_price(&asset_id);
+    assert_eq!(median.median, 1_000_000);
+    assert_eq!(median.feeder_count, 1);
+}
+
+#[test]
+fn test_custom_deviation_tolerance_is_honored() {
+    let (_env, client, admin, feeders, asset_id) = setup_three_feeders();
+    client.submit_price(&feeders.get(0).unwrap(), &asset_id, &100i128);
+    client.submit_price(&feeders.get(1).unwrap(), &asset_id, &100i128);
+
+    // Tighten to 1%: a 3% move is now an outlier.
+    client.set_max_deviation_bps(&admin, &asset_id, &100u32);
+    let result = client.try_submit_price(&feeders.get(2).unwrap(), &asset_id, &103i128);
+    assert!(matches!(result, Err(Ok(Error::PriceOutlier))));
+
+    // Loosen to 50%: the same move passes.
+    client.set_max_deviation_bps(&admin, &asset_id, &5_000u32);
+    client.submit_price(&feeders.get(2).unwrap(), &asset_id, &103i128);
+    let median = client.get_median_price(&asset_id);
+    assert_eq!(median.median, 100);
+}
+
+#[test]
+fn test_deactivated_feeder_drops_out_of_median() {
+    let (_env, client, admin, feeders, asset_id) = setup_three_feeders();
+    client.submit_price(&feeders.get(0).unwrap(), &asset_id, &100i128);
+    client.submit_price(&feeders.get(1).unwrap(), &asset_id, &102i128);
+    client.submit_price(&feeders.get(2).unwrap(), &asset_id, &98i128);
+
+    client.set_feeder(&admin, &feeders.get(1).unwrap(), &false);
+    let median = client.get_median_price(&asset_id);
+    // Remaining {100, 98} → sorted {98, 100}, lower middle = 98.
+    assert_eq!(median.median, 98);
+    assert_eq!(median.feeder_count, 2);
+}
+
+#[test]
+fn test_set_max_deviation_bps_requires_admin() {
+    let (env, client, _admin, _feeders, asset_id) = setup_three_feeders();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_max_deviation_bps(&stranger, &asset_id, &100u32);
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
 }

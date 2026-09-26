@@ -9,6 +9,9 @@
 //!   (price × elapsed-seconds) used for efficient TWAP computation.
 //! - `get_twap` returns the TWAP over a caller-specified window of seconds
 //!   by interpolating between stored observations.
+//! - `get_median_price` returns the median across every active feeder's
+//!   latest price, and `submit_price` rejects outliers past the asset's
+//!   deviation tolerance, so one bad feeder cannot drag the feed.
 //! - Admin controls: pause, feeder whitelist, asset registration, staleness cap.
 
 #![no_std]
@@ -20,11 +23,12 @@ mod types;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
 
 use crate::storage::{
-    get_admin, get_asset, get_asset_count, get_asset_id_by_symbol, get_observations, is_feeder,
-    is_initialized, is_paused, push_observation, set_admin, set_asset, set_asset_count,
-    set_asset_symbol_index, set_feeder, set_paused,
+    get_admin, get_asset, get_asset_count, get_asset_id_by_symbol, get_max_deviation_bps,
+    get_observations, is_feeder, is_initialized, is_paused, latest_prices_excluding, median_price,
+    push_observation, set_admin, set_asset, set_asset_count, set_asset_symbol_index, set_feeder,
+    set_latest_by_feeder, set_max_deviation_bps, set_paused,
 };
-use crate::types::{AssetConfig, Error, Observation, TwapResult};
+use crate::types::{AssetConfig, Error, MedianPrice, Observation, TwapResult};
 
 /// Maximum observations stored per asset.
 const MAX_OBSERVATIONS: u32 = 200;
@@ -139,6 +143,19 @@ impl TwapOracle {
             return Err(Error::AssetNotFound);
         }
 
+        // Outlier filter: once other feeders have reported, the submission
+        // must stay within the asset's deviation tolerance of their median.
+        // The first reporter(s) bootstrap freely — there is nothing to
+        // compare against yet.
+        let others = latest_prices_excluding(&env, asset_id, Some(&feeder));
+        if let Some(median) = median_price(&others) {
+            let max_bps = get_max_deviation_bps(&env, asset_id) as i128;
+            let deviation = price.saturating_sub(median).saturating_abs();
+            if deviation.saturating_mul(10_000) > median.saturating_mul(max_bps) {
+                return Err(Error::PriceOutlier);
+            }
+        }
+
         let now = env.ledger().timestamp();
         let obs_list = get_observations(&env, asset_id);
         let cumulative = if obs_list.is_empty() {
@@ -157,7 +174,8 @@ impl TwapOracle {
             cumulative_price: cumulative,
         };
 
-        push_observation(&env, asset_id, obs, MAX_OBSERVATIONS);
+        push_observation(&env, asset_id, obs.clone(), MAX_OBSERVATIONS);
+        set_latest_by_feeder(&env, asset_id, &feeder, &obs);
 
         env.events()
             .publish((symbol_short!("price"), asset_id), (feeder, price, now));
@@ -256,6 +274,41 @@ impl TwapOracle {
             return Err(Error::StaleObservation);
         }
         Ok(latest.price)
+    }
+
+    // ── Multi-source medianizer & outlier filter ────────────────────────────
+
+    /// Median of every active feeder's latest submitted price for an asset.
+    ///
+    /// A single compromised or faulty feeder cannot move the median on its
+    /// own, which is what makes this safer than the latest spot price for
+    /// settlement decisions.
+    pub fn get_median_price(env: Env, asset_id: u32) -> Result<MedianPrice, Error> {
+        Self::assert_initialized(&env)?;
+        let _ = get_asset(&env, asset_id)?;
+        let prices = latest_prices_excluding(&env, asset_id, None);
+        match median_price(&prices) {
+            Some(median) => Ok(MedianPrice {
+                median,
+                feeder_count: prices.len(),
+            }),
+            None => Err(Error::InsufficientObservations),
+        }
+    }
+
+    /// Set the maximum accepted deviation from the cross-feeder median, in
+    /// basis points (default 500 = 5%). Submissions past the tolerance revert
+    /// with [`Error::PriceOutlier`].
+    pub fn set_max_deviation_bps(
+        env: Env,
+        admin: Address,
+        asset_id: u32,
+        bps: u32,
+    ) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        let _ = get_asset(&env, asset_id)?;
+        set_max_deviation_bps(&env, asset_id, bps);
+        Ok(())
     }
 
     /// Look up an asset_id by its symbol string.
