@@ -4042,6 +4042,7 @@ dependencies = [
 name = "soroban-multisig-wallet"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
  "soroban-sdk 21.7.7",
 ]
 

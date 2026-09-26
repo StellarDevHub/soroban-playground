@@ -36,6 +36,9 @@ pub struct Transaction {
     pub status: TxStatus,
     /// Number of confirmations collected.
     pub confirmations: u32,
+    /// Sum of confirmer weights (see owner weights). A transaction becomes
+    /// `Ready` once this reaches the threshold.
+    pub confirmation_weight: u64,
     /// Ledger timestamp when the proposal was created.
     pub created_at: u64,
     /// Required delay (seconds) between threshold met and executable.
@@ -67,6 +70,12 @@ pub enum DataKey {
     Transaction(u32),
     /// Whether `owner` has confirmed `tx_id`.
     Confirmation(u32, Address),
+    /// Voting weight of an owner (default 1 when absent).
+    OwnerWeight(Address),
+    /// Registered ed25519 public key of an owner for off-chain signatures.
+    OwnerPubkey(Address),
+    /// Per-owner monotonic nonce consumed by off-chain signature confirms.
+    OwnerNonce(Address),
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────
@@ -93,4 +102,10 @@ pub enum Error {
     NotConfirmed = 16,
     WrongStatus = 17,
     DelayNotElapsed = 18,
+    /// Owner weight must be at least 1.
+    InvalidWeight = 19,
+    /// Owner has no registered ed25519 public key.
+    MissingPubkey = 20,
+    /// Signature nonce does not match the owner's current nonce.
+    InvalidNonce = 21,
 }

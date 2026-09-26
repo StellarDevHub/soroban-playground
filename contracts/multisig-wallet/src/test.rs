@@ -4,10 +4,13 @@
 #![cfg(test)]
 
 use super::*;
+use ed25519_dalek::{Signer, SigningKey};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    Address, Env, String, Vec,
+    Address, BytesN, Env, String, Vec,
 };
+
+extern crate std;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -72,8 +75,8 @@ fn str_n(env: &Env, n: usize) -> String {
     // serialise the bytes into a local heap-less buffer.
     let mut arr = [0u8; 512];
     if n <= arr.len() {
-        for i in 0..n {
-            arr[i] = 0u8;
+        for slot in arr.iter_mut().take(n) {
+            *slot = 0u8;
         }
         String::from_bytes(env, &arr[..n])
     } else {
@@ -292,7 +295,7 @@ fn test_add_owner_not_incremented_on_failure() {
     let new = Address::generate(&env);
     // Duplicate attempt: owners.get(1) is already an owner.
     let _ = client.try_add_owner(&caller, &owners.get_unchecked(1));
-    let _ = client.add_owner(&caller, &new);
+    client.add_owner(&caller, &new);
     // count should be 3, not 4.
     assert_eq!(client.get_owner_count(), 3);
 }
@@ -1259,7 +1262,7 @@ fn test_init_with_existing_owners_then_remove() {
     let list = client.get_owners();
     assert_eq!(list.len(), 2);
     assert!(list.contains(&a));
-    assert!(list.contains(&owners.get_unchecked(2)));
+    assert!(list.contains(owners.get_unchecked(2)));
 }
 
 #[test]
@@ -1314,4 +1317,204 @@ fn test_zero_delay_submit_and_execute() {
     client.execute_transaction(&a, &id);
     let tx = client.get_transaction(&id);
     assert_eq!(tx.status, TxStatus::Executed);
+}
+
+// ── Weight-based signers (issue #1559) ───────────────────────────────────────
+
+#[test]
+fn test_owner_weight_defaults_to_one() {
+    let env = make_env();
+    let (client, owners) = init(&env, 2, 1, 0, 0);
+    assert_eq!(client.get_owner_weight(&owners.get_unchecked(0)), 1);
+}
+
+#[test]
+fn test_weighted_confirmation_reaches_threshold() {
+    let env = make_env();
+    let (client, owners) = init(&env, 3, 3, 0, 0);
+    let heavy = owners.get_unchecked(0);
+    client.set_owner_weight(&heavy, &heavy, &3);
+    assert_eq!(client.get_owner_weight(&heavy), 3);
+
+    let target = Address::generate(&env);
+    let id = client.submit_transaction(&heavy, &target, &0, &str5(&env), &0);
+    // One confirmation carries weight 3 ≥ threshold 3.
+    client.confirm_transaction(&heavy, &id);
+    let tx = client.get_transaction(&id);
+    assert_eq!(tx.status, TxStatus::Ready);
+    assert_eq!(tx.confirmation_weight, 3);
+}
+
+#[test]
+fn test_set_owner_weight_rejects_zero() {
+    let env = make_env();
+    let (client, owners) = init(&env, 2, 1, 0, 0);
+    let a = owners.get_unchecked(0);
+    let result = client.try_set_owner_weight(&a, &a, &0);
+    assert_eq!(result, Err(Ok(Error::InvalidWeight)));
+}
+
+#[test]
+fn test_set_owner_weight_requires_owner() {
+    let env = make_env();
+    let (client, owners) = init(&env, 2, 1, 0, 0);
+    let stranger = Address::generate(&env);
+    let result = client.try_set_owner_weight(&stranger, &owners.get_unchecked(0), &2);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_revoke_subtracts_weight_and_drops_ready() {
+    let env = make_env();
+    let (client, owners) = init(&env, 2, 2, 0, 0);
+    let a = owners.get_unchecked(0);
+    let b = owners.get_unchecked(1);
+    client.set_owner_weight(&a, &a, &2);
+
+    let target = Address::generate(&env);
+    let id = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    client.confirm_transaction(&a, &id);
+    assert_eq!(client.get_transaction(&id).status, TxStatus::Ready);
+
+    client.revoke_confirmation(&a, &id);
+    let tx = client.get_transaction(&id);
+    assert_eq!(tx.status, TxStatus::Pending);
+    assert_eq!(tx.confirmation_weight, 0);
+
+    // The other owner's default weight alone cannot ready it.
+    client.confirm_transaction(&b, &id);
+    assert_eq!(client.get_transaction(&id).status, TxStatus::Pending);
+}
+
+// ── Batch execution (issue #1559) ────────────────────────────────────────────
+
+#[test]
+fn test_execute_batch_executes_ready_in_order() {
+    let env = make_env();
+    let (client, owners) = init(&env, 1, 1, 0, 0);
+    let a = owners.get_unchecked(0);
+    let target = Address::generate(&env);
+    let id0 = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    let id1 = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    client.confirm_transaction(&a, &id0);
+    client.confirm_transaction(&a, &id1);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(id0);
+    ids.push_back(id1);
+    let executed = client.execute_batch(&a, &ids);
+    assert_eq!(executed.len(), 2);
+    assert_eq!(executed.get_unchecked(0), id0);
+    assert_eq!(executed.get_unchecked(1), id1);
+    assert_eq!(client.get_transaction(&id0).status, TxStatus::Executed);
+    assert_eq!(client.get_transaction(&id1).status, TxStatus::Executed);
+}
+
+#[test]
+fn test_execute_batch_is_all_or_nothing() {
+    let env = make_env();
+    let (client, owners) = init(&env, 1, 1, 0, 0);
+    let a = owners.get_unchecked(0);
+    let target = Address::generate(&env);
+    let id0 = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    let id1 = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    // Only the first becomes Ready.
+    client.confirm_transaction(&a, &id0);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(id0);
+    ids.push_back(id1);
+    let result = client.try_execute_batch(&a, &ids);
+    assert_eq!(result, Err(Ok(Error::WrongStatus)));
+    // Nothing executed.
+    assert_eq!(client.get_transaction(&id0).status, TxStatus::Ready);
+    assert_eq!(client.get_transaction(&id1).status, TxStatus::Pending);
+}
+
+// ── Off-chain signature confirmations (issue #1559) ──────────────────────────
+
+/// Deterministic test keypair plus its `BytesN<32>` public key.
+fn test_keypair(env: &Env, seed_byte: u8) -> (SigningKey, BytesN<32>) {
+    let signing = SigningKey::from_bytes(&[seed_byte; 32]);
+    let verify_bytes = signing.verifying_key().to_bytes();
+    (signing, BytesN::from_array(env, &verify_bytes))
+}
+
+/// The exact payload the contract verifies: b"MSIG1" || pubkey || tx_be || nonce_be.
+fn signature_message(pubkey: &[u8; 32], tx_id: u32, nonce: u64) -> std::vec::Vec<u8> {
+    let mut msg = std::vec::Vec::new();
+    msg.extend_from_slice(b"MSIG1");
+    msg.extend_from_slice(pubkey);
+    msg.extend_from_slice(&tx_id.to_be_bytes());
+    msg.extend_from_slice(&nonce.to_be_bytes());
+    msg
+}
+
+#[test]
+fn test_confirm_with_signature_ok_and_consumes_nonce() {
+    let env = make_env();
+    let (client, owners) = init(&env, 1, 1, 0, 0);
+    let a = owners.get_unchecked(0);
+    assert_eq!(client.get_owner_nonce(&a), 0);
+
+    let (signing, pubkey) = test_keypair(&env, 7);
+    client.set_owner_pubkey(&a, &a, &pubkey);
+
+    let target = Address::generate(&env);
+    let id = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    let sig = signing.sign(&signature_message(&pubkey.to_array(), id, 0));
+    client.confirm_with_signature(&a, &id, &0, &BytesN::from_array(&env, &sig.to_bytes()));
+
+    let tx = client.get_transaction(&id);
+    assert_eq!(tx.status, TxStatus::Ready);
+    assert_eq!(client.get_owner_nonce(&a), 1);
+}
+
+#[test]
+fn test_confirm_with_signature_replay_fails() {
+    let env = make_env();
+    let (client, owners) = init(&env, 2, 1, 0, 0);
+    let a = owners.get_unchecked(0);
+    let (signing, pubkey) = test_keypair(&env, 7);
+    client.set_owner_pubkey(&a, &a, &pubkey);
+
+    let target = Address::generate(&env);
+    let id0 = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    let sig = signing.sign(&signature_message(&pubkey.to_array(), id0, 0));
+    let sig_bytes = BytesN::from_array(&env, &sig.to_bytes());
+    client.confirm_with_signature(&a, &id0, &0, &sig_bytes);
+
+    // Same signature with the consumed nonce on another tx must fail.
+    let id1 = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    let result = client.try_confirm_with_signature(&a, &id1, &0, &sig_bytes);
+    assert_eq!(result, Err(Ok(Error::InvalidNonce)));
+}
+
+#[test]
+fn test_confirm_with_signature_bad_signature_traps() {
+    let env = make_env();
+    let (client, owners) = init(&env, 1, 1, 0, 0);
+    let a = owners.get_unchecked(0);
+    let (signing, pubkey) = test_keypair(&env, 7);
+    client.set_owner_pubkey(&a, &a, &pubkey);
+
+    let target = Address::generate(&env);
+    let id = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    // Signed over a different tx id: verification must fail.
+    let bad = signing.sign(&signature_message(&pubkey.to_array(), id + 99, 0));
+    let result =
+        client.try_confirm_with_signature(&a, &id, &0, &BytesN::from_array(&env, &bad.to_bytes()));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_confirm_with_signature_missing_pubkey_fails() {
+    let env = make_env();
+    let (client, owners) = init(&env, 1, 1, 0, 0);
+    let a = owners.get_unchecked(0);
+    let target = Address::generate(&env);
+    let id = client.submit_transaction(&a, &target, &0, &str5(&env), &0);
+    let result =
+        client.try_confirm_with_signature(&a, &id, &0, &BytesN::from_array(&env, &[0u8; 64]));
+    assert_eq!(result, Err(Ok(Error::MissingPubkey)));
 }

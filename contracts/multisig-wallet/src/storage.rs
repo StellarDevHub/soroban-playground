@@ -146,3 +146,64 @@ pub fn remove_confirmation(env: &Env, tx_id: u32, owner: &Address) {
         .persistent()
         .remove(&DataKey::Confirmation(tx_id, owner.clone()));
 }
+
+// ── Owner weights, pubkeys & nonces ─────────────────────────────────────────
+
+/// Voting weight of an owner. Defaults to 1 so wallets configured before
+/// weights existed behave exactly as before.
+pub fn get_owner_weight(env: &Env, owner: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OwnerWeight(owner.clone()))
+        .unwrap_or(1)
+}
+
+pub fn set_owner_weight(env: &Env, owner: &Address, weight: u32) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::OwnerWeight(owner.clone()), &weight);
+}
+
+pub fn remove_owner_weight(env: &Env, owner: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::OwnerWeight(owner.clone()));
+}
+
+pub fn get_owner_pubkey(env: &Env, owner: &Address) -> Option<soroban_sdk::BytesN<32>> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OwnerPubkey(owner.clone()))
+}
+
+pub fn set_owner_pubkey(env: &Env, owner: &Address, pubkey: &soroban_sdk::BytesN<32>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::OwnerPubkey(owner.clone()), pubkey);
+}
+
+pub fn remove_owner_pubkey(env: &Env, owner: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::OwnerPubkey(owner.clone()));
+}
+
+/// Monotonic nonce consumed by off-chain signature confirmations.
+pub fn get_owner_nonce(env: &Env, owner: &Address) -> u64 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OwnerNonce(owner.clone()))
+        .unwrap_or(0)
+}
+
+pub fn set_owner_nonce(env: &Env, owner: &Address, nonce: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::OwnerNonce(owner.clone()), &nonce);
+}
+
+pub fn remove_owner_nonce(env: &Env, owner: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::OwnerNonce(owner.clone()));
+}

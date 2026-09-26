@@ -30,14 +30,15 @@ mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
 
 use crate::storage::{
-    get_max_delay, get_min_delay, get_owner_at, get_owner_count, get_threshold, get_tx,
-    get_tx_count, has_owner, is_confirmed, is_initialized, record_confirmation,
-    remove_confirmation, remove_is_owner, remove_owner_at, set_initialized, set_is_owner,
-    set_max_delay, set_min_delay, set_owner_at, set_owner_count, set_threshold, set_tx,
-    set_tx_count,
+    get_max_delay, get_min_delay, get_owner_at, get_owner_count, get_owner_nonce, get_owner_pubkey,
+    get_owner_weight, get_threshold, get_tx, get_tx_count, has_owner, is_confirmed, is_initialized,
+    record_confirmation, remove_confirmation, remove_is_owner, remove_owner_at, remove_owner_nonce,
+    remove_owner_pubkey, remove_owner_weight, set_initialized, set_is_owner, set_max_delay,
+    set_min_delay, set_owner_at, set_owner_count, set_owner_nonce, set_owner_pubkey,
+    set_owner_weight, set_threshold, set_tx, set_tx_count,
 };
 use crate::types::{Error, Transaction, TxStatus};
 
@@ -163,6 +164,9 @@ impl MultisigWallet {
             remove_owner_at(&env, last_idx);
         }
         remove_is_owner(&env, &owner);
+        remove_owner_weight(&env, &owner);
+        remove_owner_pubkey(&env, &owner);
+        remove_owner_nonce(&env, &owner);
         set_owner_count(&env, count - 1);
 
         env.events()
@@ -210,6 +214,57 @@ impl MultisigWallet {
         Ok(())
     }
 
+    // ── Weight-based signers ─────────────────────────────────────────────────
+
+    /// Set an owner's voting weight. Only callable by an existing owner.
+    /// Weights default to 1, so wallets configured before weights existed
+    /// behave exactly as before. Weight must be at least 1.
+    pub fn set_owner_weight(
+        env: Env,
+        caller: Address,
+        owner: Address,
+        weight: u32,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        caller.require_auth();
+        require_owner(&env, &caller)?;
+        require_owner(&env, &owner)?;
+
+        if weight == 0 {
+            return Err(Error::InvalidWeight);
+        }
+        set_owner_weight(&env, &owner, weight);
+        env.events()
+            .publish((symbol_short!("WeightChg"),), (caller, owner, weight));
+        Ok(())
+    }
+
+    /// Voting weight of an owner (1 when never set).
+    pub fn get_owner_weight(env: Env, owner: Address) -> Result<u32, Error> {
+        ensure_initialized(&env)?;
+        require_owner(&env, &owner)?;
+        Ok(get_owner_weight(&env, &owner))
+    }
+
+    /// Register an owner's ed25519 public key for off-chain signature
+    /// confirmations. Only callable by an existing owner.
+    pub fn set_owner_pubkey(
+        env: Env,
+        caller: Address,
+        owner: Address,
+        pubkey: BytesN<32>,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        caller.require_auth();
+        require_owner(&env, &caller)?;
+        require_owner(&env, &owner)?;
+
+        set_owner_pubkey(&env, &owner, &pubkey);
+        env.events()
+            .publish((symbol_short!("PubkeyReg"),), (caller, owner));
+        Ok(())
+    }
+
     // ── Transaction lifecycle ────────────────────────────────────────────────
 
     /// Submit a new transaction for approval. `delay` is the number of
@@ -251,6 +306,7 @@ impl MultisigWallet {
             data: data.clone(),
             status: TxStatus::Pending,
             confirmations: 0,
+            confirmation_weight: 0,
             created_at: now,
             delay,
             execute_after: 0,
@@ -264,9 +320,10 @@ impl MultisigWallet {
     }
 
     /// Confirm a pending transaction. The caller must be an owner and must
-    /// not have already confirmed the transaction. When the threshold is
-    /// reached the transaction becomes `Ready` and its `execute_after` is
-    /// set to `now + delay`.
+    /// not have already confirmed the transaction. The owner's weight is
+    /// added to the confirmation weight; when it reaches the threshold the
+    /// transaction becomes `Ready` and its `execute_after` is set to
+    /// `now + delay`.
     pub fn confirm_transaction(env: Env, owner: Address, tx_id: u32) -> Result<(), Error> {
         ensure_initialized(&env)?;
         owner.require_auth();
@@ -282,8 +339,9 @@ impl MultisigWallet {
 
         record_confirmation(&env, tx_id, &owner);
         tx.confirmations += 1;
+        tx.confirmation_weight += get_owner_weight(&env, &owner) as u64;
 
-        if tx.confirmations >= get_threshold(&env) {
+        if tx.confirmation_weight >= get_threshold(&env) as u64 {
             tx.status = TxStatus::Ready;
             tx.execute_after = env.ledger().timestamp() + tx.delay;
         }
@@ -313,8 +371,13 @@ impl MultisigWallet {
 
         remove_confirmation(&env, tx_id, &owner);
         tx.confirmations -= 1;
+        // Saturating: the owner's weight may have been lowered after they
+        // confirmed, and revocation must never trap on underflow.
+        tx.confirmation_weight = tx
+            .confirmation_weight
+            .saturating_sub(get_owner_weight(&env, &owner) as u64);
 
-        if tx.status == TxStatus::Ready && tx.confirmations < get_threshold(&env) {
+        if tx.status == TxStatus::Ready && tx.confirmation_weight < get_threshold(&env) as u64 {
             tx.status = TxStatus::Pending;
             tx.execute_after = 0;
         }
@@ -371,6 +434,104 @@ impl MultisigWallet {
         env.events()
             .publish((symbol_short!("Cancel"),), (tx_id, caller));
         Ok(())
+    }
+
+    // ── Off-chain signature confirmations ────────────────────────────────────
+
+    /// Confirm a pending transaction with an off-chain ed25519 signature
+    /// instead of an on-chain authorization.
+    ///
+    /// The owner signs `b"MSIG1" || pubkey || tx_id_be || nonce_be` with the
+    /// key registered via [`Self::set_owner_pubkey`]. Anyone (typically an
+    /// aggregator) can submit collected signatures; each consumes the
+    /// owner's current nonce, so a captured signature can never be replayed.
+    /// Weight accounting matches [`Self::confirm_transaction`].
+    ///
+    /// Like `require_auth`, an invalid signature traps rather than returning
+    /// an error.
+    pub fn confirm_with_signature(
+        env: Env,
+        owner: Address,
+        tx_id: u32,
+        nonce: u64,
+        signature: BytesN<64>,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        require_owner(&env, &owner)?;
+
+        let mut tx = get_tx(&env, tx_id)?;
+        if tx.status != TxStatus::Pending {
+            return Err(Error::WrongStatus);
+        }
+        if is_confirmed(&env, tx_id, &owner) {
+            return Err(Error::AlreadyConfirmed);
+        }
+        if nonce != get_owner_nonce(&env, &owner) {
+            return Err(Error::InvalidNonce);
+        }
+        let pubkey = get_owner_pubkey(&env, &owner).ok_or(Error::MissingPubkey)?;
+
+        let mut payload = Bytes::from_slice(&env, b"MSIG1");
+        payload.append(&Bytes::from_array(&env, &pubkey.to_array()));
+        payload.append(&Bytes::from_array(&env, &tx_id.to_be_bytes()));
+        payload.append(&Bytes::from_array(&env, &nonce.to_be_bytes()));
+        env.crypto().ed25519_verify(&pubkey, &payload, &signature);
+
+        set_owner_nonce(&env, &owner, nonce + 1);
+        record_confirmation(&env, tx_id, &owner);
+        tx.confirmations += 1;
+        tx.confirmation_weight += get_owner_weight(&env, &owner) as u64;
+
+        if tx.confirmation_weight >= get_threshold(&env) as u64 {
+            tx.status = TxStatus::Ready;
+            tx.execute_after = env.ledger().timestamp() + tx.delay;
+        }
+        set_tx(&env, &tx);
+
+        env.events()
+            .publish((symbol_short!("SigConf"),), (tx_id, owner));
+        Ok(())
+    }
+
+    /// Current off-chain signature nonce of an owner.
+    pub fn get_owner_nonce(env: Env, owner: Address) -> Result<u64, Error> {
+        ensure_initialized(&env)?;
+        require_owner(&env, &owner)?;
+        Ok(get_owner_nonce(&env, &owner))
+    }
+
+    // ── Batch execution ──────────────────────────────────────────────────────
+
+    /// Execute several `Ready` transactions whose delays have elapsed.
+    /// All-or-nothing: every id is validated before anything executes, so a
+    /// single unready transaction fails the whole batch without partial
+    /// effects. Returns the executed ids in order.
+    pub fn execute_batch(env: Env, caller: Address, tx_ids: Vec<u32>) -> Result<Vec<u32>, Error> {
+        ensure_initialized(&env)?;
+        caller.require_auth();
+        require_owner(&env, &caller)?;
+
+        let now = env.ledger().timestamp();
+        for tx_id in tx_ids.iter() {
+            let tx = get_tx(&env, tx_id)?;
+            if tx.status != TxStatus::Ready {
+                return Err(Error::WrongStatus);
+            }
+            if now < tx.execute_after {
+                return Err(Error::DelayNotElapsed);
+            }
+        }
+
+        let mut executed: Vec<u32> = Vec::new(&env);
+        for tx_id in tx_ids.iter() {
+            let mut tx = get_tx(&env, tx_id)?;
+            tx.status = TxStatus::Executed;
+            set_tx(&env, &tx);
+            env.events()
+                .publish((symbol_short!("Execute"),), (tx_id, caller.clone()));
+            executed.push_back(tx_id);
+        }
+        Ok(executed)
     }
 
     // ── Read-only queries ────────────────────────────────────────────────────
