@@ -5,9 +5,8 @@
 
 use super::*;
 use soroban_sdk::{
-    symbol_short,
     testutils::{Address as _, Events},
-    vec, Env, IntoVal, Symbol, TryFromVal,
+    Env,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -318,37 +317,6 @@ fn test_repay_emits_event() {
     assert_eq!(credit, 5);
 }
 
-fn setup_position(
-    env: &Env,
-    contract_id: &Address,
-    user: &Address,
-    deposited: i128,
-    borrowed: i128,
-) {
-    env.as_contract(contract_id, || {
-        set_position(
-            env,
-            user,
-            &UserPosition {
-                deposited,
-                borrowed,
-                last_updated: env.ledger().timestamp(),
-                credit_score: 0,
-            },
-        );
-        set_total_deposited(env, get_total_deposited(env) + deposited);
-        set_total_borrowed(env, get_total_borrowed(env) + borrowed);
-    });
-
-    let topic0 = Symbol::try_from_val(&env, &last_event.1.get(0).unwrap()).unwrap();
-    assert_eq!(topic0, symbol_short!("repayment"));
-    let topic1 = Address::try_from_val(&env, &last_event.1.get(1).unwrap()).unwrap();
-    assert_eq!(topic1, user);
-
-    let data = <(i128, i128)>::try_from_val(&env, &last_event.2).unwrap();
-    assert_eq!(data, (20i128, 5i128));
-}
-
 // ── Liquidate ─────────────────────────────────────────────────────────────────
 
 #[test]
@@ -358,7 +326,6 @@ fn test_liquidate_undercollateralised_position() {
     let liquidator = Address::generate(&env);
 
     // Setup 100 deposited, 100 borrowed → borrowed * 110 = 11000 > deposited * 100 = 10000.
-    setup_position(&env, &client.address, &user, 100, 100);
     // deposited=100, borrowed=100 → borrowed * 110 = 11000 > deposited * 100 = 10000.
     // borrow()'s own 150% check can never leave a position this thin, so
     // this is forced directly — see force_position's doc comment.
@@ -407,7 +374,6 @@ fn test_liquidate_exceeds_borrow_fails() {
     let user = Address::generate(&env);
     let liquidator = Address::generate(&env);
 
-    setup_position(&env, &client.address, &user, 100, 100);
     force_position(&env, &client.address, &user, 100, 100);
 
     // Try to liquidate more than the outstanding debt.
@@ -421,7 +387,6 @@ fn test_liquidate_zero_amount_fails() {
     let user = Address::generate(&env);
     let liquidator = Address::generate(&env);
 
-    setup_position(&env, &client.address, &user, 100, 100);
     force_position(&env, &client.address, &user, 100, 100);
 
     let result = client.try_liquidate(&liquidator, &user, &0);
@@ -434,7 +399,6 @@ fn test_liquidate_updates_pool_stats() {
     let user = Address::generate(&env);
     let liquidator = Address::generate(&env);
 
-    setup_position(&env, &client.address, &user, 100, 100);
     force_position(&env, &client.address, &user, 100, 100);
     client.liquidate(&liquidator, &user, &50);
 
