@@ -218,9 +218,9 @@ impl NftFractionalVault {
             || config.auction_duration == 0
             || config.min_increment_bps == 0
             || config.min_increment_bps > MAX_BPS
-            || config.name.len() == 0
+            || config.name.is_empty()
             || config.name.len() > MAX_METADATA_LEN
-            || config.symbol.len() == 0
+            || config.symbol.is_empty()
             || config.symbol.len() > MAX_METADATA_LEN
         {
             return Err(Error::InvalidConfig);
