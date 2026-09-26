@@ -15,7 +15,7 @@ pub enum DataKey {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IssuerInfo {
     pub name: String,
     pub verified: bool,
@@ -24,7 +24,7 @@ pub struct IssuerInfo {
 
 /// Immutable on-chain record of a carbon credit retirement.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RetirementRecord {
     pub id: u32,
     pub retiree: Address,
