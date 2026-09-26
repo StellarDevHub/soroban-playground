@@ -137,6 +137,9 @@ members = [
     "contracts/yield-farming",
     "contracts/yield-optimizer",
     "contracts/zk-verifier",
+    "crates/common-security",
+    "crates/common-math",
+    "crates/common-ttl",
 ]
 
 [profile.release]
