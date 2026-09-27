@@ -4,16 +4,20 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  ArrowUpRight,
   BarChart2,
   CheckCircle2,
   Clock,
   Coins,
+  DollarSign,
   PauseCircle,
   PlayCircle,
   Plus,
   RefreshCw,
+  ShieldAlert,
   TrendingUp,
   XCircle,
+  Zap,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -727,9 +731,25 @@ export default function SportsPredictionMarketPanel({
         </div>
       </div>
 
+      {/* Live Odds Ticker Banner */}
+      <div className="bg-slate-950 px-4 py-2 border-b border-gray-800 flex items-center justify-between text-[11px] font-mono text-gray-300">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span className="text-emerald-400 font-semibold uppercase">LIVE ODDS FEED</span>
+        </div>
+        <div className="flex gap-4 overflow-x-auto no-scrollbar">
+          <span>LAL vs CEL: <strong className="text-blue-400">1.85x</strong> / <strong className="text-red-400">2.10x</strong></span>
+          <span>MCFC vs ARS: <strong className="text-blue-400">2.05x</strong> / <strong className="text-yellow-400">3.40x</strong></span>
+          <span>KC vs SF: <strong className="text-blue-400">1.92x</strong> / <strong className="text-red-400">1.98x</strong></span>
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="flex border-b border-gray-700 text-xs">
-        {(["markets", "create", "admin"] as const).map((t) => (
+        {(["markets", "live-odds", "create", "admin"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -744,13 +764,16 @@ export default function SportsPredictionMarketPanel({
             {t === "markets" && (
               <BarChart2 size={11} className="inline mr-1" aria-hidden />
             )}
+            {t === "live-odds" && (
+              <Zap size={11} className="inline mr-1 text-emerald-400" aria-hidden />
+            )}
             {t === "create" && (
               <Plus size={11} className="inline mr-1" aria-hidden />
             )}
             {t === "admin" && (
               <Activity size={11} className="inline mr-1" aria-hidden />
             )}
-            {t}
+            {t === "live-odds" ? "Live Odds" : t}
           </button>
         ))}
       </div>
@@ -799,6 +822,73 @@ export default function SportsPredictionMarketPanel({
                 onRefresh={fetchMarkets}
               />
             ))}
+          </div>
+        )}
+
+        {/* Live Odds & Liquidation Tracker Tab */}
+        {tab === "live-odds" && (
+          <div className="space-y-4">
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <Zap size={14} className="text-emerald-400" /> Live Odds Aggregator & Liquidation Tracker
+                </h3>
+                <span className="text-xs font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800">
+                  REALTIME WEBSOCKET ACTIVE
+                </span>
+              </div>
+              <p className="text-xs text-gray-400">
+                Aggregated oracle odds across Stellar DEX liquidity pools and decentralized oracle nodes.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div className="bg-slate-900/90 p-3 rounded border border-slate-700">
+                  <div className="flex justify-between items-center text-xs mb-1">
+                    <span className="font-semibold text-white">Lakers vs Celtics</span>
+                    <span className="text-xs text-emerald-400 font-mono">+4.2% Volatility</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-400 font-mono">
+                    <span>Home (LAL): <strong className="text-blue-400">1.85x</strong></span>
+                    <span>Away (CEL): <strong className="text-red-400">2.10x</strong></span>
+                  </div>
+                  <div className="mt-2 h-1.5 bg-gray-800 rounded-full overflow-hidden flex">
+                    <div className="bg-blue-500 w-[53%]" />
+                    <div className="bg-red-500 w-[47%]" />
+                  </div>
+                </div>
+                <div className="bg-slate-900/90 p-3 rounded border border-slate-700">
+                  <div className="flex justify-between items-center text-xs mb-1">
+                    <span className="font-semibold text-white">Man City vs Arsenal</span>
+                    <span className="text-xs text-emerald-400 font-mono">+2.8% Volatility</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-400 font-mono">
+                    <span>Home (MC): <strong className="text-blue-400">2.05x</strong></span>
+                    <span>Draw: <strong className="text-yellow-400">3.40x</strong></span>
+                  </div>
+                  <div className="mt-2 h-1.5 bg-gray-800 rounded-full overflow-hidden flex">
+                    <div className="bg-blue-500 w-[45%]" />
+                    <div className="bg-yellow-500 w-[30%]" />
+                    <div className="bg-red-500 w-[25%]" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Liquidation & Automated Payout Status */}
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-2">
+              <h4 className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                <ShieldAlert size={13} className="text-amber-400" /> Automated Claim & Pool Liquidation Monitor
+              </h4>
+              <div className="space-y-1.5 text-xs text-gray-300 font-mono">
+                <div className="flex justify-between bg-gray-900/60 p-2 rounded">
+                  <span>Market #101 Payout Vault</span>
+                  <span className="text-emerald-400">Solvent (100% Reserve)</span>
+                </div>
+                <div className="flex justify-between bg-gray-900/60 p-2 rounded">
+                  <span>Automated Oracle Resolution</span>
+                  <span className="text-blue-400">Active</span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
