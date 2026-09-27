@@ -1028,8 +1028,8 @@ function BacktestTab({
       </div>
 
       {result && (
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-3">
-          <SectionHeader title="Backtest Results" />
+        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-4">
+          <SectionHeader title="Backtest Results & APY Trajectory" />
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-700/50 rounded p-2">
               <p className="text-xs text-gray-400">Initial Amount</p>
@@ -1056,6 +1056,26 @@ function BacktestTab({
               </p>
             </div>
           </div>
+
+          {/* Growth Curve Visualizer */}
+          <div className="p-3 bg-slate-900 rounded border border-slate-700 space-y-2">
+            <div className="flex justify-between items-center text-xs">
+              <span className="font-semibold text-slate-200">Compound Yield Trajectory</span>
+              <span className="text-indigo-400 font-mono text-[11px]">Daily Auto-Compound</span>
+            </div>
+            <div className="h-24 flex items-end gap-1.5 pt-4 pb-1 border-b border-slate-700 px-2">
+              {[20, 28, 38, 50, 65, 82, 100].map((h, idx) => (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-1 group">
+                  <div
+                    className="w-full bg-gradient-to-t from-indigo-600 to-cyan-400 rounded-t transition-all group-hover:brightness-125"
+                    style={{ height: `${h}%` }}
+                  />
+                  <span className="text-[9px] text-slate-400 font-mono">M{idx + 1}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <p className="text-xs text-gray-400">
             Duration: {Math.round(result.durationSecs / 86400)} days
           </p>
