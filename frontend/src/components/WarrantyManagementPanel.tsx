@@ -3,14 +3,18 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRightLeft,
   CheckCircle2,
   Clock,
+  FileText,
   Package,
   PauseCircle,
   PlayCircle,
   Plus,
+  QrCode,
   RefreshCw,
   Shield,
+  Upload,
   XCircle,
 } from "lucide-react";
 
@@ -600,6 +604,9 @@ function WarrantiesTab({
   });
   const [formErr, setFormErr] = useState<Partial<typeof form>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [qrModalWarranty, setQrModalWarranty] = useState<Warranty | null>(null);
+  const [transferingId, setTransferingId] = useState<number | null>(null);
+  const [newOwner, setNewOwner] = useState("");
 
   const lookup = useCallback(async () => {
     const id = Number(lookupId);
@@ -648,6 +655,26 @@ function WarrantiesTab({
       showToast((e as Error).message, false);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleTransfer(warrantyId: number) {
+    if (!newOwner.trim()) return showToast("Enter new owner address", false);
+    try {
+      await apiPost(`/api/warranty/warranties/${warrantyId}/transfer`, {
+        contractId,
+        from: walletAddress,
+        to: newOwner.trim(),
+        network,
+      });
+      showToast(`Warranty #${warrantyId} transferred successfully`);
+      setWarranties((ws) =>
+        ws.map((w) => (w.id === warrantyId ? { ...w, owner: newOwner.trim() } : w)),
+      );
+      setTransferingId(null);
+      setNewOwner("");
+    } catch (e: unknown) {
+      showToast((e as Error).message, false);
     }
   }
 
@@ -774,7 +801,7 @@ function WarrantiesTab({
           {warranties.map((w) => (
             <div
               key={w.id}
-              className="bg-gray-800 border border-gray-700 rounded-lg p-3 space-y-1"
+              className="bg-gray-800 border border-gray-700 rounded-lg p-3 space-y-2"
             >
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-white">
@@ -788,8 +815,79 @@ function WarrantiesTab({
                 Purchased: {formatTs(w.purchaseTs)} · Expires:{" "}
                 {formatTs(w.expiryTs)}
               </p>
+              <div className="flex gap-2 pt-2 border-t border-gray-700">
+                <button
+                  onClick={() => setQrModalWarranty(w)}
+                  className="flex items-center gap-1 text-xs bg-indigo-900/50 hover:bg-indigo-900 border border-indigo-700 text-indigo-300 px-2.5 py-1 rounded transition-colors"
+                >
+                  <QrCode size={12} /> Verify QR
+                </button>
+                <button
+                  onClick={() => setTransferingId(transferingId === w.id ? null : w.id)}
+                  className="flex items-center gap-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-2.5 py-1 rounded transition-colors"
+                >
+                  <ArrowRightLeft size={12} /> Transfer
+                </button>
+              </div>
+
+              {/* Transfer Form Inline */}
+              {transferingId === w.id && (
+                <div className="p-3 bg-gray-900/80 rounded border border-gray-700 space-y-2 mt-2">
+                  <p className="text-xs font-semibold text-gray-300">Transfer Warranty #{w.id}</p>
+                  <input
+                    value={newOwner}
+                    onChange={(e) => setNewOwner(e.target.value)}
+                    placeholder="New Owner Address (G...)"
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-2.5 py-1 text-xs text-white"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleTransfer(w.id)}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded text-xs font-medium"
+                    >
+                      Confirm Transfer
+                    </button>
+                    <button
+                      onClick={() => setTransferingId(null)}
+                      className="bg-gray-700 text-gray-300 px-3 py-1 rounded text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* QR Code Modal */}
+      {qrModalWarranty && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 max-w-sm w-full text-center space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center justify-center gap-2">
+              <QrCode className="text-indigo-400" /> On-Chain QR Verification
+            </h3>
+            <div className="bg-white p-4 rounded-lg inline-block mx-auto border-4 border-indigo-500">
+              {/* Simulated QR matrix visual */}
+              <div className="w-40 h-40 bg-slate-900 rounded flex flex-col items-center justify-center text-white p-2 font-mono text-[10px] break-all leading-tight">
+                <span className="text-indigo-400 font-bold mb-1">[STELLAR W-QR]</span>
+                <span>WID:{qrModalWarranty.id}</span>
+                <span>PID:{qrModalWarranty.productId}</span>
+                <span>SN:{qrModalWarranty.serialNumber}</span>
+                <span className="text-green-400 mt-2">✓ VERIFIED</span>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">
+              Scan with any Soroban verifier camera to validate ownership & expiry.
+            </p>
+            <button
+              onClick={() => setQrModalWarranty(null)}
+              className="w-full bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded font-medium"
+            >
+              Close Verifier
+            </button>
+          </div>
         </div>
       )}
     </div>
