@@ -37,6 +37,17 @@ const Editor = dynamic(() => import("@/components/Editor"), {
     </div>
   ),
 });
+const TransactionCallGraphPanel = dynamic(
+  () => import("@/components/TransactionCallGraph"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-2xl border border-white/8 bg-white/5 p-4 text-xs text-slate-400">
+        Loading transaction call graph…
+      </div>
+    ),
+  },
+);
 import Console from "@/components/Console";
 import { ConsoleAndEventsDrawer } from "@/components/ConsoleAndEventsDrawer";
 import DeployPanel from "@/components/DeployPanel";

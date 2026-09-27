@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Code2, Terminal } from "lucide-react";
+import SplitPane from "@/components/layout/SplitPane";
 
 interface MobileEditorProps {
   editor: React.ReactNode;
@@ -18,10 +19,19 @@ export default function MobileEditor({ editor, output }: MobileEditorProps) {
 
   return (
     <>
-      {/* Desktop: render children in the existing grid layout */}
-      <div className="hidden lg:contents">
-        {editor}
-        {output}
+      {/* Desktop: adjustable, draggable split-pane container */}
+      <div className="hidden lg:block">
+        <SplitPane
+          direction="horizontal"
+          defaultSize={760}
+          minSize={420}
+          maxSize={1100}
+          storageKey="soroban.playground.split.editor-output"
+          label="Resize editor and output panels"
+          className="h-[calc(100vh-13rem)] min-h-[620px]"
+          first={editor}
+          second={<div className="h-full overflow-y-auto">{output}</div>}
+        />
       </div>
 
       {/* Mobile / Tablet: tabbed layout */}

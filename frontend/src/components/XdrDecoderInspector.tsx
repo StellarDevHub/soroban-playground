@@ -14,7 +14,7 @@ import {
   Zap,
   RefreshCw,
   Layers,
-  ArrowRightLeft,
+  ArrowRightLeft
 } from "lucide-react";
 
 export interface XdrDecoderInspectorProps {
@@ -44,23 +44,23 @@ const SAMPLE_XDRS = [
   {
     name: "ScVal (Symbol: 'hello')",
     type: "ScVal" as const,
-    xdr: "AAAAEAAAAAVoZWxsbw==",
+    xdr: "AAAAEAAAAAVoZWxsbw=="
   },
   {
     name: "ScVal (U32: 100)",
     type: "ScVal" as const,
-    xdr: "AAAAAwAAAAZkZWZhdWx0AAAAAA==",
+    xdr: "AAAAAwAAAAZkZWZhdWx0AAAAAA=="
   },
   {
     name: "ScVal (Vec of Symbols)",
     type: "ScVal" as const,
-    xdr: "AAAAEAAAAAEAAAAQAAAAA3N1Yw==",
+    xdr: "AAAAEAAAAAEAAAAQAAAAA3N1Yw=="
   },
   {
     name: "LedgerKey (Contract Data)",
     type: "LedgerKey" as const,
-    xdr: "AAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAEAAAAEaW5pdAAAAA==",
-  },
+    xdr: "AAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAEAAAAEaW5pdAAAAA=="
+  }
 ];
 
 function safeReplacer(_key: string, value: any) {
@@ -121,15 +121,12 @@ export default function XdrDecoderInspector({
               try {
                 nativeVal = scValToNative(scval);
               } catch {
-                nativeVal = (scval as any).arm();
+                nativeVal = { arm: scval.switch().name };
               }
               break;
             }
             case "TransactionEnvelope": {
-              decodedObj = xdr.TransactionEnvelope.fromXDR(
-                cleanInput,
-                "base64",
-              );
+              decodedObj = xdr.TransactionEnvelope.fromXDR(cleanInput, "base64");
               nativeVal = decodedObj.toJSON();
               break;
             }
@@ -175,11 +172,10 @@ export default function XdrDecoderInspector({
         nativeValue: null,
         rawXdrObject: null,
         jsonString: "",
-        error:
-          "Failed to decode base64 XDR string. Please verify input and selected type.",
+        error: "Failed to decode base64 XDR string. Please verify input and selected type.",
       };
     },
-    [],
+    []
   );
 
   const decodeResult = useMemo(() => {
@@ -212,34 +208,25 @@ export default function XdrDecoderInspector({
       return <span className="text-gray-500 italic">undefined</span>;
     }
     if (typeof data === "boolean") {
-      return (
-        <span className="text-purple-400 font-semibold">
-          {data ? "true" : "false"}
-        </span>
-      );
+      return <span className="text-purple-400 font-semibold">{data ? "true" : "false"}</span>;
     }
     if (typeof data === "number" || typeof data === "bigint") {
       return <span className="text-amber-300 font-mono">{String(data)}</span>;
     }
     if (typeof data === "string") {
-      if (
-        filterQuery &&
-        data.toLowerCase().includes(filterQuery.toLowerCase())
-      ) {
+      if (filterQuery && data.toLowerCase().includes(filterQuery.toLowerCase())) {
         return (
           <span className="text-emerald-300 bg-emerald-950/80 px-1 rounded font-mono">
             &quot;{data}&quot;
           </span>
         );
       }
-      return (
-        <span className="text-emerald-400 font-mono">&quot;{data}&quot;</span>
-      );
+      return <span className="text-emerald-400 font-mono">&quot;{data}&quot;</span>;
     }
 
     if (Array.isArray(data)) {
       if (data.length === 0) return <span className="text-gray-400">[]</span>;
-      const isExpanded = expandedKeys[path] ?? depth < 2;
+      const isExpanded = expandedKeys[path] ?? (depth < 2);
 
       return (
         <div className="inline-block w-full">
@@ -248,11 +235,7 @@ export default function XdrDecoderInspector({
             onClick={() => toggleExpand(path)}
             className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-mono text-xs cursor-pointer focus:outline-none"
           >
-            {isExpanded ? (
-              <ChevronDown size={14} />
-            ) : (
-              <ChevronRight size={14} />
-            )}
+            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             <span className="text-gray-400">Array({data.length})</span>
           </button>
 
@@ -260,9 +243,7 @@ export default function XdrDecoderInspector({
             <div className="pl-4 border-l border-cyan-900/40 my-1 space-y-1">
               {data.map((item, idx) => (
                 <div key={`${path}-${idx}`} className="flex items-start gap-2">
-                  <span className="text-slate-500 text-xs font-mono">
-                    {idx}:
-                  </span>
+                  <span className="text-slate-500 text-xs font-mono">{idx}:</span>
                   {renderJsonTree(item, `${path}[${idx}]`, depth + 1)}
                 </div>
               ))}
@@ -274,9 +255,8 @@ export default function XdrDecoderInspector({
 
     if (typeof data === "object") {
       const keys = Object.keys(data);
-      if (keys.length === 0)
-        return <span className="text-gray-400">{"{}"}</span>;
-      const isExpanded = expandedKeys[path] ?? depth < 2;
+      if (keys.length === 0) return <span className="text-gray-400">{"{}"}</span>;
+      const isExpanded = expandedKeys[path] ?? (depth < 2);
 
       return (
         <div className="inline-block w-full">
@@ -285,15 +265,9 @@ export default function XdrDecoderInspector({
             onClick={() => toggleExpand(path)}
             className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-mono text-xs cursor-pointer focus:outline-none"
           >
-            {isExpanded ? (
-              <ChevronDown size={14} />
-            ) : (
-              <ChevronRight size={14} />
-            )}
+            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             <span className="text-slate-300 font-medium">Object</span>
-            <span className="text-slate-500 text-[11px]">
-              ({keys.length} keys)
-            </span>
+            <span className="text-slate-500 text-[11px]">({keys.length} keys)</span>
           </button>
 
           {isExpanded && (
@@ -301,8 +275,7 @@ export default function XdrDecoderInspector({
               {keys.map((key) => {
                 const subPath = `${path}.${key}`;
                 const keyMatches =
-                  filterQuery &&
-                  key.toLowerCase().includes(filterQuery.toLowerCase());
+                  filterQuery && key.toLowerCase().includes(filterQuery.toLowerCase());
 
                 return (
                   <div key={subPath} className="flex items-start gap-2 text-xs">
@@ -315,9 +288,7 @@ export default function XdrDecoderInspector({
                     >
                       {key}:
                     </span>
-                    <div className="flex-1">
-                      {renderJsonTree(data[key], subPath, depth + 1)}
-                    </div>
+                    <div className="flex-1">{renderJsonTree(data[key], subPath, depth + 1)}</div>
                   </div>
                 );
               })}
@@ -346,8 +317,7 @@ export default function XdrDecoderInspector({
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              Decode base64 XDR return values, diagnostic events, and ledger
-              keys in real time
+              Decode base64 XDR return values, diagnostic events, and ledger keys in real time
             </p>
           </div>
         </div>
@@ -458,11 +428,7 @@ export default function XdrDecoderInspector({
                   onClick={() => handleCopy(xdrInput, false)}
                   className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition flex items-center gap-1"
                 >
-                  {copiedRaw ? (
-                    <Check size={12} className="text-emerald-400" />
-                  ) : (
-                    <Copy size={12} />
-                  )}
+                  {copiedRaw ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
                   Copy XDR
                 </button>
                 <button
@@ -470,11 +436,7 @@ export default function XdrDecoderInspector({
                   onClick={() => handleCopy(decodeResult.jsonString, true)}
                   className="px-2.5 py-1 text-xs bg-cyan-600 hover:bg-cyan-500 font-medium text-slate-950 rounded-lg transition shadow-md shadow-cyan-600/20 flex items-center gap-1"
                 >
-                  {copiedJson ? (
-                    <Check size={12} className="text-slate-950" />
-                  ) : (
-                    <Copy size={12} />
-                  )}
+                  {copiedJson ? <Check size={12} className="text-slate-950" /> : <Copy size={12} />}
                   Copy JSON
                 </button>
               </div>
@@ -507,14 +469,8 @@ export default function XdrDecoderInspector({
               </div>
             ) : decodeResult.nativeValue === null ? (
               <div className="flex flex-col items-center justify-center h-48 text-center text-slate-500">
-                <RefreshCw
-                  size={24}
-                  className="mb-2 opacity-40 animate-pulse"
-                />
-                <p className="text-xs">
-                  Enter or paste a base64 XDR string on the left to inspect
-                  decoded details.
-                </p>
+                <RefreshCw size={24} className="mb-2 opacity-40 animate-pulse" />
+                <p className="text-xs">Enter or paste a base64 XDR string on the left to inspect decoded details.</p>
               </div>
             ) : (
               <div className="font-mono text-xs">

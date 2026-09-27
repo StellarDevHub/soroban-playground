@@ -393,4 +393,6 @@ fn calculate_utilization_rate(total_deposited: i128, total_borrowed: i128) -> i1
 }
 
 #[cfg(test)]
+mod proptest;
+#[cfg(test)]
 mod test;

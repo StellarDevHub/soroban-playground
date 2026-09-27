@@ -1,9 +1,17 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { ChevronRight, DollarSign } from "lucide-react";
 import Link from "next/link";
-import StablecoinDashboard from "../../components/StablecoinDashboard";
+
+// Chart.js is deferred into its own chunk and only requested when this route renders.
+const StablecoinDashboard = dynamic(() => import("../../components/StablecoinDashboard"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-72 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
+  ),
+});
 
 interface StablecoinMetrics {
   totalSupply: string;

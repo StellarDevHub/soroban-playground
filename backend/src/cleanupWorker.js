@@ -8,6 +8,7 @@ import {
   getCompileTempRoot,
   getCompileTempPrefix,
 } from './services/buildSandbox.js';
+import { enforceQuota, getUsage } from './services/diskQuotaManager.js';
 
 const CLEANUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const OLD_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
@@ -99,11 +100,35 @@ async function cleanupTempDirectories() {
   const tempRoot = getCompileTempRoot();
   if (fs.existsSync(tempRoot)) {
     await scanAndCleanupDir(tempRoot);
+
+    // Issue #1570: the age sweep above cannot prevent disk exhaustion on its
+    // own. If builds arrive faster than OLD_THRESHOLD_MS, every workspace is
+    // younger than the threshold, the sweep deletes nothing, and the disk
+    // fills anyway. The quota pass runs second and evicts by total size —
+    // oldest-first, regardless of age — so it only has work to do once the
+    // age sweep has already reclaimed what it can.
+    try {
+      await enforceQuota({ tempRoot });
+    } catch (err) {
+      // Never fatal: a failed quota pass must not stop the interval timer and
+      // leave the age sweep unscheduled too.
+      console.error(`Quota enforcement failed: ${err.message}`);
+    }
   } else {
     console.warn(`Compile temp root does not exist: ${tempRoot}`);
   }
 
   console.log('Temporary directory cleanup finished.');
+}
+
+/**
+ * Current compile-temp usage against the configured quota (Issue #1570).
+ *
+ * Exported for the health endpoint: disk pressure is invisible until a build
+ * fails with ENOSPC, and by then the useful diagnostic window has closed.
+ */
+export async function getTempDiskUsage() {
+  return getUsage(getCompileTempRoot());
 }
 
 export function stopCleanupWorker() {

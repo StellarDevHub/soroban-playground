@@ -649,10 +649,90 @@ export async function applyPendingMigrationsPhased(
 }
 
 /**
+ * Verifies that all required tables exist in the database schema.
+ */
+export async function verifyKnexSchemaIntegrity(knex) {
+  const expectedTables = [
+    'users',
+    'organizations',
+    'api_keys',
+    'rate_limit_usage',
+    'tier_limits',
+    'audit_log',
+    'synthetic_assets',
+    'positions',
+    'cors_whitelist',
+    'webhook_subscriptions',
+    'webhook_deliveries',
+    'contract_events',
+    'contract_event_cursor',
+    'contract_verification',
+  ];
+
+  const missingTables = [];
+  for (const table of expectedTables) {
+    const exists = await knex.schema.hasTable(table);
+    if (!exists) missingTables.push(table);
+  }
+
+  if (missingTables.length > 0) {
+    throw new Error(
+      `Schema integrity check failed. Missing expected tables: ${missingTables.join(', ')}`
+    );
+  }
+
+  return { valid: true, tablesChecked: expectedTables.length };
+}
+
+/**
+ * Executes automated Knex migrations on startup with distributed migration locking
+ * and schema integrity verification.
+ */
+export async function runKnexStartupMigrations(customKnex = null) {
+  const env = process.env.NODE_ENV || 'development';
+  const { default: knexConfig } = await import('../../knexfile.js');
+  const { default: knexLib } = await import('knex');
+  const config = knexConfig[env] || knexConfig.development;
+  const knex = customKnex || knexLib(config);
+  const createdInstance = !customKnex;
+
+  try {
+    console.log('[Migrations] Running Knex startup migrations with distributed locking...');
+    const [batchNo, log] = await knex.migrate.latest();
+    console.log(
+      `[Migrations] Startup migrations complete. Batch ${batchNo}: ${log.length} migration(s) applied.`
+    );
+
+    const integrity = await verifyKnexSchemaIntegrity(knex);
+    console.log('[Migrations] Schema integrity verified successfully.');
+
+    return {
+      success: true,
+      batchNo,
+      appliedMigrations: log,
+      integrity,
+    };
+  } catch (err) {
+    console.error('[Migrations] Startup migration failed:', err.message);
+    throw err;
+  } finally {
+    if (createdInstance) {
+      await knex.destroy().catch(() => {});
+    }
+  }
+}
+
+/**
  * Initialises the migration tracking table and applies all pending migrations.
  * Intended to be called at server startup before the HTTP server begins listening.
  */
-export async function runStartupMigrations() {
-  await initializeMigrationService();
-  return applyPendingMigrations({ dryRun: false });
+export async function runStartupMigrations(customKnex = null) {
+  try {
+    return await runKnexStartupMigrations(customKnex);
+  } catch (err) {
+    console.warn('[Migrations] Knex startup migration fallback to legacy runner:', err.message);
+    await initializeMigrationService().catch(() => {});
+    return applyPendingMigrations({ dryRun: false });
+  }
 }
+

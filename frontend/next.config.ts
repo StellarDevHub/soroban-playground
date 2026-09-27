@@ -94,6 +94,20 @@ const nextConfig: NextConfig = {
               priority: 30,
               enforce: true,
             },
+            chartJs: {
+              test: /[\\/]node_modules[\\/](@kurkle|chart\.js|react-chartjs-2)[\\/]/,
+              name: "chartjs",
+              chunks: "all",
+              priority: 30,
+              enforce: true,
+            },
+            flowDiagram: {
+              test: /[\\/]node_modules[\\/](reactflow|@reactflow)[\\/]/,
+              name: "reactflow",
+              chunks: "all",
+              priority: 29,
+              enforce: true,
+            },
           },
         },
       };

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
@@ -34,6 +34,7 @@ import {
   ChevronDown,
   LayoutGrid,
   Search,
+  FileCode2,
 } from "lucide-react";
 
 type NavItem = {
@@ -61,6 +62,7 @@ const NAVIGATION: NavGroup[] = [
       { name: "Search Utility", href: "/search", icon: Search },
       { name: "Ledger Migration", href: "/migration", icon: Send },
       { name: "XDR Inspector", href: "/xdr-decoder", icon: Code2 },
+      { name: "WASM Inspector", href: "/wasm-inspector", icon: FileCode2 },
       { name: "Rate Limits", href: "/rate-limits", icon: Sliders },
     ],
   },
@@ -130,6 +132,102 @@ export default function SidebarShell({
     },
   );
 
+  const drawerRef = useRef<HTMLElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const touchStartRef = useRef<{ x: number; y: number; at: number } | null>(null);
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  const closeDrawer = useCallback(() => {
+    setIsOpen(false);
+    hamburgerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(query.matches);
+    const onChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeDrawer();
+        return;
+      }
+      if (event.key !== "Tab" || !drawerRef.current) return;
+
+      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isOpen, closeDrawer]);
+
+  // Touch: swipe left on the drawer to dismiss it.
+  const handleTouchStart = (event: React.TouchEvent) => {
+    const touch = event.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+  };
+
+  const handleDrawerTouchEnd = (event: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+
+    if (Date.now() - start.at < 600 && deltaX < -60 && Math.abs(deltaY) < 50) {
+      closeDrawer();
+    }
+  };
+
+  // Touch: swipe right from the left screen edge to open the drawer.
+  const handleSurfaceTouchEnd = (event: React.TouchEvent) => {
+    if (isOpen) return;
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+
+    if (
+      start.x <= 28 &&
+      Date.now() - start.at < 600 &&
+      deltaX > 60 &&
+      Math.abs(deltaY) < 60
+    ) {
+      setIsOpen(true);
+      window.requestAnimationFrame(() => drawerRef.current?.focus());
+    }
+  };
+
   const toggleGroup = useCallback((groupName: string) => {
     setExpandedGroups((prev) => ({ ...prev, [groupName]: !prev[groupName] }));
   }, []);
@@ -159,6 +257,8 @@ export default function SidebarShell({
     <div
       className="flex min-h-screen bg-[#060c18] text-[#e6edf7] font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200"
       suppressHydrationWarning
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleSurfaceTouchEnd}
     >
       {/* Background Gradients */}
       <div
@@ -186,6 +286,7 @@ export default function SidebarShell({
 
       {/* Desktop Sidebar */}
       <aside
+        data-tour="sidebar"
         className={`fixed inset-y-0 left-0 z-20 hidden md:flex flex-col bg-slate-950/80 border-r border-slate-800/60 backdrop-blur-xl transition-all duration-300 ${
           collapsed ? "w-20" : "w-64"
         }`}
@@ -348,8 +449,22 @@ export default function SidebarShell({
 
       {/* Mobile Sidebar Drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950/90 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col md:hidden transition-transform duration-300 ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
+        ref={drawerRef}
+        id="mobile-navigation-drawer"
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleDrawerTouchEnd}
+        className={`fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] bg-slate-950/95 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col outline-none md:hidden ${
+          reducedMotion
+            ? isOpen
+              ? "translate-x-0"
+              : "-translate-x-full"
+            : `transition-transform duration-300 ${
+                isOpen ? "translate-x-0" : "-translate-x-full"
+              }`
         }`}
         suppressHydrationWarning
       >
@@ -367,8 +482,9 @@ export default function SidebarShell({
             </span>
           </Link>
           <button
-            onClick={() => setIsOpen(false)}
-            className="p-1 rounded-lg text-slate-400 hover:bg-white/5"
+            onClick={closeDrawer}
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg text-slate-400 hover:bg-white/5"
+            aria-label="Close navigation menu"
           >
             <X size={18} />
           </button>
@@ -394,8 +510,8 @@ export default function SidebarShell({
                     <Link
                       key={item.name}
                       href={item.href}
-                      onClick={() => setIsOpen(false)}
-                      className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium border border-transparent transition-all ${
+                      onClick={closeDrawer}
+                      className={`flex items-center gap-3 min-h-[44px] px-3 py-2 rounded-xl text-xs font-medium border border-transparent transition-all ${
                         active
                           ? "bg-teal-500/10 border-teal-500/20 text-teal-300"
                           : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
@@ -468,9 +584,13 @@ export default function SidebarShell({
         >
           <div className="flex items-center gap-3" suppressHydrationWarning>
             <button
+              ref={hamburgerRef}
               onClick={() => setIsOpen(true)}
-              className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-white/5 md:hidden"
-              aria-label="Open sidebar menu"
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] -ml-2 rounded-lg text-slate-400 hover:bg-white/5 md:hidden"
+              aria-label="Open navigation menu"
+              aria-expanded={isOpen}
+              aria-controls="mobile-navigation-drawer"
+              data-tour="hamburger"
             >
               <Menu size={20} />
             </button>
@@ -489,7 +609,7 @@ export default function SidebarShell({
             </div>
           </div>
 
-          <div className="flex items-center gap-3" suppressHydrationWarning>
+          <div className="flex items-center gap-3" data-tour="wallet" suppressHydrationWarning>
             {/* Network indicator */}
             {wallet.status === "connected" && wallet.network && (
               <span className="hidden xs:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-[10px] font-semibold tracking-wider uppercase">
@@ -530,7 +650,9 @@ export default function SidebarShell({
         </header>
 
         {/* Dynamic Children Panel */}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1" data-tour="main">
+          {children}
+        </main>
       </div>
     </div>
   );

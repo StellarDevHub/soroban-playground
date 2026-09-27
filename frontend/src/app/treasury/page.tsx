@@ -1,10 +1,21 @@
-"use client";
+﻿"use client";
 
 import React from "react";
-import { Dashboard } from "../../components/treasury/Dashboard";
+import dynamic from "next/dynamic";
 import { TransactionList } from "../../components/treasury/TransactionList";
 import { ProposalForm } from "../../components/treasury/ProposalForm";
 import { Wallet } from "lucide-react";
+
+// Chart.js lives in its own chunk and is only fetched once this route mounts.
+const Dashboard = dynamic(
+  () => import("../../components/treasury/Dashboard").then((module) => module.Dashboard),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-64 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
+    ),
+  },
+);
 
 export default function TreasuryPage() {
   return (

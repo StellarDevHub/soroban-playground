@@ -317,6 +317,29 @@ fn test_repay_emits_event() {
     assert_eq!(credit, 5);
 }
 
+fn setup_position(
+    env: &Env,
+    contract_id: &Address,
+    user: &Address,
+    deposited: i128,
+    borrowed: i128,
+) {
+    env.as_contract(contract_id, || {
+        set_position(
+            env,
+            user,
+            &UserPosition {
+                deposited,
+                borrowed,
+                last_updated: env.ledger().timestamp(),
+                credit_score: 0,
+            },
+        );
+        set_total_deposited(env, get_total_deposited(env) + deposited);
+        set_total_borrowed(env, get_total_borrowed(env) + borrowed);
+    });
+}
+
 // ── Liquidate ─────────────────────────────────────────────────────────────────
 
 #[test]

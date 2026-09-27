@@ -7,6 +7,7 @@ import {
   addSpanEvent,
   injectTraceContext,
 } from '../utils/tracing.js';
+import { recordTamperEvidentAuditLog } from './tamperEvidentAuditLogger.js';
 import { spawnTracked, terminateChildProcess } from './childProcessManager.js';
 
 const MAX_CONCURRENT = Number.parseInt(process.env.INVOKE_POOL_SIZE || '3', 10);
@@ -325,6 +326,16 @@ export async function invokeSorobanContract(request, { signal } = {}) {
             });
 
             if (code === 0) {
+              recordTamperEvidentAuditLog({
+                action: 'contract_invoke',
+                contractId: request.contractId,
+                functionName: request.functionName,
+                ledgerSequence: request.ledgerSequence || request.ledger_sequence || output.parsed?.ledgerSequence || 100,
+                sessionId: request.sessionId || request.session_id || request.requestId || 'sess-invoke',
+                userId: request.userId || request.user_id,
+                metadata: { args: request.args },
+              }).catch(() => {});
+
               emit('success', output.parsed ?? output.raw);
               complete(null, baseResult);
               return;
