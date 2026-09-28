@@ -1,0 +1,26 @@
+{
+  "name": "Stellar Soroban Playground",
+  "short_name": "Soroban PG",
+  "description": "Compile, deploy and invoke Soroban smart contracts on Stellar, online or off.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "categories": ["developer", "productivity"],
+  "icons": [
+    {
+      "src": "/next.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/globe.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

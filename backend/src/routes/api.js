@@ -1,5 +1,6 @@
 import warrantyRoutes from './warranty.js';
 import favoritesRoutes from './favorites.js';
+import workspaceRoutes from './workspace.js';
 import searchRoutes from './search.js';
 import projectsRoutes from './projects.js';
 import express from 'express';
@@ -138,6 +139,7 @@ router.use('/music-licensing', musicLicensingRoutes);
 
 router.use('/warranty', warrantyRoutes);
 router.use('/favorites', favoritesRoutes);
+router.use('/workspace', workspaceRoutes);
 router.use('/projects', projectsRoutes);
 
 import sorobanRpcManager from '../services/sorobanRpcManager.js';

@@ -6,6 +6,10 @@ import { usePathname } from "next/navigation";
 import { useFreighterWallet } from "@/hooks/useFreighterWallet";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
 import {
+  Menu,
+  X,
+  Compass,
+  ChevronDown,
   Code2,
   BookOpen,
   Coins,
@@ -28,86 +32,71 @@ import {
   Trophy,
   Target,
   Orbit,
-  Menu,
-  X,
-  Compass,
   Zap,
-  ChevronDown,
   LayoutGrid,
   Search,
   FileCode2,
+  Gauge,
+  FlaskConical,
+  Landmark,
+  KeyRound,
+  CloudOff,
 } from "lucide-react";
+import {
+  NAVIGATION as NAVIGATION_SOURCE,
+  type NavigationIconKey,
+} from "@/lib/navigation";
 
-type NavItem = {
-  name: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
-  badge?: string;
+/** Resolves the icon keys held in `@/lib/navigation` to lucide components. */
+const ICONS: Record<
+  NavigationIconKey,
+  React.ComponentType<{ className?: string; size?: number }>
+> = {
+  code: Code2,
+  zap: Zap,
+  "layout-grid": LayoutGrid,
+  book: BookOpen,
+  shield: Shield,
+  database: Database,
+  search: Search,
+  send: Send,
+  "file-code": FileCode2,
+  sliders: Sliders,
+  coins: Coins,
+  boxes: Boxes,
+  waves: Waves,
+  "trending-up": TrendingUp,
+  activity: Activity,
+  users: Users,
+  fingerprint: Fingerprint,
+  wallet: Wallet,
+  "alert-triangle": AlertTriangle,
+  building: Building2,
+  "file-text": FileText,
+  music: Music,
+  globe: Globe,
+  trophy: Trophy,
+  target: Target,
+  orbit: Orbit,
+  compass: Compass,
+  gauge: Gauge,
+  flask: FlaskConical,
+  landmark: Landmark,
+  key: KeyRound,
+  "cloud-off": CloudOff,
 };
 
-type NavGroup = {
-  groupName: string;
-  items: NavItem[];
-};
-
-const NAVIGATION: NavGroup[] = [
-  {
-    groupName: "Core IDE & Ops",
-    items: [
-      { name: "IDE Playground", href: "/playground", icon: Code2 },
-      { name: "Compile Dashboard", href: "/compile-dashboard", icon: Zap },
-      { name: "Template Library", href: "/template-library", icon: LayoutGrid },
-      { name: "Docs & Reference", href: "/docs", icon: BookOpen },
-      { name: "Audit Explorer", href: "/audit", icon: Shield },
-      { name: "Storage Browser", href: "/storage-browser", icon: Database },
-      { name: "Search Utility", href: "/search", icon: Search },
-      { name: "Ledger Migration", href: "/migration", icon: Send },
-      { name: "XDR Inspector", href: "/xdr-decoder", icon: Code2 },
-      { name: "WASM Inspector", href: "/wasm-inspector", icon: FileCode2 },
-      { name: "Rate Limits", href: "/rate-limits", icon: Sliders },
-    ],
-  },
-  {
-    groupName: "DeFi Suite",
-    items: [
-      { name: "Synthetic Assets", href: "/", icon: Coins },
-      { name: "Limit Order Book", href: "/orderbook", icon: Boxes },
-      { name: "Stablecoin Peg", href: "/stablecoin", icon: Waves },
-      { name: "Yield Optimizer", href: "/yield-optimizer", icon: TrendingUp },
-      { name: "NFT AMM Pool", href: "/nft-amm", icon: Activity },
-    ],
-  },
-  {
-    groupName: "Governance & Trust",
-    items: [
-      { name: "Governance Portal", href: "/governance/history", icon: Users },
-      {
-        name: "Quadratic Voting",
-        href: "/quadratic-voting",
-        icon: Fingerprint,
-      },
-      { name: "Treasury Panel", href: "/treasury", icon: Wallet },
-      { name: "Bug Bounty Program", href: "/bug-bounty", icon: AlertTriangle },
-    ],
-  },
-  {
-    groupName: "Real World Assets",
-    items: [
-      { name: "Tokenized REIT", href: "/reit", icon: Building2 },
-      { name: "Patent Registry", href: "/patents", icon: FileText },
-      { name: "Music Licensing", href: "/music-licensing", icon: Music },
-      { name: "Data Marketplace", href: "/data-marketplace", icon: Database },
-      { name: "Content Publishing", href: "/content-publishing", icon: Globe },
-    ],
-  },
-  {
-    groupName: "Gaming & Sports",
-    items: [
-      { name: "Sports Dashboard", href: "/sports", icon: Trophy },
-      { name: "Sports Prediction", href: "/sports-prediction", icon: Target },
-    ],
-  },
-];
+/**
+ * Drawer-visible routes, with icons bound. The shared model in
+ * `@/lib/navigation` also carries sub-pages that are reachable by drilling
+ * down; those stay out of the drawer but remain searchable in the palette.
+ */
+const NAVIGATION = NAVIGATION_SOURCE.map((group) => ({
+  groupName: group.groupName,
+  items: group.items
+    .filter((item) => !item.hiddenInSidebar)
+    .map((item) => ({ ...item, icon: ICONS[item.icon] })),
+}));
 
 const formatAddress = (addr: string | null) => {
   if (!addr) return "";
@@ -144,7 +133,13 @@ export default function SidebarShell({
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    // Feature-detect: `matchMedia` is missing in older browsers and in the
+    // jsdom test environment, and the sidebar must not throw on mount when the
+    // motion preference cannot be read. Skeletons degrade via CSS
+    // `prefers-reduced-motion` anyway, so a false default is harmless.
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     setReducedMotion(query.matches);
     const onChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
@@ -611,6 +606,19 @@ export default function SidebarShell({
           </div>
 
           <div className="flex items-center gap-3" data-tour="wallet" suppressHydrationWarning>
+            {/*
+              #1527 — the palette has no button of its own, so the shortcut has
+              to be advertised. `⌘K` on Apple platforms, `Ctrl K` elsewhere; the
+              provider binds both and toggles on the same gesture.
+            */}
+            <span
+              data-testid="command-palette-hint"
+              className="hidden items-center gap-1 rounded-lg border border-slate-700/40 bg-slate-800/60 px-1.5 py-1 text-[10px] font-semibold tracking-wider text-slate-500"
+            >
+              <Search size={10} />
+              <kbd className="font-sans">K</kbd>
+            </span>
+
             {/* Light / dark / system theme control */}
             <ThemeSwitcher />
 

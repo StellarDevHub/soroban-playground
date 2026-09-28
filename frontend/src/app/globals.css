@@ -206,6 +206,209 @@ a {
   color: hsl(var(--code-operator));
 }
 
+/* ==========================================================================
+   Micro-animations & content-aware skeletons (issue #1529)
+   --------------------------------------------------------------------------
+   One grammar for every loading state and every in-place content swap:
+
+     .skeleton-block   the placeholder shape
+     .skeleton-shimmer the sweep across it
+     .layout-enter     fade + 4px rise
+     .layout-pop       fade + slight scale-up
+     .layout-fade      opacity only
+     .layout-stagger   per-child rise, offset by [data-stagger]
+
+   Everything animates `transform` / `opacity` only (compositor-friendly, no
+   layout thrash) and the whole layer is switched off under
+   `prefers-reduced-motion: reduce` at the bottom of this file.
+   ========================================================================== */
+
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --motion-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --skeleton-base: hsl(var(--muted) / 0.55);
+  --skeleton-sheen: hsl(var(--foreground) / 0.07);
+  --stagger-step: 45ms;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* ---------- Skeleton primitives ---------- */
+
+  .skeleton-block {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    background-color: var(--skeleton-base);
+  }
+
+  /* The sheen is a pseudo-element so it never disturbs the block's box. */
+  .skeleton-block::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      var(--skeleton-sheen),
+      transparent
+    );
+    animation: skeleton-sweep 1.6s var(--motion-ease) infinite;
+    animation-delay: calc(var(--stagger-step) * var(--stagger-index, 0));
+    will-change: transform;
+  }
+
+  .skeleton-anim-pulse::after {
+    animation: none;
+  }
+
+  .skeleton-anim-pulse {
+    animation: skeleton-pulse 1.8s var(--motion-ease) infinite;
+  }
+
+  .skeleton-anim-none::after {
+    animation: none;
+  }
+
+  /* ---------- Layout transitions ---------- */
+
+  .layout-enter {
+    animation: layout-enter var(--motion-base) var(--motion-ease-out) both;
+  }
+
+  .layout-pop {
+    animation: layout-pop var(--motion-base) var(--motion-ease-out) both;
+  }
+
+  .layout-fade {
+    animation: layout-fade var(--motion-fast) var(--motion-ease) both;
+  }
+
+  .layout-stagger > * {
+    animation: layout-enter var(--motion-base) var(--motion-ease-out) both;
+    animation-delay: calc(var(--stagger-step) * var(--stagger-index, 0));
+  }
+
+  /* ---------- Interaction feedback ---------- */
+
+  .pressable {
+    transition:
+      transform var(--motion-fast) var(--motion-ease),
+      box-shadow var(--motion-fast) var(--motion-ease),
+      border-color var(--motion-fast) var(--motion-ease);
+  }
+
+  .pressable:hover {
+    transform: translateY(-1px);
+  }
+
+  .pressable:active {
+    transform: translateY(0) scale(0.985);
+  }
+
+  /* Progress rail: a single element that fills left → right. */
+  .progress-rail {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .progress-rail::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform-origin: left center;
+    animation: progress-rail 1.4s var(--motion-ease) infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Keep the *shape* of a skeleton — only the motion is removed. */
+  .skeleton-block {
+    background-color: var(--skeleton-base);
+  }
+
+  .skeleton-block::after,
+  .layout-enter,
+  .layout-pop,
+  .layout-fade,
+  .layout-stagger > *,
+  .pressable,
+  .progress-rail::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .pressable:hover,
+  .pressable:active {
+    transform: none;
+  }
+}
+
+@keyframes skeleton-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes layout-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes layout-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes layout-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes progress-rail {
+  0% {
+    transform: scaleX(0);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scaleX(0.7);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(0);
+    opacity: 0.7;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   body {
     transition: none;

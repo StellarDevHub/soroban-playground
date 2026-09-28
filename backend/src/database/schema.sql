@@ -322,6 +322,23 @@ CREATE TABLE IF NOT EXISTS favorites (
     UNIQUE(tenant_id, wallet_address)
 );
 
+-- Workspace cloud sync (issue #1526) — one merged snapshot per wallet.
+-- `revision` is the optimistic-concurrency token an offline client sends back as
+-- `baseRevision`; a mismatch is answered with 409 + the current snapshot so the
+-- client merges instead of clobbering.
+CREATE TABLE IF NOT EXISTS workspace_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'public',
+    wallet_address TEXT NOT NULL,          -- Stellar account (G...)
+    favorites TEXT NOT NULL DEFAULT '[]',   -- JSON array of template IDs
+    history TEXT NOT NULL DEFAULT '[]',     -- JSON array of deploy/compile entries
+    workspace TEXT NOT NULL DEFAULT '{}',   -- JSON editor workspace document
+    device_id TEXT,                         -- last writer device id
+    revision INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(tenant_id, wallet_address)
+);
+
 -- Feature flags and cohort overrides (issue #754)
 -- enabled=0 acts as a global kill switch and cannot be bypassed by cohort overrides.
 -- rollout_pct=0 means disabled for all users; 100 means enabled for all.
@@ -422,6 +439,7 @@ CREATE INDEX IF NOT EXISTS idx_treasury_history_event_type ON treasury_history(e
 CREATE INDEX IF NOT EXISTS idx_feature_flags_enabled ON feature_flags(enabled);
 CREATE INDEX IF NOT EXISTS idx_flag_cohorts_flag_key ON flag_cohorts(flag_key);
 CREATE INDEX IF NOT EXISTS idx_flag_cohorts_cohort_id ON flag_cohorts(cohort_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_snapshots_updated_at ON workspace_snapshots(updated_at);
 
 -- Template library (issue #724) — backing store for GraphQL Template type and
 -- DataLoader batch loading. Mirrors the frontend TemplateMetadata shape so the

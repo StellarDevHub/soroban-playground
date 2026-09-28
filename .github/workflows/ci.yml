@@ -62,7 +62,7 @@ jobs:
         run: npm run format:check --workspace=backend --if-present
 
       - name: Run Backend Unit & Integration Tests
-        run: npx jest --config backend/jest.config.cjs backend/tests/securityHeaders.test.js backend/tests/metrics.test.js backend/tests/websocket.test.js backend/tests/websocket.heartbeat.test.js backend/tests/sorobanRpcManager.test.js backend/tests/cicd-dummy.test.js
+        run: npx jest --config backend/jest.config.cjs backend/tests/securityHeaders.test.js backend/tests/metrics.test.js backend/tests/websocket.test.js backend/tests/websocket.heartbeat.test.js backend/tests/sorobanRpcManager.test.js backend/tests/cicd-dummy.test.js backend/tests/workspace.test.js
         env:
           NODE_ENV: test
 
