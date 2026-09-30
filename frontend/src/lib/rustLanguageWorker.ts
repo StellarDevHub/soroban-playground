@@ -5,6 +5,7 @@ export type RustLanguageServiceStatus = "starting" | "ready" | "offline";
 interface RustDocument {
   code: string;
   version: number;
+  opened: boolean;
 }
 
 interface RustWorkerClientOptions {
@@ -44,7 +45,8 @@ export function createRustLanguageWorkerClient(
   let status: RustLanguageServiceStatus = "starting";
   let disposed = false;
   let restartAttempts = 0;
-  let nextHeartbeatId = 0;
+  let nextRequestId = 0;
+  let initializeRequestId: number | null = null;
   let pendingHeartbeatId: number | null = null;
   let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -74,12 +76,31 @@ export function createRustLanguageWorkerClient(
   };
 
   const postDocument = (target: Worker, uri: string, document: RustDocument) => {
+    if (document.opened) {
+      target.postMessage({
+        jsonrpc: "2.0",
+        method: "textDocument/didChange",
+        params: {
+          textDocument: { uri, version: document.version },
+          contentChanges: [{ text: document.code }],
+        },
+      });
+      return;
+    }
+
     target.postMessage({
-      type: "analyze",
-      uri,
-      code: document.code,
-      version: document.version,
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri,
+          languageId: "rust",
+          version: document.version,
+          text: document.code,
+        },
+      },
     });
+    document.opened = true;
   };
 
   const scheduleRestart = () => {
@@ -103,6 +124,8 @@ export function createRustLanguageWorkerClient(
 
     const previousWorker = worker;
     worker = null;
+    initializeRequestId = null;
+    for (const document of documents.values()) document.opened = false;
     stopMonitoring();
     previousWorker?.terminate();
     setStatus("offline");
@@ -117,7 +140,7 @@ export function createRustLanguageWorkerClient(
         return;
       }
 
-      const heartbeatId = ++nextHeartbeatId;
+      const heartbeatId = ++nextRequestId;
       pendingHeartbeatId = heartbeatId;
       heartbeatTimeout = setTimeout(
         () => failWorker(activeWorker),
@@ -125,7 +148,12 @@ export function createRustLanguageWorkerClient(
       );
 
       try {
-        activeWorker.postMessage({ type: "heartbeat", id: heartbeatId });
+        activeWorker.postMessage({
+          jsonrpc: "2.0",
+          id: heartbeatId,
+          method: "$/heartbeat",
+          params: {},
+        });
       } catch {
         failWorker(activeWorker);
       }
@@ -148,12 +176,23 @@ export function createRustLanguageWorkerClient(
       if (worker !== nextWorker || disposed) return;
       const message = event.data;
 
-      if (message?.type === "ready") {
+      if (message?.id === initializeRequestId) {
         if (startupTimeout) clearTimeout(startupTimeout);
         startupTimeout = null;
+        initializeRequestId = null;
+        if (message.error || !message.result) {
+          failWorker(nextWorker);
+          return;
+        }
         setStatus("ready");
         try {
+          nextWorker.postMessage({
+            jsonrpc: "2.0",
+            method: "initialized",
+            params: {},
+          });
           for (const [uri, document] of documents) {
+            document.opened = false;
             postDocument(nextWorker, uri, document);
           }
         } catch {
@@ -164,7 +203,7 @@ export function createRustLanguageWorkerClient(
         return;
       }
 
-      if (message?.type === "heartbeat" && message.id === pendingHeartbeatId) {
+      if (message?.id === pendingHeartbeatId) {
         pendingHeartbeatId = null;
         if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
         heartbeatTimeout = null;
@@ -172,10 +211,50 @@ export function createRustLanguageWorkerClient(
         return;
       }
 
-      if (message?.type === "diagnostics" && typeof message.uri === "string") {
-        const document = documents.get(message.uri);
-        if (!document || message.version !== document.version) return;
-        onDiagnostics(message.uri, message.diagnostics ?? []);
+      if (message?.method === "textDocument/publishDiagnostics") {
+        const params = message.params;
+        if (!params || typeof params.uri !== "string") return;
+        const document = documents.get(params.uri);
+        if (!document || params.version !== document.version) return;
+
+        const diagnostics = Array.isArray(params.diagnostics)
+          ? params.diagnostics.flatMap((diagnostic: unknown) => {
+              if (!diagnostic || typeof diagnostic !== "object") return [];
+              const value = diagnostic as {
+                range?: {
+                  start?: { line?: number; character?: number };
+                  end?: { line?: number; character?: number };
+                };
+                severity?: number;
+                message?: string;
+              };
+              const { start, end } = value.range ?? {};
+              if (
+                typeof start?.line !== "number" ||
+                typeof start.character !== "number" ||
+                typeof end?.line !== "number" ||
+                typeof end.character !== "number" ||
+                typeof value.message !== "string"
+              ) {
+                return [];
+              }
+
+              return [{
+                startLineNumber: start.line + 1,
+                startColumn: start.character + 1,
+                endLineNumber: end.line + 1,
+                endColumn: end.character + 1,
+                severity:
+                  value.severity === 1
+                    ? "error" as const
+                    : value.severity === 2
+                      ? "warning" as const
+                      : "info" as const,
+                message: value.message,
+              }];
+            })
+          : [];
+        onDiagnostics(params.uri, diagnostics);
       }
     };
     nextWorker.onerror = () => failWorker(nextWorker);
@@ -185,8 +264,19 @@ export function createRustLanguageWorkerClient(
       startupTimeoutMs,
     );
 
+    initializeRequestId = ++nextRequestId;
     try {
-      nextWorker.postMessage({ type: "init" });
+      nextWorker.postMessage({
+        jsonrpc: "2.0",
+        id: initializeRequestId,
+        method: "initialize",
+        params: {
+          processId: null,
+          rootUri: null,
+          capabilities: {},
+          clientInfo: { name: "Soroban Playground", version: "1" },
+        },
+      });
     } catch {
       failWorker(nextWorker);
     }
@@ -202,6 +292,7 @@ export function createRustLanguageWorkerClient(
       const document = {
         code,
         version: (previousDocument?.version ?? 0) + 1,
+        opened: previousDocument?.opened ?? false,
       };
       documents.set(uri, document);
 

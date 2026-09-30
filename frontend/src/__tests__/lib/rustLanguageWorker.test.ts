@@ -23,6 +23,19 @@ function createTestWorker(): TestWorker {
   return worker;
 }
 
+function initializeWorker(worker: TestWorker) {
+  const initializeRequest = (worker.postMessage as jest.Mock).mock.calls
+    .map(([message]) => message as { id?: number; method?: string })
+    .find((message) => message.method === "initialize");
+
+  if (!initializeRequest?.id) throw new Error("Missing LSP initialize request");
+  worker.emitMessage({
+    jsonrpc: "2.0",
+    id: initializeRequest.id,
+    result: { capabilities: { textDocumentSync: 1 } },
+  });
+}
+
 describe("createRustLanguageWorkerClient", () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -54,7 +67,7 @@ describe("createRustLanguageWorkerClient", () => {
     });
 
     client.analyze("file:///lib.rs", "initial source");
-    workers[0].emitMessage({ type: "ready" });
+    initializeWorker(workers[0]);
     client.analyze("file:///lib.rs", "latest source");
 
     jest.advanceTimersByTime(150);
@@ -65,14 +78,20 @@ describe("createRustLanguageWorkerClient", () => {
 
     jest.advanceTimersByTime(20);
     expect(workers).toHaveLength(2);
-    workers[1].emitMessage({ type: "ready" });
+    initializeWorker(workers[1]);
 
     expect(statuses.at(-1)).toBe("ready");
     expect(workers[1].postMessage).toHaveBeenCalledWith({
-      type: "analyze",
-      uri: "file:///lib.rs",
-      code: "latest source",
-      version: 2,
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: {
+        textDocument: {
+          uri: "file:///lib.rs",
+          languageId: "rust",
+          version: 2,
+          text: "latest source",
+        },
+      },
     });
 
     client.dispose();
@@ -123,7 +142,7 @@ describe("createRustLanguageWorkerClient", () => {
     });
 
     client.analyze("file:///lib.rs", "let value = 1];");
-    workers[0].emitMessage({ type: "ready" });
+    initializeWorker(workers[0]);
     workers[0].onerror?.({ message: "worker crashed" } as ErrorEvent);
 
     expect(statuses).toContain("offline");
@@ -136,6 +155,59 @@ describe("createRustLanguageWorkerClient", () => {
 
     jest.advanceTimersByTime(10);
     expect(workers).toHaveLength(2);
+    client.dispose();
+  });
+
+  it("applies only current-version LSP diagnostics", () => {
+    const worker = createTestWorker();
+    const onDiagnostics = jest.fn();
+    const client = createRustLanguageWorkerClient({
+      createWorker: () => worker,
+      onDiagnostics,
+      onStatusChange: jest.fn(),
+    });
+    const uri = "file:///lib.rs";
+
+    initializeWorker(worker);
+    client.analyze(uri, "first source");
+    worker.emitMessage({
+      jsonrpc: "2.0",
+      method: "textDocument/publishDiagnostics",
+      params: {
+        uri,
+        version: 1,
+        diagnostics: [
+          {
+            range: {
+              start: { line: 0, character: 2 },
+              end: { line: 0, character: 3 },
+            },
+            severity: 1,
+            message: "Unmatched bracket",
+          },
+        ],
+      },
+    });
+
+    expect(onDiagnostics).toHaveBeenLastCalledWith(uri, [
+      {
+        startLineNumber: 1,
+        startColumn: 3,
+        endLineNumber: 1,
+        endColumn: 4,
+        severity: "error",
+        message: "Unmatched bracket",
+      },
+    ]);
+
+    client.analyze(uri, "second source");
+    worker.emitMessage({
+      jsonrpc: "2.0",
+      method: "textDocument/publishDiagnostics",
+      params: { uri, version: 1, diagnostics: [] },
+    });
+    expect(onDiagnostics).toHaveBeenCalledTimes(1);
+
     client.dispose();
   });
 });
