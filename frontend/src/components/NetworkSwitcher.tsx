@@ -161,6 +161,7 @@ export default function NetworkSwitcher() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("soroban_playground_network", selectedNetwork);
+      window.dispatchEvent(new Event("soroban-network-change"));
     }
   }, [selectedNetwork]);
 

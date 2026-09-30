@@ -6,6 +6,7 @@ import Link from "next/link";
 import WalletConnectionWizard from "@/components/WalletConnectionWizard";
 import AccountSwitcher from "@/components/AccountSwitcher";
 import { useWallet } from "@/components/providers/WalletProvider";
+import AssetBalancesPanel from "@/components/AssetBalancesPanel";
 
 export default function WalletManagementPage() {
   const { status, activeWallet } = useWallet();
@@ -61,6 +62,8 @@ export default function WalletManagementPage() {
               </div>
               <WalletConnectionWizard />
             </section>
+
+            <AssetBalancesPanel />
 
             <section className="space-y-4">
               <div className="flex items-center gap-3">
