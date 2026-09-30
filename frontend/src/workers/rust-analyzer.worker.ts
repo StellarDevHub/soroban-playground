@@ -1,31 +1,28 @@
-import {
-  BrowserMessageReader,
-  BrowserMessageWriter,
-} from "vscode-languageserver-protocol/browser";
-import { getVFSFiles } from "../utils/soroban-sdk-vfs";
+/// <reference lib="webworker" />
 
-const worker: Worker = self as any;
+import { analyzeRustSyntax } from "../lib/rustSyntax";
 
-worker.addEventListener("message", async (event) => {
-  if (event.data.type === "init") {
-    // 1. Initialize Virtual File System
-    const vfs = getVFSFiles();
+const workerScope = self as DedicatedWorkerGlobalScope;
 
-    // 2. Load rust-analyzer Wasm binary
-    // Here we left a placeholder. In a fully native Wasm setup, this is where
-    // `rust-analyzer.wasm` is fetched and initialized with the VFS state.
-    // await init('/rust-analyzer.wasm');
+workerScope.onmessage = (event: MessageEvent) => {
+  const message = event.data;
 
-    worker.postMessage({ type: "ready" });
+  if (message?.type === "init") {
+    workerScope.postMessage({ type: "ready" });
+    return;
   }
-});
 
-// Establish the JSON-RPC communication bridge
-const reader = new BrowserMessageReader(worker);
-const writer = new BrowserMessageWriter(worker);
+  if (message?.type === "heartbeat") {
+    workerScope.postMessage({ type: "heartbeat", id: message.id });
+    return;
+  }
 
-reader.listen((message) => {
-  // Passes Monaco Editor LSP requests (like textDocument/completion)
-  // to the rust-analyzer Wasm state, and writes the response back.
-  // For now, this is a placeholder for the actual WASM invocation
-});
+  if (message?.type === "analyze" && typeof message.uri === "string") {
+    workerScope.postMessage({
+      type: "diagnostics",
+      uri: message.uri,
+      version: message.version,
+      diagnostics: analyzeRustSyntax(String(message.code ?? "")),
+    });
+  }
+};

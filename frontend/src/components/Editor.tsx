@@ -25,7 +25,7 @@ function EditorLoadingState() {
 
 export default function Editor({ code, setCode }: EditorProps) {
   const { peers, isConnected } = useCollaborativeEditor();
-  const { containerRef, isEditorReady } = useMonaco({
+  const { containerRef, isEditorReady, languageServiceStatus } = useMonaco({
     language: "rust",
     value: code,
     onChange: setCode,
@@ -37,7 +37,35 @@ export default function Editor({ code, setCode }: EditorProps) {
         <span className="font-mono text-[11px] font-semibold tracking-wide text-slate-300">
           lib.rs (Soroban Smart Contract)
         </span>
-        <CollaborativeHeaderIndicator peers={peers} isConnected={isConnected} />
+        <div className="flex items-center gap-3">
+          {languageServiceStatus && (
+            <span
+              role="status"
+              aria-live="polite"
+              aria-label={
+                languageServiceStatus === "ready"
+                  ? "Rust language worker ready"
+                  : languageServiceStatus === "offline"
+                    ? "Rust worker offline, using local syntax checks"
+                    : "Rust language worker starting"
+              }
+              className={`text-[10px] font-medium ${
+                languageServiceStatus === "ready"
+                  ? "text-emerald-400"
+                  : languageServiceStatus === "offline"
+                    ? "text-amber-300"
+                    : "text-slate-500"
+              }`}
+            >
+              {languageServiceStatus === "ready"
+                ? "Rust worker"
+                : languageServiceStatus === "offline"
+                  ? "Offline syntax"
+                  : "Rust starting"}
+            </span>
+          )}
+          <CollaborativeHeaderIndicator peers={peers} isConnected={isConnected} />
+        </div>
       </div>
       <div className="flex-1 w-full relative">
         <div

@@ -82,4 +82,20 @@ describe("Editor", () => {
     expect(screen.getByText(/Collab \(2\)/i)).toBeInTheDocument();
     expect(screen.queryByText(/Connected/i)).not.toBeInTheDocument();
   });
+
+  it("announces offline Rust syntax fallback", () => {
+    mockUseMonaco.mockReturnValue({
+      containerRef: { current: null },
+      isEditorReady: true,
+      languageServiceStatus: "offline",
+    });
+
+    render(<Editor code="initial code" setCode={jest.fn()} />);
+
+    expect(
+      screen.getByRole("status", {
+        name: "Rust worker offline, using local syntax checks",
+      }),
+    ).toHaveTextContent("Offline syntax");
+  });
 });
