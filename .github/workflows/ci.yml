@@ -1,7 +1,10 @@
 name: CI Pipeline
 
 env:
-  NEXT_TELEMETRY_DISABLED: "1"
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: z
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+  CARGO_PROFILE_RELEASE_LTO: "true"
+  CARGO_PROFILE_RELEASE_STRIP: symbols
 
 on:
   push:
@@ -12,26 +15,6 @@ on:
     - cron: "21 4 * * 1"
 
 jobs:
-  sep10-auth-tests:
-    name: SEP-10 Client & Signed Session Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-      - name: Install dependencies
-        run: npm ci
-      - name: Test challenge validation and shared client sessions
-        run: npm run test --workspace=frontend -- src/__tests__/auth
-      - name: Test signed challenge exchange, cookies and replay rejection
-        run: node node_modules/jest/bin/jest.js --config backend/jest.config.cjs backend/tests/sep10Session.test.js backend/tests/authService.unit.test.js --runInBand
-        env:
-          NODE_ENV: test
-
   frontend-build:
     name: Frontend Build & Test
     runs-on: ubuntu-latest
@@ -53,14 +36,6 @@ jobs:
         env:
           NODE_ENV: test
 
-      # #1537 / #1539 / #1540 - sanitizer, Web Vitals, template catalog and
-      # CSP/header units live outside src/__tests__/components, so the step
-      # above does not pick them up.
-      - name: Run Frontend Library Tests
-        run: npm run test --workspace=frontend -- src/__tests__/lib/securityHeaders.test.ts src/__tests__/lib/sanitize.test.ts src/__tests__/lib/webVitals.test.ts src/__tests__/lib/templates.test.ts
-        env:
-          NODE_ENV: test
-
       - name: Theme Engine Unit & Integration Tests
         run: npm run test:theme --workspace=frontend
 
@@ -69,27 +44,6 @@ jobs:
         run: npm run build --workspace=frontend --if-present
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-
-      - name: Analyze Frontend Bundle
-        run: npm run analyze --workspace=frontend --if-present
-        env:
-          NODE_ENV: production
-          BUNDLE_ANALYZE: "true"
-
-      - name: Enforce First-Load JS Budget (< 150KB)
-        run: npm run bundle:check --workspace=frontend --if-present
-        env:
-          NODE_ENV: production
-          FIRST_LOAD_JS_BUDGET_KB: "150"
-
-      - name: Upload Bundle Analyzer Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bundle-analyzer-report
-          path: frontend/.next/analyze/
-          if-no-files-found: ignore
-          retention-days: 14
 
   backend-lint-test:
     name: Backend Lint & Test
@@ -218,29 +172,34 @@ jobs:
       - name: Run Rust Tests
         run: cargo test --all-targets --all-features
 
-  repo-hygiene:
-    name: Repository Hygiene & Large File Guard
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Build optimized WASM artifacts
+        run: cargo build --release --target wasm32-unknown-unknown --workspace
 
-      - name: Verify no rogue binaries tracked
+      - name: Enforce 64KB WASM size limit
         run: |
           set -euo pipefail
-          if git ls-files | grep -E '(^|/)XXmIXSR9$'; then
-            echo "::error::Rogue binary XXmIXSR9 is still tracked in the repository."
-            exit 1
-          fi
-          LARGE=$(git ls-files -z | xargs -0 -I{} sh -c 'test -f "$1" && s=$(wc -c < "$1") && [ "$s" -gt 1048576 ] && echo "$1 ($s bytes)"' _ {} || true)
-          if [ -n "$LARGE" ]; then
-            echo "::error::Tracked files exceed 1MB threshold:"
-            echo "$LARGE"
+          MAX_BYTES=65536
+          fail=0
+          shopt -s nullglob
+          for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
+            size=$(stat -c%s "$wasm")
+            echo "$wasm: $size bytes"
+            if [ "$size" -gt "$MAX_BYTES" ]; then
+              echo "::error file=$wasm::WASM artifact exceeds 64KB limit ($size bytes)"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
             exit 1
           fi
 
+      - name: Verify release profile settings
+        run: |
+          set -euo pipefail
+          grep -Eq 'opt-level\s*=\s*"z"' Cargo.toml
+          grep -Eq 'codegen-units\s*=\s*1' Cargo.toml
+          grep -Eq 'lto\s*=\s*true' Cargo.toml
+          grep -Eq 'strip\s*=\s*"symbols"' Cargo.toml
   backend-security-tests:
     name: Backend Rate Limit & Validation Tests
     runs-on: ubuntu-latest

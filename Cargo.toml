@@ -162,6 +162,14 @@ sha2 = "0.10"
 sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "macros"] }
 tokio = { version = "1", features = ["full"] }
 
+# Profiles are tuned for the two distinct artifact classes in this workspace:
+#   * Soroban WASM contracts -> size-critical (<64KB upload limit),
+     no unwinding, stripped symbols.
+#   * Long-running native services (`indexer`) -> speed-orimised, unwinding
+     panics so a single tokio task failure does not abort the process.
+# The `[rprofile.release]` profile remains the default for the WASM target
+# (cargo build --release --target wasm32-unknown-unknown) and is validated
+# by the check-wasm-size CI gate.
 [profile.release]
 opt-level = "z"
 lto = true
@@ -171,10 +179,7 @@ strip = "symbols"
 overflow-checks = true
 debug = 0
 debug-assertions = false
-# `release` above is tuned for Soroban WASM (size-optimised, panic = abort).
-# Long-running native services such as the indexer build with this profile
-# instead so a panic inside one tokio task unwinds rather than aborting the
-# whole process.
+
 [profile.release-server]
 inherits = "release"
 opt-level = 3

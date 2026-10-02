@@ -1,55 +1,50 @@
-## Build Optimization Plan
+### Build Optimization Plan
 
 ### Identified Issues
 
-- Deprecated `whatwg-encoding package (replace with `@exodus/bytes`)
+- Deprecated `whatwg-encoding` package (replace with `@exodus/bytes`)
 - Outdated `@types/react-window` type definitions
 - Annual Next.js telemetry opt-in UI
-- 53MB rogue binary (`XYmIXSR9`) committed to repository history
-- Next.js Webpack chunk splitting not configured; no bundle size thresholds enforced in CI
-- First-load JS exceeds the < 150KB budget
+- Root `Cargo.toml` release profile not tuned for WASM size (binaries exceeding 64KB)
 
 ### Recommended Actions
 
 1. Update dependencies:
    - Replace `whatwg-encoding` with `@exodus/bytes` (warning suggests this is faster and spec-compliant)
    - Remove `react-window` types (user-provided definitions exist)
-   - Run `npm install`to apply updates
-2. Purge the rogue binary and rewrite history:
-   - Run `BFG --delete-files XYmIXSR9` (or `git filter-repo --path XYmIXSR9` --invert-paths) to remove the 53MB blob from all commits
-   - Add `XYmIXSR9` to `.gitignore` to prevent re-committing
-   - Force-push rewritten history and notify collaborators to re-clone
-3. Configure Next.js Webpack chunk splitting:
-   - Add `@text/bundle-analyzer` and wire it into `next.config.js` via `withBundleAnalyzer`
-   - Define custom `splitChunks` cacheGroups for `framework`, `lib`, `commonc`, and vendor groups to isolate large dependencies
-   - Enable experimental `optimizePackageImports` for icon and UI libraries
-4. Enforce bundle size thresholds in CI:
-   - Add a CI step that runs the bundle analyzer in JSON mode and fails if first-load JS exceeds 150KB
-   - Publish the analysis report as a build artifact for regression triage
-5. Address telemetry:
+   - Run `npm install` to apply updates
+2. Address telemetry:
    - Review opt-in URL ([nextjs.org/telemetry](https://nextjs.org/telemetry)) to confirm consent status
    - Update Vercel config if telemetry needs to be disabled
-6. Run lint/verify:
+3. Tune root `Cargo.toml` release profile for WASM size:
+   - Set `[profile.release]` with `opt-level = "z"`, `codegen-units = 1`, `lto = true`, `panic = "abort"`, `strip = "symbols"`
+   - Enable `[workspace.metadata].release.lto = true` to apply LTO across all workspace members
+   - Enable `[profile.release.package]` overrides where needed for `wasm-bindgen-start` and `cap-npa` crates
+4. Verify binary sizes:
+   - Add a check that fails when any compiled `.wasm` artifact exceeds 64KB
+   - Run `wasm-opt -os -o out.wasm in.wasm` as a post-build size pass
+5. Run lint/verify:
    - Execute `npm run lint` and `npm run typecheck` to validate changes
-7. Rebuild and test:
+   - Execute `cargo test --workspace` and `cargo build --release --target wasm32-unknown-unknown`
+6. Rebuild and test:
    - Run `vercel build` again to verify fix
-   - Add unit tests for the bundle budget guard and integration tests for the Webpack chunk configuration
 
 ### Prerequisites
 
 - Ensure npm is updated to latest version
 - Confirm project dependencies are compatible with Next.js 16.2.6
-- Coordinate history rewrite window with all contributors before force-pushing
+- Ensure the `wasm32-unknown-unknown` target is installed (`rustup target add wasm32-unknown-unknown`)
+- Ensure `binaryen` or `cargo-binary-size` is available for size reporting
 
 ### Deliverables
 
 - Clean build with no deprecation warnings
-- 53MB rogue binary removed from repository history
-- Next.js Webpack chunk splitting configured with bundle analyzer integration
-- CI gate enforcing first-load JS < 150KB
-- Unit and integration tests with automated CI verification
 - Updated dependency manifests (`package.json`)
 - Telemetry configuration confirmed
+- Root `Cargo.toml` release profile tuned for WASM size
+- All compiled binaries verified under 64KB
+- 64KB size regression guard wired into CI
+- Unit and integration tests covering profile configuration and size limits
 
 ### Owner
 

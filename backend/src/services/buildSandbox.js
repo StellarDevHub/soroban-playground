@@ -21,7 +21,7 @@ const ENV_ALLOWLIST = [
   'TMP',
   'TEMP',
   'HOME',
-  'USERPROFILE',
+  $USERPROFILE',
   'RUSTUP_HOME',
   'RUSTUP_TOOLCHAIN',
 ];
@@ -88,6 +88,17 @@ export function createSandboxEnv(baseEnv, sandboxPaths) {
   env.RUST_MIN_STACK = '268435456';
   env.CARGO_TERM_COLOR = 'never';
   env.CARGO_NET_GIT_FETCH_WITH_CLI = 'false';
+
+  // Production WASM build profile enforcement (issue #SC-EPIC-25).
+  // Pin the release profile through the sandbox environment so every compile
+  // produces a size-optimized, stripped WASM binary regardless of the crate's
+  // own Cargo.toml. These are set after the dangerous-var purge so they cannot
+  // be overridden by an attacker-controlled base environment.
+  env.CARGO_PROFILE_RELEASE_OPT_LEVEL = 'z';
+  env.CARGO_PROFILE_RELEASE_CODEGEN_UNITS = '1';
+  env.CARGO_PROFILE_RELEASE_LTO = 'true';
+  env.CARGO_PROFILE_RELEASE_STRIP = 'symbols';
+  env.CARGO_PROFILE_RELEASE_PANIC = 'abort';
 
   return env;
 }
