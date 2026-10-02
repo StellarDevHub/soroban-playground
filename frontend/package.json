@@ -32,7 +32,7 @@
     "graphql-tag": "^2.12.6",
     "lucide-react": "^1.17.0",
     "monaco-editor": "^0.53.0",
-    "monaco-languageclient": "^10.7.0",
+    "monaco-languageclient": "^11.0.2",
     "next": "^16.3.0",
     "optimism": "^0.18.1",
     "react": "19.2.8",
