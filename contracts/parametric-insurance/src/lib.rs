@@ -106,8 +106,10 @@ impl ParametricInsurance {
             location: location.clone(),
         };
         set_oracle_reading(&env, &oracle, &parameter_key, &reading);
-        env.events()
-            .publish((symbol_short!("reading"),), (oracle, parameter_key, value, source_type, status));
+        env.events().publish(
+            (symbol_short!("reading"),),
+            (oracle, parameter_key, value, source_type, status),
+        );
         Ok(())
     }
 
@@ -175,11 +177,7 @@ impl ParametricInsurance {
     // ── Product management (admin) ────────────────────────────────────────────
 
     /// Create a new insurance product. Returns the product ID.
-    pub fn create_product(
-        env: Env,
-        admin: Address,
-        config: ProductConfig,
-    ) -> Result<u32, Error> {
+    pub fn create_product(env: Env, admin: Address, config: ProductConfig) -> Result<u32, Error> {
         Self::assert_admin(&env, &admin)?;
         if config.name.len() == 0 {
             return Err(Error::EmptyName);

@@ -26,9 +26,9 @@ use crate::storage::{
     accumulate_daily_volume, get_admin, get_daily_limit, get_deposit, get_deposit_count,
     get_expiry_seconds, get_fee_bps, get_proof, get_source_chain_id, get_stats,
     get_validator_quorum, is_initialized, is_paused, is_relayer, is_validator, set_admin,
-    set_daily_limit, set_deposit, set_deposit_count, set_expiry_seconds, set_fee_bps,
-    set_paused, set_relayer, set_source_chain_id, set_stats, set_validator,
-    set_validator_quorum, submit_validator_vote,
+    set_daily_limit, set_deposit, set_deposit_count, set_expiry_seconds, set_fee_bps, set_paused,
+    set_relayer, set_source_chain_id, set_stats, set_validator, set_validator_quorum,
+    submit_validator_vote,
 };
 use crate::types::{BridgeStats, Deposit, DepositStatus, Error, ProofStatus, ValidatorProof};
 
@@ -445,7 +445,7 @@ impl BridgeContract {
         // Ensure the deposit exists.
         let _ = get_deposit(&env, deposit_id)?;
 
-                // Chain-bind the proof: validators must submit the digest of
+        // Chain-bind the proof: validators must submit the digest of
         // (domain_separator || deposit_id || payload). The contract re-derives
         // it so a payload from another source chain cannot verify here.
         let bound = Self::chain_bound_proof_hash(env.clone(), deposit_id, proof_hash.clone());

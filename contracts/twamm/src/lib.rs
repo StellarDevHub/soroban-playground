@@ -52,9 +52,7 @@
 
 #![no_std]
 
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Env, Vec,
-};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Vec};
 
 // ─── Fixed-point helpers (18 decimal places) ────────────────────────────────
 
@@ -330,10 +328,8 @@ impl TwammContract {
                     (x, y)
                 } else {
                     // exponent: 2 * p * Δt / sqrt(k)
-                    let exp_arg = fp_div(
-                        fp_mul(2 * SCALE, fp_mul(p, delta * SCALE / SCALE)),
-                        sqrt_k,
-                    );
+                    let exp_arg =
+                        fp_div(fp_mul(2 * SCALE, fp_mul(p, delta * SCALE / SCALE)), sqrt_k);
                     let e_neg = fp_exp_neg(exp_arg); // e^(-exp_arg) in fp
 
                     // one_minus_e = 1 - e^(-arg)
@@ -343,9 +339,8 @@ impl TwammContract {
                     let x_over_sqrtk = fp_div(x, sqrt_k);
                     let c_half = c / 2;
                     let y_part = fp_div(y, fp_mul(2 * SCALE, fp_mul(sqrt_k, c)));
-                    let bracket_x = x_over_sqrtk.saturating_add(
-                        fp_mul(one_minus_e, c_half.saturating_sub(y_part)),
-                    );
+                    let bracket_x = x_over_sqrtk
+                        .saturating_add(fp_mul(one_minus_e, c_half.saturating_sub(y_part)));
                     let new_x = fp_mul(fp_div(sqrt_k, c), bracket_x);
 
                     // Y' = sqrt(k)*c * (y/(sqrt(k)*c) + (1-e)*(1/2 - x*c/(2*sqrt(k))))
@@ -836,9 +831,7 @@ mod test {
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
         let trader = Address::generate(&env);
-        let id = client
-            .submit_order(&trader, &true, &100_000, &100)
-            .unwrap();
+        let id = client.submit_order(&trader, &true, &100_000, &100).unwrap();
         assert_eq!(id, 1);
         let order = client.get_order(&id).unwrap();
         assert_eq!(order.owner, trader);
@@ -854,9 +847,7 @@ mod test {
             .unwrap();
         let trader = Address::generate(&env);
         // Submit order for 100 ledgers
-        let id = client
-            .submit_order(&trader, &true, &100_000, &100)
-            .unwrap();
+        let id = client.submit_order(&trader, &true, &100_000, &100).unwrap();
 
         // Advance 50 ledgers (halfway)
         env.ledger().with_mut(|li| li.sequence_number += 50);
@@ -876,9 +867,7 @@ mod test {
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
         let trader = Address::generate(&env);
-        let id = client
-            .submit_order(&trader, &true, &100_000, &10)
-            .unwrap();
+        let id = client.submit_order(&trader, &true, &100_000, &10).unwrap();
         // Advance past expiry
         env.ledger().with_mut(|li| li.sequence_number += 20);
         client.settle_expired().unwrap();
@@ -909,12 +898,8 @@ mod test {
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
         let trader = Address::generate(&env);
-        client
-            .submit_order(&trader, &true, &100_000, &5)
-            .unwrap();
-        client
-            .submit_order(&trader, &false, &50_000, &5)
-            .unwrap();
+        client.submit_order(&trader, &true, &100_000, &5).unwrap();
+        client.submit_order(&trader, &false, &50_000, &5).unwrap();
         // Advance past both orders
         env.ledger().with_mut(|li| li.sequence_number += 10);
         let settled = client.settle_expired().unwrap();
@@ -964,9 +949,7 @@ mod test {
             .unwrap();
         assert_eq!(client.order_count(), 0);
         let trader = Address::generate(&env);
-        client
-            .submit_order(&trader, &true, &1_000, &5)
-            .unwrap();
+        client.submit_order(&trader, &true, &1_000, &5).unwrap();
         assert_eq!(client.order_count(), 1);
     }
 
@@ -978,9 +961,7 @@ mod test {
             .unwrap();
         let trader = Address::generate(&env);
         let attacker = Address::generate(&env);
-        let id = client
-            .submit_order(&trader, &true, &1_000, &10)
-            .unwrap();
+        let id = client.submit_order(&trader, &true, &1_000, &10).unwrap();
         assert_eq!(
             client.cancel_order(&attacker, &id),
             Err(Ok(Error::Unauthorized))

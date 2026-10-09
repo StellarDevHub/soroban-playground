@@ -7,20 +7,18 @@
 //! Phase 2: Dutch continuous linear price decay) to liquidate undercollateralized
 //! debt positions during market downturns, with stability pool fallback for unbid auctions.
 
-use soroban_sdk::{
-    contracttype, symbol_short, Address, Env,
-};
+use soroban_sdk::{contracttype, symbol_short, Address, Env};
 
 use crate::{
-    get_bad_debt, get_position, get_total_borrowed, set_bad_debt, set_position,
-    set_total_borrowed, Error,
+    get_bad_debt, get_position, get_total_borrowed, set_bad_debt, set_position, set_total_borrowed,
+    Error,
 };
 
 // ── Auction Constants ─────────────────────────────────────────────────────────
 
 pub const DEFAULT_ENGLISH_DURATION: u64 = 1800; // 30 minutes
-pub const DEFAULT_DUTCH_DURATION: u64 = 3600;   // 60 minutes
-pub const MIN_BID_INCREMENT_BPS: i128 = 500;     // 5% minimum increment
+pub const DEFAULT_DUTCH_DURATION: u64 = 3600; // 60 minutes
+pub const MIN_BID_INCREMENT_BPS: i128 = 500; // 5% minimum increment
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -530,10 +528,8 @@ pub fn deposit_stability_pool_impl(
     let pool_total = get_stability_pool_total(env);
     set_stability_pool_total(env, pool_total.saturating_add(amount));
 
-    env.events().publish(
-        (symbol_short!("stab_dep"), depositor.clone()),
-        amount,
-    );
+    env.events()
+        .publish((symbol_short!("stab_dep"), depositor.clone()), amount);
 
     Ok(())
 }
@@ -565,10 +561,8 @@ pub fn withdraw_stability_pool_impl(
         .ok_or(Error::Overflow)?;
     set_position(env, depositor, &user_pos);
 
-    env.events().publish(
-        (symbol_short!("stab_wth"), depositor.clone()),
-        amount,
-    );
+    env.events()
+        .publish((symbol_short!("stab_wth"), depositor.clone()), amount);
 
     Ok(())
 }

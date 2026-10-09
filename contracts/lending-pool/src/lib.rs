@@ -131,9 +131,7 @@ fn is_initialized(env: &Env) -> bool {
 }
 
 fn set_initialized(env: &Env) {
-    env.storage()
-        .instance()
-        .set(&symbol_short!("init"), &true);
+    env.storage().instance().set(&symbol_short!("init"), &true);
 }
 
 fn get_admin(env: &Env) -> Result<Address, Error> {
@@ -144,9 +142,7 @@ fn get_admin(env: &Env) -> Result<Address, Error> {
 }
 
 fn set_admin(env: &Env, admin: &Address) {
-    env.storage()
-        .instance()
-        .set(&symbol_short!("admin"), admin);
+    env.storage().instance().set(&symbol_short!("admin"), admin);
 }
 
 fn is_paused(env: &Env) -> bool {
@@ -288,10 +284,7 @@ impl LendingPool {
         if pos.deposited < amount {
             return Err(Error::InsufficientBalance);
         }
-        let remaining = pos
-            .deposited
-            .checked_sub(amount)
-            .ok_or(Error::Overflow)?;
+        let remaining = pos.deposited.checked_sub(amount).ok_or(Error::Overflow)?;
 
         // After withdrawal the position must still be healthy.
         if pos.borrowed > 0 {
@@ -321,10 +314,7 @@ impl LendingPool {
         validate_amount(amount)?;
 
         let mut pos = get_position(&env, &user);
-        let new_borrowed = pos
-            .borrowed
-            .checked_add(amount)
-            .ok_or(Error::Overflow)?;
+        let new_borrowed = pos.borrowed.checked_add(amount).ok_or(Error::Overflow)?;
 
         check_health(pos.deposited, new_borrowed)?;
 
@@ -356,10 +346,7 @@ impl LendingPool {
             return Err(Error::InvalidAmount);
         }
 
-        pos.borrowed = pos
-            .borrowed
-            .checked_sub(actual)
-            .ok_or(Error::Overflow)?;
+        pos.borrowed = pos.borrowed.checked_sub(actual).ok_or(Error::Overflow)?;
         pos.credit_score = pos.credit_score.saturating_add(5);
         pos.last_updated = env.ledger().timestamp();
         set_position(&env, &user, &pos);
@@ -369,8 +356,7 @@ impl LendingPool {
             .ok_or(Error::Overflow)?;
         set_total_borrowed(&env, new_total);
 
-        env.events()
-            .publish((symbol_short!("repay"), user), actual);
+        env.events().publish((symbol_short!("repay"), user), actual);
         Ok(actual)
     }
 
@@ -535,11 +521,7 @@ impl LendingPool {
     }
 
     /// Kicks off a liquidation auction for an undercollateralized vault.
-    pub fn kick_liquidation_auction(
-        env: Env,
-        vault_id: u64,
-        bad_debt: i128,
-    ) -> Result<u64, Error> {
+    pub fn kick_liquidation_auction(env: Env, vault_id: u64, bad_debt: i128) -> Result<u64, Error> {
         ensure_initialized(&env)?;
         not_paused(&env)?;
         auction::kick_liquidation_auction_impl(&env, vault_id, bad_debt)
@@ -608,11 +590,7 @@ impl LendingPool {
     // ── Secondary Stability Pool & Bad-Debt Socialization Fallback ────────────
 
     /// Deposit funds into the secondary stability pool.
-    pub fn deposit_stability_pool(
-        env: Env,
-        depositor: Address,
-        amount: i128,
-    ) -> Result<(), Error> {
+    pub fn deposit_stability_pool(env: Env, depositor: Address, amount: i128) -> Result<(), Error> {
         ensure_initialized(&env)?;
         not_paused(&env)?;
         auction::deposit_stability_pool_impl(&env, &depositor, amount)

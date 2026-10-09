@@ -44,7 +44,7 @@ impl SafeMath for MathOps {
         if c == 0 {
             return Err(MathError::DivisionByZero);
         }
-        
+
         let mul_result = a.checked_mul(b).ok_or(MathError::Overflow)?;
         mul_result.checked_div(c).ok_or(MathError::Overflow)
     }
@@ -67,11 +67,11 @@ impl FixedPoint {
         if self.scale != other.scale {
             return Err(MathError::InvalidScale);
         }
-        
+
         let result = MathOps::safe_mul(self.value, other.value)?;
         let divisor = 10_i128.pow(self.scale);
         let final_result = MathOps::safe_div(result, divisor)?;
-        
+
         FixedPoint::new(final_result, self.scale)
     }
 
@@ -82,11 +82,11 @@ impl FixedPoint {
         if other.value == 0 {
             return Err(MathError::DivisionByZero);
         }
-        
+
         let multiplier = 10_i128.pow(self.scale);
         let adjusted = MathOps::safe_mul(self.value, multiplier)?;
         let result = MathOps::safe_div(adjusted, other.value)?;
-        
+
         FixedPoint::new(result, self.scale)
     }
 

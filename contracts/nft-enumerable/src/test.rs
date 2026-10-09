@@ -120,10 +120,7 @@ fn test_burn_single_token_empties_lists() {
     assert_eq!(client.total_supply(), 0);
     assert_eq!(client.balance_of(&user), 0);
     // Trying to get the owner should fail
-    assert_eq!(
-        client.try_owner_of(&id),
-        Err(Ok(Error::TokenNotFound))
-    );
+    assert_eq!(client.try_owner_of(&id), Err(Ok(Error::TokenNotFound)));
 }
 
 /// Burn the first token out of three.  Verifies that:
@@ -289,10 +286,7 @@ fn test_double_burn_fails() {
     let user = Address::generate(&env);
     let id = client.mint(&admin, &user, &uri(&env, "ipfs://a"));
     client.burn(&user, &id);
-    assert_eq!(
-        client.try_burn(&user, &id),
-        Err(Ok(Error::TokenNotFound))
-    );
+    assert_eq!(client.try_burn(&user, &id), Err(Ok(Error::TokenNotFound)));
 }
 
 /// Burn by non-owner without approval should fail.
@@ -302,10 +296,7 @@ fn test_burn_by_non_owner_fails() {
     let owner = Address::generate(&env);
     let other = Address::generate(&env);
     let id = client.mint(&admin, &owner, &uri(&env, "ipfs://a"));
-    assert_eq!(
-        client.try_burn(&other, &id),
-        Err(Ok(Error::Unauthorized))
-    );
+    assert_eq!(client.try_burn(&other, &id), Err(Ok(Error::Unauthorized)));
 }
 
 /// Approved spender can burn.

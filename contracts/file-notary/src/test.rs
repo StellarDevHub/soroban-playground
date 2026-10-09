@@ -202,25 +202,29 @@ fn test_batch_proof_verifies_leaf_with_two_siblings() {
     let mut proof = soroban_sdk::Vec::new(&env);
     proof.push_back(second);
     proof.push_back(third);
-    assert!(client
-        .verify_batch_proof(&root, &first, &0, &proof)
-        .verified);
+    assert!(
+        client
+            .verify_batch_proof(&root, &first, &0, &proof)
+            .verified
+    );
 }
 
-    #[test]
-    fn test_batch_proof_hashes_right_child_after_sibling() {
-        let (env, _, user, client) = setup();
-        let (first, second, third, root) = three_leaf_batch(&env);
-        let metadata = soroban_sdk::String::from_str(&env, "three files");
-        client.notarize_batch(&user, &root, &3, &metadata);
+#[test]
+fn test_batch_proof_hashes_right_child_after_sibling() {
+    let (env, _, user, client) = setup();
+    let (first, second, third, root) = three_leaf_batch(&env);
+    let metadata = soroban_sdk::String::from_str(&env, "three files");
+    client.notarize_batch(&user, &root, &3, &metadata);
 
-        let mut proof = soroban_sdk::Vec::new(&env);
-        proof.push_back(first);
-        proof.push_back(third);
-        assert!(client
-        .verify_batch_proof(&root, &second, &1, &proof)
-        .verified);
-    }
+    let mut proof = soroban_sdk::Vec::new(&env);
+    proof.push_back(first);
+    proof.push_back(third);
+    assert!(
+        client
+            .verify_batch_proof(&root, &second, &1, &proof)
+            .verified
+    );
+}
 
 #[test]
 fn test_batch_proof_rejects_wrong_sibling_and_invalid_index() {

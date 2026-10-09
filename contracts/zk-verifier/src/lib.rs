@@ -11,9 +11,9 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short,
+    contract, contracterror, contractimpl, contracttype,
     crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine},
-    BytesN, Env, Vec,
+    symbol_short, BytesN, Env, Vec,
 };
 
 /// A conservative ceiling that bounds decoding, MSM, and pairing costs.

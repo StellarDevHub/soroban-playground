@@ -20,7 +20,9 @@
 // * The PSM can be individually paused without pausing the broader contract.
 // * Fee revenue accumulates in `PsmFeeVault` and can be collected by admin.
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Bytes, Env, Symbol};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, Env, Symbol,
+};
 
 mod flash_mint;
 pub use flash_mint::{FlashMintConfig, FlashMintDataKey};

@@ -28,11 +28,7 @@ fn add_property(env: &Env, client: &RealEstateContractClient, admin: &Address) -
 }
 
 /// Create a whitelisted investor for use in tests.
-fn approved_investor(
-    env: &Env,
-    client: &RealEstateContractClient,
-    admin: &Address,
-) -> Address {
+fn approved_investor(env: &Env, client: &RealEstateContractClient, admin: &Address) -> Address {
     let investor = Address::generate(env);
     client.approve_investor(admin, &investor);
     investor

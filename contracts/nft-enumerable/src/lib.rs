@@ -150,12 +150,7 @@ impl NftEnumerable {
     }
 
     /// Approve `spender` to transfer `token_id`.
-    pub fn approve(
-        env: Env,
-        owner: Address,
-        spender: Address,
-        token_id: u64,
-    ) -> Result<(), Error> {
+    pub fn approve(env: Env, owner: Address, spender: Address, token_id: u64) -> Result<(), Error> {
         require_initialized(&env)?;
         owner.require_auth();
 

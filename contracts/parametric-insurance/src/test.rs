@@ -589,8 +589,7 @@ fn test_empty_authorized_sources_rejected() {
             trigger_threshold: THRESHOLD,
             trigger_direction: TriggerDirection::AtOrBelow,
             term_secs: TERM,
-            authorized_sources: vec
-![&env], // Empty vector
+            authorized_sources: vec![&env], // Empty vector
             min_confirmations: 1,
             required_location: None,
         },

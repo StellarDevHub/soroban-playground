@@ -119,9 +119,11 @@ impl FileNotary {
         };
 
         env.storage().persistent().set(&key, &record);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND_TO,
+        );
 
         if is_batch {
             env.events().publish(
@@ -203,9 +205,11 @@ impl FileNotary {
 
         record.verified = false;
         env.storage().persistent().set(&key, &record);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND_TO,
+        );
 
         env.events().publish(
             (
@@ -219,11 +223,7 @@ impl FileNotary {
     }
 
     /// Revoke a batch notarization. Existing proofs then fail verification.
-    pub fn revoke_batch(
-        env: Env,
-        caller: Address,
-        merkle_root: BytesN<32>,
-    ) -> Result<(), Error> {
+    pub fn revoke_batch(env: Env, caller: Address, merkle_root: BytesN<32>) -> Result<(), Error> {
         Self::revoke_notarization(env, caller, merkle_root)
     }
 

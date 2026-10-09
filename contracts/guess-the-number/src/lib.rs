@@ -68,21 +68,15 @@ impl GuessTheNumber {
         if max_guesses == 0 {
             return Err(Error::InvalidMaxGuesses);
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
             .set(&DataKey::AnswerHash, &answer_hash);
         env.storage()
             .instance()
             .set(&DataKey::MaxGuesses, &max_guesses);
-        env.storage()
-            .instance()
-            .set(&DataKey::GuessCount, &0u32);
-        env.storage()
-            .instance()
-            .set(&DataKey::Solved, &false);
+        env.storage().instance().set(&DataKey::GuessCount, &0u32);
+        env.storage().instance().set(&DataKey::Solved, &false);
 
         env.events().publish((symbol_short!("init"),), admin);
         Ok(())
@@ -171,12 +165,8 @@ impl GuessTheNumber {
         env.storage()
             .instance()
             .set(&DataKey::MaxGuesses, &max_guesses);
-        env.storage()
-            .instance()
-            .set(&DataKey::GuessCount, &0u32);
-        env.storage()
-            .instance()
-            .set(&DataKey::Solved, &false);
+        env.storage().instance().set(&DataKey::GuessCount, &0u32);
+        env.storage().instance().set(&DataKey::Solved, &false);
         Ok(())
     }
 
@@ -223,7 +213,11 @@ impl GuessTheNumber {
             .instance()
             .get(&DataKey::Solved)
             .unwrap_or(false);
-        if solved { 0 } else { max.saturating_sub(count) }
+        if solved {
+            0
+        } else {
+            max.saturating_sub(count)
+        }
     }
 
     // NOTE: There is intentionally NO `get_answer` or `reveal_answer` function.

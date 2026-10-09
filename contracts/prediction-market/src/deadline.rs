@@ -104,7 +104,11 @@ pub fn is_before_deadline(source: &impl TimeSource, env: &Env, deadline: u64) ->
 #[inline]
 pub fn seconds_until_deadline(source: &impl TimeSource, env: &Env, deadline: u64) -> u64 {
     let now = source.now(env);
-    if now < deadline { deadline - now } else { 0 }
+    if now < deadline {
+        deadline - now
+    } else {
+        0
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

@@ -355,9 +355,7 @@ fn test_auction_rejects_payment_token_change_without_moving_escrow() {
     s.payment_sac.mint(&bidder1, &bid1);
 
     let alternate_admin = Address::generate(&s.env);
-    let alternate_contract = s
-        .env
-        .register_stellar_asset_contract_v2(alternate_admin);
+    let alternate_contract = s.env.register_stellar_asset_contract_v2(alternate_admin);
     let alternate_token = alternate_contract.address();
     let alternate_sac = StellarAssetClient::new(&s.env, &alternate_token);
     alternate_sac.mint(&bidder2, &bid2);

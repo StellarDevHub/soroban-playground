@@ -36,6 +36,7 @@ members = [
     "contracts/carbon-credit",
     "contracts/carbon-credit-oracle",
     "contracts/cartel",
+    "contracts/ccip-bridge",
     "contracts/charity-tracker",
     "contracts/cloud-storage",
     "contracts/content-publishing",
@@ -107,6 +108,7 @@ members = [
     "contracts/royalty",
     "contracts/simulation-engine",
     "contracts/social-media",
+    "contracts/soulbound-token",
     "contracts/sports-betting",
     "contracts/sports-prediction",
     "contracts/sports-prediction-market",
@@ -166,6 +168,7 @@ tokio = { version = "1", features = ["full"] }
 # Profiles are tuned for the two distinct artifact classes in this workspace:
 #   * Soroban WASM contracts -> size-critical (<64KB upload limit),
 #     no unwinding, stripped symbols.
+#   * Long-running native services (`indexer`) -> speed-orimised, unwinding
 #   * Long-running native services (`indexer`) -> speed-optimised, unwinding
 #     panics so a single tokio task failure does not abort the process.
 # The `[rprofile.release]` profile remains the default for the WASM target

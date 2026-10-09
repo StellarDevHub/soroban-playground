@@ -5,10 +5,7 @@ use soroban_sdk::{
     Address, Env,
 };
 
-use crate::{
-    auction::AuctionPhase,
-    Error, LendingPool, LendingPoolClient,
-};
+use crate::{auction::AuctionPhase, Error, LendingPool, LendingPoolClient};
 
 fn setup() -> (Env, LendingPoolClient<'static>, Address) {
     let env = Env::default();

@@ -564,157 +564,160 @@ fn test_set_negative_daily_limit_fails() {
     assert!(matches!(result, Err(Ok(Error::InvalidAmount))));
 }
 
-    // -- Cross-chain replay protection (issue #1368) --
+// -- Cross-chain replay protection (issue #1368) --
 
-    fn setup_with_quorum_one() -> (
-        Env,
-        BridgeContractClient<'static>,
-        Address,
-        Address,
-        Address,
-    ) {
-        let (env, client, admin, relayer) = setup();
-        let v1 = Address::generate(&env);
-        client.set_validator(&admin, &v1, &true);
-        client.set_validator_quorum(&admin, &1u32);
-        (env, client, admin, relayer, v1)
-    }
+fn setup_with_quorum_one() -> (
+    Env,
+    BridgeContractClient<'static>,
+    Address,
+    Address,
+    Address,
+) {
+    let (env, client, admin, relayer) = setup();
+    let v1 = Address::generate(&env);
+    client.set_validator(&admin, &v1, &true);
+    client.set_validator_quorum(&admin, &1u32);
+    (env, client, admin, relayer, v1)
+}
 
-    fn b(env: &Env, data: &[u8]) -> Bytes {
-        Bytes::from_slice(env, data)
-    }
+fn b(env: &Env, data: &[u8]) -> Bytes {
+    Bytes::from_slice(env, data)
+}
 
-    #[test]
-    fn test_proof_replay_across_source_chains_is_rejected() {
-        let (env, client, admin, relayer, v1) = setup_with_quorum_one();
-        client.set_source_chain_id(&admin, &b(&env, b"chain-a"));
-        let depositor = Address::generate(&env);
-        let id = client.lock(
-            &depositor,
-            &String::from_str(&env, "USDC"),
-            &1_000_000i128,
-            &eth_dest(&env),
-        );
-        let payload = b(&env, b"mint-payload-for-deposit-1");
-        let proof_hash = client.chain_bound_proof_hash(&id, &payload);
-        client.submit_proof(&v1, &id, &proof_hash);
-        let proof_a = client.get_proof(&id).unwrap();
-        assert_eq!(proof_a.status, ProofStatus::Verified);
-        assert_eq!(proof_a.source_chain_id, b(&env, b"chain-a"));
-        client.set_source_chain_id(&admin, &b(&env, b"chain-b"));
-        let result = client.try_confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
-        assert!(matches!(result, Err(Ok(Error::ChainIdMismatch))));
-    }
+#[test]
+fn test_proof_replay_across_source_chains_is_rejected() {
+    let (env, client, admin, relayer, v1) = setup_with_quorum_one();
+    client.set_source_chain_id(&admin, &b(&env, b"chain-a"));
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000_000i128,
+        &eth_dest(&env),
+    );
+    let payload = b(&env, b"mint-payload-for-deposit-1");
+    let proof_hash = client.chain_bound_proof_hash(&id, &payload);
+    client.submit_proof(&v1, &id, &proof_hash);
+    let proof_a = client.get_proof(&id).unwrap();
+    assert_eq!(proof_a.status, ProofStatus::Verified);
+    assert_eq!(proof_a.source_chain_id, b(&env, b"chain-a"));
+    client.set_source_chain_id(&admin, &b(&env, b"chain-b"));
+    let result = client.try_confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
+    assert!(matches!(result, Err(Ok(Error::ChainIdMismatch))));
+}
 
-    #[test]
-    fn test_source_chain_rotation_invalidates_prior_proofs() {
-        let (env, client, admin, relayer, v1) = setup_with_quorum_one();
-        let depositor = Address::generate(&env);
-        let id = client.lock(
-            &depositor,
-            &String::from_str(&env, "XLM"),
-            &500_000i128,
-            &eth_dest(&env),
-        );
-        let payload = b(&env, b"payload-v1");
-        let proof_hash = client.chain_bound_proof_hash(&id, &payload);
-        client.submit_proof(&v1, &id, &proof_hash);
-        let proof = client.get_proof(&id).unwrap();
-        assert_eq!(proof.status, ProofStatus::Verified);
-        client.set_source_chain_id(&admin, &b(&env, b"eth-mainnet"));
-        let result = client.try_confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
-        assert!(matches!(result, Err(Ok(Error::ChainIdMismatch))));
-    }
+#[test]
+fn test_source_chain_rotation_invalidates_prior_proofs() {
+    let (env, client, admin, relayer, v1) = setup_with_quorum_one();
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "XLM"),
+        &500_000i128,
+        &eth_dest(&env),
+    );
+    let payload = b(&env, b"payload-v1");
+    let proof_hash = client.chain_bound_proof_hash(&id, &payload);
+    client.submit_proof(&v1, &id, &proof_hash);
+    let proof = client.get_proof(&id).unwrap();
+    assert_eq!(proof.status, ProofStatus::Verified);
+    client.set_source_chain_id(&admin, &b(&env, b"eth-mainnet"));
+    let result = client.try_confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
+    assert!(matches!(result, Err(Ok(Error::ChainIdMismatch))));
+}
 
-    #[test]
-    fn test_unbound_payload_hash_cannot_reach_quorum() {
-        let (env, client, admin, _relayer, v1) = setup_with_quorum_one();
-        client.set_source_chain_id(&admin, &b(&env, b"chain-a"));
-        let depositor = Address::generate(&env);
-        let id = client.lock(
-            &depositor,
-            &String::from_str(&env, "USDC"),
-            &1_000i128,
-            &eth_dest(&env),
-        );
-        let raw = b(&env, b"just-a-payload");
-        client.submit_proof(&v1, &id, &raw);
-        let proof = client.get_proof(&id).unwrap();
-        assert_ne!(proof.proof_hash, raw);
-        assert_eq!(proof.source_chain_id, b(&env, b"chain-a"));
-    }
+#[test]
+fn test_unbound_payload_hash_cannot_reach_quorum() {
+    let (env, client, admin, _relayer, v1) = setup_with_quorum_one();
+    client.set_source_chain_id(&admin, &b(&env, b"chain-a"));
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000i128,
+        &eth_dest(&env),
+    );
+    let raw = b(&env, b"just-a-payload");
+    client.submit_proof(&v1, &id, &raw);
+    let proof = client.get_proof(&id).unwrap();
+    assert_ne!(proof.proof_hash, raw);
+    assert_eq!(proof.source_chain_id, b(&env, b"chain-a"));
+}
 
-    #[test]
-    fn test_initialize_stamps_default_source_chain_id() {
-        let (env, client, _admin, _relayer) = setup();
-        let chain_id = client.get_source_chain_id();
-        assert_eq!(chain_id, b(&env, b"unset"));
-    }
+#[test]
+fn test_initialize_stamps_default_source_chain_id() {
+    let (env, client, _admin, _relayer) = setup();
+    let chain_id = client.get_source_chain_id();
+    assert_eq!(chain_id, b(&env, b"unset"));
+}
 
-    #[test]
-    fn test_domain_separator_includes_chain_id() {
-        let (env, client, admin, _relayer) = setup();
-        client.set_source_chain_id(&admin, &b(&env, b"eth"));
-        let sep = client.domain_separator();
-        let mut expected = b(&env, b"bridge-v1:");
-        expected.append(&b(&env, b"eth"));
-        assert_eq!(sep, expected);
-    }
+#[test]
+fn test_domain_separator_includes_chain_id() {
+    let (env, client, admin, _relayer) = setup();
+    client.set_source_chain_id(&admin, &b(&env, b"eth"));
+    let sep = client.domain_separator();
+    let mut expected = b(&env, b"bridge-v1:");
+    expected.append(&b(&env, b"eth"));
+    assert_eq!(sep, expected);
+}
 
-    #[test]
-    fn test_set_empty_source_chain_id_fails() {
-        let (env, client, admin, _relayer) = setup();
-        let result = client.try_set_source_chain_id(&admin, &Bytes::new(&env));
-        assert!(matches!(result, Err(Ok(Error::InvalidAmount))));
-    }
+#[test]
+fn test_set_empty_source_chain_id_fails() {
+    let (env, client, admin, _relayer) = setup();
+    let result = client.try_set_source_chain_id(&admin, &Bytes::new(&env));
+    assert!(matches!(result, Err(Ok(Error::InvalidAmount))));
+}
 
-    #[test]
-    fn test_non_admin_cannot_set_source_chain_id() {
-        let (env, client, _admin, _relayer) = setup();
-        let stranger = Address::generate(&env);
-        let result = client.try_set_source_chain_id(&stranger, &b(&env, b"evil"));
-        assert!(matches!(result, Err(Ok(Error::Unauthorized))));
-    }
+#[test]
+fn test_non_admin_cannot_set_source_chain_id() {
+    let (env, client, _admin, _relayer) = setup();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_source_chain_id(&stranger, &b(&env, b"evil"));
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+}
 
-    #[test]
-    fn test_confirm_mint_succeeds_with_matching_chain_id() {
-        let (env, client, admin, relayer, v1) = setup_with_quorum_one();
-        client.set_source_chain_id(&admin, &b(&env, b"eth-mainnet"));
-        let depositor = Address::generate(&env);
-        let id = client.lock(
-            &depositor,
-            &String::from_str(&env, "USDC"),
-            &2_000_000i128,
-            &eth_dest(&env),
-        );
-        let payload = b(&env, b"final-mint-payload");
-        let proof_hash = client.chain_bound_proof_hash(&id, &payload);
-        client.submit_proof(&v1, &id, &proof_hash);
-        client.confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
-        let stats = client.get_stats();
-        // lock() deducts the 1% fee; total_minted tracks the net amount.
-        assert_eq!(stats.total_minted, 1_980_000i128);
-    }
+#[test]
+fn test_confirm_mint_succeeds_with_matching_chain_id() {
+    let (env, client, admin, relayer, v1) = setup_with_quorum_one();
+    client.set_source_chain_id(&admin, &b(&env, b"eth-mainnet"));
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &2_000_000i128,
+        &eth_dest(&env),
+    );
+    let payload = b(&env, b"final-mint-payload");
+    let proof_hash = client.chain_bound_proof_hash(&id, &payload);
+    client.submit_proof(&v1, &id, &proof_hash);
+    client.confirm_mint_with_proof(&relayer, &id, &eth_hash(&env));
+    let stats = client.get_stats();
+    // lock() deducts the 1% fee; total_minted tracks the net amount.
+    assert_eq!(stats.total_minted, 1_980_000i128);
+}
 
-    #[test]
-    fn test_mismatched_chain_bound_hashes_do_not_stack() {
-        let (env, client, admin, _relayer, v1) = setup_with_quorum_one();
-        client.set_source_chain_id(&admin, &b(&env, b"chain-a"));
-        let depositor = Address::generate(&env);
-        let id = client.lock(
-            &depositor,
-            &String::from_str(&env, "USDC"),
-            &1_000i128,
-            &eth_dest(&env),
-        );
-        // Submit raw payloads; the contract chain-binds them internally.
-        client.submit_proof(&v1, &id, &b(&env, b"payload-one"));
-        let v2 = Address::generate(&env);
-        client.set_validator(&admin, &v2, &true);
-        // Different payload -> different chain-bound hash -> rejected.
-        let result = client.try_submit_proof(&v2, &id, &b(&env, b"payload-two"));
-        assert!(result.is_err());
-        let proof = client.get_proof(&id).unwrap();
-        assert_eq!(proof.vote_count, 1);
-        assert_eq!(proof.proof_hash, client.chain_bound_proof_hash(&id, &b(&env, b"payload-one")));
-    }
+#[test]
+fn test_mismatched_chain_bound_hashes_do_not_stack() {
+    let (env, client, admin, _relayer, v1) = setup_with_quorum_one();
+    client.set_source_chain_id(&admin, &b(&env, b"chain-a"));
+    let depositor = Address::generate(&env);
+    let id = client.lock(
+        &depositor,
+        &String::from_str(&env, "USDC"),
+        &1_000i128,
+        &eth_dest(&env),
+    );
+    // Submit raw payloads; the contract chain-binds them internally.
+    client.submit_proof(&v1, &id, &b(&env, b"payload-one"));
+    let v2 = Address::generate(&env);
+    client.set_validator(&admin, &v2, &true);
+    // Different payload -> different chain-bound hash -> rejected.
+    let result = client.try_submit_proof(&v2, &id, &b(&env, b"payload-two"));
+    assert!(result.is_err());
+    let proof = client.get_proof(&id).unwrap();
+    assert_eq!(proof.vote_count, 1);
+    assert_eq!(
+        proof.proof_hash,
+        client.chain_bound_proof_hash(&id, &b(&env, b"payload-one"))
+    );
+}

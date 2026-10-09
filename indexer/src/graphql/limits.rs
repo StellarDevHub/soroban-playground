@@ -1,4 +1,4 @@
-﻿//! Query Complexity & Depth Limiting for the Soroban Indexer GraphQL API
+//! Query Complexity & Depth Limiting for the Soroban Indexer GraphQL API
 //!
 //! # Problem
 //! Unbounded nested GraphQL queries can produce exponential resolver fan-out,
@@ -70,9 +70,7 @@ pub fn selection_set_depth(set: &SelectionSet) -> usize {
 fn selection_depth(selection: &Selection) -> usize {
     match selection {
         Selection::Field(field) => field_depth(&field.node),
-        Selection::InlineFragment(frag) => {
-            selection_set_depth(&frag.node.selection_set.node)
-        }
+        Selection::InlineFragment(frag) => selection_set_depth(&frag.node.selection_set.node),
         // Named fragment spreads are resolved later; conservatively assign
         // depth 1 to avoid false negatives.
         Selection::FragmentSpread(_) => 1,
@@ -293,14 +291,22 @@ mod tests {
         async fn valid_shallow_query_passes() {
             let schema = build_test_schema();
             let res = schema.execute("{ leaf }").await;
-            assert!(res.errors.is_empty(), "expected no errors: {:?}", res.errors);
+            assert!(
+                res.errors.is_empty(),
+                "expected no errors: {:?}",
+                res.errors
+            );
         }
 
         #[tokio::test]
         async fn query_at_depth_2_passes() {
             let schema = build_test_schema();
             let res = schema.execute("{ parent { id } }").await;
-            assert!(res.errors.is_empty(), "expected no errors: {:?}", res.errors);
+            assert!(
+                res.errors.is_empty(),
+                "expected no errors: {:?}",
+                res.errors
+            );
         }
 
         #[tokio::test]
@@ -335,7 +341,11 @@ mod tests {
         async fn low_complexity_query_passes() {
             let schema = build_test_schema();
             let res = schema.execute("{ leaf }").await;
-            assert!(res.errors.is_empty(), "expected no errors: {:?}", res.errors);
+            assert!(
+                res.errors.is_empty(),
+                "expected no errors: {:?}",
+                res.errors
+            );
         }
 
         #[tokio::test]
@@ -382,7 +392,11 @@ mod tests {
         async fn named_operation_is_evaluated() {
             let schema = build_test_schema();
             let res = schema.execute("query GetLeaf { leaf }").await;
-            assert!(res.errors.is_empty(), "expected no errors: {:?}", res.errors);
+            assert!(
+                res.errors.is_empty(),
+                "expected no errors: {:?}",
+                res.errors
+            );
         }
     }
 }

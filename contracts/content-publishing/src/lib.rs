@@ -744,7 +744,9 @@ impl ContentPublishingContract {
         for (idx, share) in shares.iter().enumerate() {
             let part = if (idx as u32) + 1 == n {
                 // Last share absorbs the remainder (dust from earlier floors).
-                amount.checked_sub(allocated).ok_or(Error::ArithmeticError)?
+                amount
+                    .checked_sub(allocated)
+                    .ok_or(Error::ArithmeticError)?
             } else {
                 amount
                     .checked_mul(share.share_bps as i128)

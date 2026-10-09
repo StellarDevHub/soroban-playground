@@ -54,9 +54,7 @@ pub fn remove_owner(env: &Env, token_id: u64) {
 // ── Approvals ─────────────────────────────────────────────────────────────────
 
 pub fn get_approved(env: &Env, token_id: u64) -> Option<Address> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Approved(token_id))
+    env.storage().persistent().get(&DataKey::Approved(token_id))
 }
 
 pub fn set_approved(env: &Env, token_id: u64, spender: &Address) {

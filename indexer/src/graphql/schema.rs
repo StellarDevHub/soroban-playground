@@ -110,10 +110,10 @@ pub fn build_schema(
         .data(project_events_loader)
         .data(quorum_loader)
         // ── Security: reject over-budget queries before any resolver fires ──
-        .limit_depth(MAX_QUERY_DEPTH)       // hard depth cap (default: 8)
-        .limit_complexity(MAX_COMPLEXITY)   // hard complexity cap (default: 100)
+        .limit_depth(MAX_QUERY_DEPTH) // hard depth cap (default: 8)
+        .limit_complexity(MAX_COMPLEXITY) // hard complexity cap (default: 100)
         // ── Extensions ──────────────────────────────────────────────────────
-        .extension(DepthLimiter)            // AST-level depth check (belt-and-suspenders)
-        .extension(Analyzer)                // Returns complexity score in response extensions
+        .extension(DepthLimiter) // AST-level depth check (belt-and-suspenders)
+        .extension(Analyzer) // Returns complexity score in response extensions
         .extension(ApolloPersistedQueries::new(persisted_query_cache)) // Enables persisted queries
 }

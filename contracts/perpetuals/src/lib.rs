@@ -400,10 +400,8 @@ impl Perpetuals {
                 .instance()
                 .set(&DataKey::FundingSnapshot(id), &acc);
             env.storage().persistent().set(&key, &pos);
-            env.events().publish(
-                (symbol_short!("fund_pay"), id),
-                (pos.trader, payment),
-            );
+            env.events()
+                .publish((symbol_short!("fund_pay"), id), (pos.trader, payment));
         }
 
         let new_acc: i64 = env
@@ -516,10 +514,8 @@ impl Perpetuals {
 
         env.events()
             .publish((symbol_short!("open_pos"), id), (trader, is_long, size));
-        env.events().publish(
-            (symbol_short!("trade"), id),
-            (is_long, size, entry_price),
-        );
+        env.events()
+            .publish((symbol_short!("trade"), id), (is_long, size, entry_price));
         Ok(id)
     }
 
@@ -746,10 +742,12 @@ impl Perpetuals {
         }
 
         let elapsed = i128::from(now - last_accrual);
-        let delta = i128::from(funding.rate_bps) * 1_000_000 * elapsed
-            / i128::from(FUNDING_PERIOD_SECS);
-        Ok((i128::from(accumulator) + delta)
-            .clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64)
+        let delta =
+            i128::from(funding.rate_bps) * 1_000_000 * elapsed / i128::from(FUNDING_PERIOD_SECS);
+        Ok(
+            (i128::from(accumulator) + delta).clamp(i128::from(i64::MIN), i128::from(i64::MAX))
+                as i64,
+        )
     }
 
     fn accrue_funding(env: &Env) -> Result<i64, Error> {
@@ -786,10 +784,7 @@ impl Perpetuals {
         let mut maintenance = 0i128;
 
         for id in 1..=count {
-            let pos: Option<Position> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::Position(id));
+            let pos: Option<Position> = env.storage().persistent().get(&DataKey::Position(id));
             let pos = match pos {
                 Some(p) if p.trader == *trader && p.status == PositionStatus::Active => p,
                 _ => continue,

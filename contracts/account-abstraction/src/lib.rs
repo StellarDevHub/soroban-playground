@@ -1,7 +1,9 @@
 #![no_std]
 
 use serde::Deserialize;
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env,
+};
 
 const MAX_CLIENT_DATA_JSON_BYTES: usize = 4096;
 const MAX_AUTHENTICATOR_DATA_BYTES: u32 = 4096;
@@ -60,10 +62,7 @@ impl AccountAbstraction {
                 return Err(Error::Unauthorized);
             }
         }
-        if public_key.get(0) != Some(0x04)
-            || origin.len() == 0
-            || origin.len() > MAX_ORIGIN_BYTES
-        {
+        if public_key.get(0) != Some(0x04) || origin.len() == 0 || origin.len() > MAX_ORIGIN_BYTES {
             return Err(Error::InvalidInput);
         }
 

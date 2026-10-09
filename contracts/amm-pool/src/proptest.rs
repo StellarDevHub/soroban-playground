@@ -13,8 +13,8 @@
 
 use proptest::prelude::*;
 
-use crate::{constant_product_amount_out, utilization_bps, BPS};
 use crate::types::Error;
+use crate::{constant_product_amount_out, utilization_bps, BPS};
 
 fn default_config() -> ProptestConfig {
     ProptestConfig::with_cases(10_000)

@@ -17,32 +17,34 @@ pub struct ReentrancyGuard;
 impl ReentrancyGuard {
     pub fn acquire_lock<K: ReentrancyKey>(env: &Env) -> Result<(), ReentrancyError> {
         let key = K::lock_key();
-        
-        let locked: bool = env.storage()
+
+        let locked: bool = env
+            .storage()
             .temporary()
             .get::<Symbol, bool>(&key)
             .unwrap_or(false);
-        
+
         if locked {
             return Err(ReentrancyError::Locked);
         }
-        
+
         env.storage().temporary().set(&key, &true);
         Ok(())
     }
 
     pub fn release_lock<K: ReentrancyKey>(env: &Env) -> Result<(), ReentrancyError> {
         let key = K::lock_key();
-        
-        let locked: bool = env.storage()
+
+        let locked: bool = env
+            .storage()
             .temporary()
             .get::<Symbol, bool>(&key)
             .unwrap_or(false);
-        
+
         if !locked {
             return Err(ReentrancyError::Unlocked);
         }
-        
+
         env.storage().temporary().remove(&key);
         Ok(())
     }
@@ -84,7 +86,7 @@ mod tests {
     #[test]
     fn test_acquire_and_release() {
         let env = soroban_sdk::Env::default();
-        
+
         assert!(ReentrancyGuard::acquire_lock::<TestKey>(&env).is_ok());
         assert!(ReentrancyGuard::acquire_lock::<TestKey>(&env).is_err());
         assert!(ReentrancyGuard::release_lock::<TestKey>(&env).is_ok());
