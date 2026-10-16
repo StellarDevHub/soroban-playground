@@ -47,7 +47,7 @@
     "wabt": "^1.0.39"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.7",
+    "@babel/core": "^8.0.7",
     "@babel/plugin-transform-dynamic-import": "^7.29.7",
     "@babel/plugin-transform-modules-commonjs": "^7.29.7",
     "@tailwindcss/postcss": "^4",
