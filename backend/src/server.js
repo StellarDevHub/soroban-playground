@@ -29,6 +29,7 @@ import {
 } from './config/http2Config.js';
 
 import { http2PushMiddleware } from './middleware/http2Push.js';
+import { chaosInjector } from './middleware/chaosInjector.js';
 
 import apiRouter from './routes/api.js';
 
@@ -263,6 +264,10 @@ app.use(rejectPrototypePollution);
 app.use(cookieParser());
 app.use(compressionMiddleware);
 app.use(http2PushMiddleware);
+
+// Header-driven fault injection for resilience testing; no-op unless
+// CHAOS_ENABLED=true outside production (Issue #1770).
+app.use(chaosInjector);
 
 // Strict Transport Security (HSTS) headers
 app.use((req, res, next) => {
