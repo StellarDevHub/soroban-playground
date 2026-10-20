@@ -1,5 +1,5 @@
 // GraphQL server — mounts graphql-yoga onto the Express app at /graphql.
-// Includes: DataLoader per-request, query complexity analysis, field-level auth,
+// Includes: DataLoader per-request, query depth and complexity limits, field-level auth,
 // Redis-backed caching, GraphiQL playground, and subscription support.
 
 import { createRequire } from 'module';
@@ -11,6 +11,7 @@ import { resolvers } from './resolvers.js';
 import { buildGraphQLSchema } from './authorization.js';
 import { createLoaders } from './dataloaders.js';
 import { computeComplexity, getMaxComplexityForRole } from './complexity.js';
+import { computeDepth, MAX_DEPTH } from './depth.js';
 import {
   createPersistedQueryMiddleware,
   createPersistedQueryRouter,
@@ -67,6 +68,24 @@ query Health {
     plugins: [
       {
         onExecute({ args, setResultAndStopExecution }) {
+          const depth = computeDepth(args.document);
+          if (depth > MAX_DEPTH) {
+            setResultAndStopExecution({
+              errors: [
+                new GraphQLError(
+                  `Query depth ${depth} exceeds the maximum allowed depth of ${MAX_DEPTH}.`,
+                  {
+                    extensions: {
+                      code: 'QUERY_DEPTH_EXCEEDED',
+                      depth: { depth, max: MAX_DEPTH },
+                    },
+                  }
+                ),
+              ],
+            });
+            return;
+          }
+
           const userRole = args.contextValue?.user?.role || 'guest';
           const roles = args.contextValue?.user?.roles || [userRole];
           const max = getMaxComplexityForRole(roles);
