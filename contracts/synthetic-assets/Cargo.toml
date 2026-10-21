@@ -2,16 +2,16 @@
 name = "synthetic-assets"
 version = "0.1.0"
 edition = "2021"
-description = "Synthetic Assets Smart Contract with Price Oracle, Collateralization, and Derivatives Trading"
+description = "Synthetic Asset Synthesizer with Debt Pool Equity Tracking"
+publish = false
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = "21.0.6"
 
 [dev-dependencies]
-proptest = "1"
 soroban-sdk = { version = "21.0.6", features = ["testutils"] }
 
 [profile.release]
