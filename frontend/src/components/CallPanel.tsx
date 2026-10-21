@@ -16,6 +16,7 @@ interface CallPanelProps {
   isInvoking: boolean;
   contractId?: string;
   abi?: ContractAbiFunction[];
+  prefill?: { functionName: string; args: Record<string, unknown> } | null;
 }
 
 export default function CallPanel({
@@ -23,6 +24,7 @@ export default function CallPanel({
   isInvoking,
   contractId,
   abi,
+  prefill,
 }: CallPanelProps) {
   const [funcName, setFuncName] = useState("");
   const [argsRaw, setArgsRaw] = useState("");
@@ -70,6 +72,14 @@ export default function CallPanel({
 
     setFormValues(nextValues);
   }, [abi, contractId, funcName]);
+
+  useEffect(() => {
+    if (!prefill) return;
+    setFuncName(prefill.functionName);
+    setArgsRaw(JSON.stringify(prefill.args, null, 2));
+    setFormValues(prefill.args);
+    setParseError("");
+  }, [prefill]);
 
   const parsedArgs = useMemo(() => {
     const trimmed = argsRaw.trim();

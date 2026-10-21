@@ -55,6 +55,7 @@ import Console from "@/components/Console";
 import { ConsoleAndEventsDrawer } from "@/components/ConsoleAndEventsDrawer";
 import DeployPanel from "@/components/DeployPanel";
 import CallPanel from "@/components/CallPanel";
+import StateMachineModeler from "@/components/Visualizer/StateMachineModeler";
 import StorageViewer from "@/components/StorageViewer";
 import TransactionCallGraph from "@/components/TransactionCallGraph";
 import StorageTimeline from "@/components/StorageTimeline";
@@ -413,6 +414,10 @@ export default function Home() {
   const [contractAbi, setContractAbi] = useState<
     Array<{ name: string; inputs?: Array<{ name: string; type: string }> }>
   >([]);
+  const [lifecyclePrefill, setLifecyclePrefill] = useState<{
+    functionName: string;
+    args: Record<string, unknown>;
+  } | null>(null);
 
   const activeSnapshot = useMemo(
     () =>
@@ -2631,6 +2636,27 @@ export default function Home() {
                   isInvoking={isInvoking}
                   contractId={contractId}
                   abi={contractAbi}
+                  prefill={lifecyclePrefill}
+                />
+                <StateMachineModeler
+                  sourceCode={code}
+                  abi={contractAbi}
+                  contractId={contractId}
+                  currentState={
+                    typeof storage.state === "string"
+                      ? storage.state
+                      : typeof storage.lifecycle === "string"
+                        ? storage.lifecycle
+                        : typeof storage.status === "string"
+                          ? storage.status
+                          : null
+                  }
+                  onTransitionSelected={(transition, args) => {
+                    setLifecyclePrefill({
+                      functionName: transition.functionName,
+                      args,
+                    });
+                  }}
                 />
                 <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
                   <div className="mb-3 flex items-center justify-between">
