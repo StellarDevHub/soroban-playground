@@ -9,7 +9,9 @@ import {
   BarChart2,
   RefreshCw,
   X,
+  SlidersHorizontal,
 } from "lucide-react";
+import OrderbookDepthChart from "./DeEx/OrderbookDepthChart";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -92,9 +94,9 @@ export default function LimitOrderBookPanel({
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"book" | "trades" | "stats">(
-    "book",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "book" | "depth" | "trades" | "stats"
+  >("book");
 
   // Form state
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -384,7 +386,7 @@ export default function LimitOrderBookPanel({
             role="tablist"
             className="flex gap-1 mb-4 border-b border-gray-700 pb-2"
           >
-            {(["book", "trades", "stats"] as const).map((tab) => (
+            {(["book", "depth", "trades", "stats"] as const).map((tab) => (
               <button
                 key={tab}
                 role="tab"
@@ -398,6 +400,13 @@ export default function LimitOrderBookPanel({
               >
                 {tab === "book" && (
                   <BookOpen
+                    size={13}
+                    className="inline mr-1"
+                    aria-hidden="true"
+                  />
+                )}
+                {tab === "depth" && (
+                  <SlidersHorizontal
                     size={13}
                     className="inline mr-1"
                     aria-hidden="true"
@@ -417,7 +426,7 @@ export default function LimitOrderBookPanel({
                     aria-hidden="true"
                   />
                 )}
-                {tab}
+                {tab === "depth" ? "Depth Chart" : tab}
               </button>
             ))}
           </div>
@@ -494,6 +503,25 @@ export default function LimitOrderBookPanel({
                   ))}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Depth tab */}
+          {activeTab === "depth" && (
+            <div role="tabpanel" aria-label="Order book depth chart">
+              <OrderbookDepthChart
+                bids={book.bids.map((b) => ({
+                  price: b.price,
+                  quantity: b.remaining,
+                }))}
+                asks={book.asks.map((a) => ({
+                  price: a.price,
+                  quantity: a.remaining,
+                }))}
+                baseSymbol="XLM"
+                quoteSymbol="USDC"
+                height={340}
+              />
             </div>
           )}
 
