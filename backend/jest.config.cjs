@@ -9,7 +9,7 @@ module.exports = {
     path.resolve(__dirname, '../node_modules'),
   ],
   transform: {
-    '^.+\\.js$': [
+    '^.+\\.(js|ts)$': [
       'babel-jest',
       {
         configFile: path.resolve(__dirname, 'babel.config.cjs'),
