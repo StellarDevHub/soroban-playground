@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * SQLite Automated Backup Service
+ * SQLite Automated Backup Service + PostgreSQL WAL-G PITR Orchestration
  *
  * Backup format: <s3-prefix>/backup-<ISO-timestamp>.tar.gz.enc
  * Encryption:    AES-256-CBC — a random 16-byte IV is prepended to the payload.
@@ -33,6 +33,19 @@
  * Generate an encryption key (run once, store securely):
  *   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
  *
+ * ─── POSTGRESQL WAL-G PITR ────────────────────────────────────────────────────
+ *
+ * The PostgreSQL disaster-recovery pipeline is driven by
+ * `backend/scripts/backup/walGPostgres.sh`. This service exposes thin
+ * orchestration helpers so the Node backend can trigger base backups,
+ * PITR restores, and weekly restore drills, and can emit Prometheus
+ * alerts when WAL archiving falls behind.
+ *
+ *   import { runPostgresBaseBackup, runPostgresPitr, runRestoreDrill,
+ *            checkWalArchiveLag } from './backupService.js';
+ *
+ * See `backend/scripts/backup/README.md` for the operational runbook.
+ *
  * ──────────────────────────────────────────────────────────────────────────────
  */
 
@@ -43,6 +56,7 @@ import { createReadStream } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import os from 'os';
+import { execFile } from 'child_process';
 import { pipeline } from 'stream/promises';
 import { createGunzip } from 'zlib';
 import * as tar from 'tar';
@@ -63,6 +77,10 @@ const _dirname = path.dirname(_filename);
 const AES_ALGORITHM = 'aes-256-cbc';
 const AES_KEY_LENGTH = 32;
 const AES_IV_LENGTH = 16;
+
+const WALG_SCRIPT_PATH =
+  process.env.WALG_SCRIPT_PATH ||
+  path.resolve(_dirname, '../../scripts/backup/walGPostgres.sh');
 
 // ─── Crypto Transforms ────────────────────────────────────────────────────────
 
@@ -410,6 +428,176 @@ export async function restoreFromFile({ sourcePath, destDir }) {
   return { success: true, destDir };
 }
 
+// ─── PostgreSQL WAL-G orchestration ───────────────────────────────────────────
+
+function runWalGScript(args, { timeoutMs = 30 * 60 * 1000 } = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      WALG_SCRIPT_PATH,
+      args,
+      { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const wrapped = new Error(
+            `walGPostgres.sh ${args.join(' ')} failed: ${err.message}`
+          );
+          wrapped.stdout = stdout;
+          wrapped.stderr = stderr;
+          return reject(wrapped);
+        }
+        resolve({ stdout, stderr });
+      }
+    );
+  });
+}
+
+/**
+ * Trigger a full PostgreSQL base backup via WAL-G.
+ * Encrypted client-side with GPG before being pushed to object storage.
+ */
+export async function runPostgresBaseBackup() {
+  const startedAt = new Date().toISOString();
+  logger.info(
+    JSON.stringify({ level: 'info', msg: 'pg_backup:start', startedAt })
+  );
+  try {
+    const { stdout } = await runWalGScript(['base-backup']);
+    const result = { success: true, startedAt, stdout: stdout.trim() };
+    logger.info(
+      JSON.stringify({ level: 'info', msg: 'pg_backup:complete', startedAt })
+    );
+    return result;
+  } catch (err) {
+    logger.error(
+      JSON.stringify({
+        level: 'error',
+        msg: 'pg_backup:failed',
+        error: err.message,
+      })
+    );
+    alertManager.alert('pg_backup_failed', {
+      error: err.message,
+      startedAt,
+    });
+    throw err;
+  }
+}
+
+/**
+ * Restore PostgreSQL to a specific point in time.
+ *
+ * @param {object} opts
+ * @param {string} opts.targetTime  RFC3339 timestamp, e.g. "2026-01-15T12:34:56Z"
+ * @param {string} [opts.targetDir] Optional isolated restore directory
+ */
+export async function runPostgresPitr({ targetTime, targetDir } = {}) {
+  if (!targetTime) {
+    throw new Error('runPostgresPitr requires a targetTime (RFC3339)');
+  }
+  const args = ['pitr', '--target-time', targetTime];
+  if (targetDir) args.push('--target-dir', targetDir);
+
+  logger.info(
+    JSON.stringify({ level: 'info', msg: 'pg_pitr:start', targetTime })
+  );
+  try {
+    const { stdout } = await runWalGScript(args, { timeoutMs: 60 * 60 * 1000 });
+    const result = {
+      success: true,
+      targetTime,
+      targetDir: targetDir || null,
+      stdout: stdout.trim(),
+    };
+    logger.info(
+      JSON.stringify({ level: 'info', msg: 'pg_pitr:complete', targetTime })
+    );
+    return result;
+  } catch (err) {
+    logger.error(
+      JSON.stringify({
+        level: 'error',
+        msg: 'pg_pitr:failed',
+        error: err.message,
+        targetTime,
+      })
+    );
+    alertManager.alert('pg_pitr_failed', {
+      error: err.message,
+      targetTime,
+    });
+    throw err;
+  }
+}
+
+/**
+ * Run the weekly automated restore drill in an isolated environment.
+ * The script performs integrity verification (pg_amcheck / row counts).
+ */
+export async function runRestoreDrill() {
+  const startedAt = new Date().toISOString();
+  logger.info(
+    JSON.stringify({ level: 'info', msg: 'pg_drill:start', startedAt })
+  );
+  try {
+    const { stdout } = await runWalGScript(['restore-drill'], {
+      timeoutMs: 60 * 60 * 1000,
+    });
+    const result = { success: true, startedAt, stdout: stdout.trim() };
+    logger.info(
+      JSON.stringify({ level: 'info', msg: 'pg_drill:complete', startedAt })
+    );
+    return result;
+  } catch (err) {
+    logger.error(
+      JSON.stringify({
+        level: 'error',
+        msg: 'pg_drill:failed',
+        error: err.message,
+      })
+    );
+    alertManager.alert('pg_restore_drill_failed', {
+      error: err.message,
+      startedAt,
+    });
+    throw err;
+  }
+}
+
+/**
+ * Inspect WAL archive lag. Emits a Prometheus-backed alert when the
+ * number of unarchived WAL segments exceeds the configured threshold
+ * (default: 3 consecutive segments).
+ */
+export async function checkWalArchiveLag({ threshold = 3 } = {}) {
+  try {
+    const { stdout } = await runWalGScript(['wal-lag', '--json'], {
+      timeoutMs: 60 * 1000,
+    });
+    const parsed = JSON.parse(stdout);
+    const lag = Number(parsed.lagSegments) || 0;
+    if (lag > threshold) {
+      alertManager.alert('wal_archive_lag', {
+        lagSegments: lag,
+        threshold,
+        lastArchived: parsed.lastArchived || null,
+      });
+    }
+    return { success: true, lagSegments: lag, threshold };
+  } catch (err) {
+    logger.error(
+      JSON.stringify({
+        level: 'error',
+        msg: 'pg_wal_lag:failed',
+        error: err.message,
+      })
+    );
+    alertManager.alert('wal_archive_lag_check_failed', {
+      error: err.message,
+    });
+    throw err;
+  }
+}
+
 // ─── CLI entry point ──────────────────────────────────────────────────────────
 if (import.meta.url === `file://${process.argv[1]}`) {
   const [command, ...rest] = process.argv.slice(2);
@@ -437,8 +625,53 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         console.error('Restore failed:', err.message);
         process.exit(1);
       });
+  } else if (command === 'pg-base-backup') {
+    runPostgresBaseBackup()
+      .then((r) => {
+        console.log(JSON.stringify(r));
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('PostgreSQL base backup failed:', err.message);
+        process.exit(1);
+      });
+  } else if (command === 'pg-pitr') {
+    const targetTime = flag('--target-time');
+    const targetDir = flag('--target-dir');
+    runPostgresPitr({ targetTime, targetDir })
+      .then((r) => {
+        console.log(JSON.stringify(r));
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('PostgreSQL PITR failed:', err.message);
+        process.exit(1);
+      });
+  } else if (command === 'pg-restore-drill') {
+    runRestoreDrill()
+      .then((r) => {
+        console.log(JSON.stringify(r));
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('PostgreSQL restore drill failed:', err.message);
+        process.exit(1);
+      });
+  } else if (command === 'pg-wal-lag') {
+    const threshold = parseInt(flag('--threshold'), 10) || 3;
+    checkWalArchiveLag({ threshold })
+      .then((r) => {
+        console.log(JSON.stringify(r));
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('WAL lag check failed:', err.message);
+        process.exit(1);
+      });
   } else {
-    console.error('Unknown command. Available commands: restore');
+    console.error(
+      'Unknown command. Available commands: restore, pg-base-backup, pg-pitr, pg-restore-drill, pg-wal-lag'
+    );
     process.exit(1);
   }
 }
