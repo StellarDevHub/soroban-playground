@@ -129,6 +129,13 @@ export const NAVIGATION: NavigationGroup[] = [
         keywords: ["state", "ledger", "entries", "key value"],
       },
       {
+        name: "Decentralized Pinning",
+        href: "/ipfs",
+        icon: "database",
+        description: "Pin artifacts to IPFS, Arweave and Filecoin.",
+        keywords: ["ipfs", "pinata", "arweave", "filecoin", "cid", "storage"],
+      },
+      {
         name: "Search Utility",
         href: "/search",
         icon: "search",
