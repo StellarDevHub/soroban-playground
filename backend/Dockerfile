@@ -16,7 +16,7 @@
 # are compiled here, so the toolchain never ships in the final image).
 # (The backend is an npm workspace member; the lockfile lives at the repo root,
 # so a ./backend build context has only package.json — npm install is used.)
-FROM node:20-alpine3.20 AS deps
+FROM node:22-alpine3.20 AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json ./
@@ -28,7 +28,7 @@ RUN npm pkg delete scripts.prepare \
 # Stage 2 — local development image (hot reload via nodemon). Targeted by
 # docker-compose; not the default build. Includes dev dependencies and the build
 # toolchain so source can be volume-mounted.
-FROM node:20-alpine3.20 AS dev
+FROM node:22-alpine3.20 AS dev
 WORKDIR /app
 ENV NODE_ENV=development
 RUN apk add --no-cache python3 make g++ rust cargo openssl libgcc libstdc++ \
@@ -45,7 +45,7 @@ CMD ["npm", "run", "dev"]
 # Stage 3 — runtime. Only the production node_modules and the files the server
 # actually needs are copied in; tests, configs and dev tooling are excluded via
 # .dockerignore.
-FROM node:20-alpine3.20 AS runtime
+FROM node:22-alpine3.20 AS runtime
 
 # Patch the base image and install only what the running service requires:
 # the Rust toolchain for contract compilation, TLS/cert libs, the C++ runtime

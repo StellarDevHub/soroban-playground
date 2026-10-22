@@ -103,7 +103,7 @@ The `Dockerfile` is a hardened multi-stage build:
 - **`deps` stage** installs production dependencies only (`npm ci --omit=dev`).
   Native modules (`sqlite3`) are compiled here, so the build toolchain never
   ships in the final image.
-- **`runtime` stage** is a patched `node:20-alpine` that runs as the non-root
+- **`runtime` stage** is a patched `node:22-alpine` that runs as the non-root
   `node` user, sets `NODE_ENV=production`, copies only the production
   `node_modules` + `src` + `migrations` (tests/configs/dev tooling are excluded
   via `.dockerignore`), uses `tini` as PID 1, and ships a `/api/health`

@@ -19,6 +19,12 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { EventEmitter } from 'events';
 import os from 'os';
+import {
+  authenticateGrpcCall,
+  createSorobanServiceHandlers,
+  sorobanServiceDefinition,
+  toGrpcError,
+} from './sorobanService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -167,6 +173,22 @@ function healthCheck(_call, callback) {
   });
 }
 
+function authenticatedUnary(handler) {
+  return (call, callback) => {
+    authenticateGrpcCall(call)
+      .then(() => handler(call, callback))
+      .catch((error) => callback(toGrpcError(error)));
+  };
+}
+
+function authenticatedStream(handler) {
+  return (call) => {
+    authenticateGrpcCall(call)
+      .then(() => handler(call))
+      .catch((error) => call.destroy(toGrpcError(error)));
+  };
+}
+
 // ─── Server factory ───────────────────────────────────────────────────────────
 
 /**
@@ -205,11 +227,14 @@ export async function startGrpcServer(
   });
 
   server.addService(proto.IndexerService.service, {
-    StreamEvents: streamEvents,
-    GetCompileStatus: makeGetCompileStatus(compileJobStore),
-    Deploy: makeDeployHandler(deployJobStore),
+    StreamEvents: authenticatedStream(streamEvents),
+    GetCompileStatus: authenticatedUnary(
+      makeGetCompileStatus(compileJobStore)
+    ),
+    Deploy: authenticatedUnary(makeDeployHandler(deployJobStore)),
     HealthCheck: healthCheck,
   });
+  server.addService(sorobanServiceDefinition, createSorobanServiceHandlers());
 
   const credentials = tls
     ? grpc.ServerCredentials.createSsl(null, [

@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package google.api;
+
+message HttpRule {
+  string post = 2;
+  string body = 7;
+}

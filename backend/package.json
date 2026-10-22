@@ -4,6 +4,9 @@
   "description": "Soroban Playground backend API",
   "main": "src/server.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "build": "npm run lint:check && npm run format:check && node --check src/server.js",
     "lint": "npx eslint . --ext .js,.cjs,.mjs,.ts --fix",
@@ -42,6 +45,8 @@
     "@aws-sdk/lib-storage": "^3.600.0",
     "@bull-board/api": "^9.4.0",
     "@bull-board/express": "^9.4.0",
+    "@grpc/grpc-js": "^1.14.6",
+    "@grpc/proto-loader": "^0.8.1",
     "@opentelemetry/api": "^1.8.0",
     "@opentelemetry/auto-instrumentations-node": "^0.80.0",
     "@opentelemetry/exporter-jaeger": "^2.10.0",

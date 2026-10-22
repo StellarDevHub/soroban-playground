@@ -15,6 +15,7 @@
 
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
+import { context, propagation } from '@opentelemetry/api';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -71,6 +72,7 @@ export class GrpcClient {
    * @param {boolean}[opts.tls]         - Use TLS (default: false)
    * @param {number} [opts.deadlineMs]  - Per-call deadline in ms (default: 10000)
    * @param {number} [opts.maxRetries]  - Retry limit for transient errors
+   * @param {string} [opts.authorizationToken] - Access token for authenticated RPCs
    */
   constructor(opts = {}) {
     const {
@@ -79,11 +81,13 @@ export class GrpcClient {
       tls = false,
       deadlineMs = 10_000,
       maxRetries = 3,
+      authorizationToken = process.env.GRPC_AUTH_TOKEN,
     } = opts;
 
     this._address = `${host}:${port}`;
     this._deadlineMs = deadlineMs;
     this._maxRetries = maxRetries;
+    this._authorizationToken = authorizationToken;
 
     const credentials = tls
       ? grpc.credentials.createSsl()
@@ -112,6 +116,22 @@ export class GrpcClient {
     return new Date(Date.now() + this._deadlineMs);
   }
 
+  _metadata() {
+    const metadata = new grpc.Metadata();
+    if (this._authorizationToken) {
+      metadata.set(
+        'authorization',
+        ['Bearer', this._authorizationToken].join(' ')
+      );
+    }
+    const traceHeaders = {};
+    propagation.inject(context.active(), traceHeaders);
+    for (const key of ['traceparent', 'tracestate']) {
+      if (traceHeaders[key]) metadata.set(key, traceHeaders[key]);
+    }
+    return metadata;
+  }
+
   // ── Unary wrappers ──────────────────────────────────────────────────────────
 
   /**
@@ -126,6 +146,7 @@ export class GrpcClient {
         new Promise((resolve, reject) => {
           this._stub.GetCompileStatus(
             { job_id: jobId },
+            this._metadata(),
             { deadline: this._deadline() },
             (err, response) => (err ? reject(err) : resolve(response))
           );
@@ -155,6 +176,7 @@ export class GrpcClient {
               source_key: sourceKey,
               network,
             },
+            this._metadata(),
             { deadline: this._deadline() },
             (err, response) => (err ? reject(err) : resolve(response))
           );
@@ -174,6 +196,7 @@ export class GrpcClient {
         new Promise((resolve, reject) => {
           this._stub.HealthCheck(
             {},
+            this._metadata(),
             { deadline: this._deadline() },
             (err, response) => (err ? reject(err) : resolve(response))
           );
@@ -196,10 +219,13 @@ export class GrpcClient {
    * @returns {grpc.ClientReadableStream<any>}
    */
   streamEvents({ contractId = '', sinceTs = 0 } = {}) {
-    return this._stub.StreamEvents({
-      contract_id: contractId,
-      since_ts: sinceTs,
-    });
+    return this._stub.StreamEvents(
+      {
+        contract_id: contractId,
+        since_ts: sinceTs,
+      },
+      this._metadata()
+    );
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────────

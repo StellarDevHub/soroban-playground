@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package soroban_playground;
+
+import "google/api/annotations.proto";
+
+message CompileRequest {
+  string code = 1;
+  map<string, string> dependencies = 2;
+  string contract_name = 3;
+  string source = 4;
+  string source_code = 5;
+}
+
+message CompileResponse {
+  bool success = 1;
+  string status = 2;
+  string hash = 3;
+  string message = 4;
+  bool cached = 5;
+  int64 duration_ms = 6;
+  repeated string logs = 7;
+  string artifact_name = 8;
+  int64 artifact_size_bytes = 9;
+  string artifact_path = 10;
+}
+
+message SimulateRequest {
+  string transaction_xdr = 1;
+  string network = 2;
+  string transaction = 3;
+}
+
+message ResourceValues {
+  int64 cpu_instructions = 1;
+  int64 memory_bytes = 2;
+  int64 ledger_read_bytes = 3;
+  int64 ledger_write_bytes = 4;
+}
+
+message ResourceProfile {
+  int64 cpu_instructions = 1;
+  int64 memory_bytes = 2;
+  int64 ledger_read_bytes = 3;
+  int64 ledger_write_bytes = 4;
+  int32 read_count = 5;
+  int32 write_count = 6;
+  ResourceValues buffered = 7;
+}
+
+message GasVisualizerEvent {
+  int32 index = 1;
+  string type = 2;
+  string contract_id = 3;
+  int32 topics = 4;
+}
+
+message GasVisualizer {
+  int32 event_count = 1;
+  int32 diagnostic_event_count = 2;
+  repeated GasVisualizerEvent events = 3;
+  ResourceValues budgets = 4;
+}
+
+message SimulationReport {
+  string network = 1;
+  bool fallback = 2;
+  string min_resource_fee = 3;
+  string estimated_total_fee = 4;
+  int64 cpu_instructions = 5;
+  int64 memory_bytes = 6;
+  int64 ledger_read_bytes = 7;
+  int64 ledger_write_bytes = 8;
+  int32 read_count = 9;
+  int32 write_count = 10;
+  ResourceProfile resource_profile = 11;
+  ResourceValues resource_bounds = 12;
+  GasVisualizer gas_visualizer = 13;
+  repeated string diagnostics = 14;
+  int32 events_count = 15;
+  int64 latest_ledger = 16;
+  bool has_latest_ledger = 17;
+  string transaction_data_json = 18;
+  bool has_transaction_data = 19;
+}
+
+message SimulateResponse {
+  bool success = 1;
+  string status = 2;
+  SimulationReport data = 3;
+}
+
+message DeployRequest {
+  string wasm_path = 1;
+  string contract_name = 2;
+  string network = 3;
+  string source_account = 4;
+}
+
+message DeployResponse {
+  bool success = 1;
+  string status = 2;
+  string contract_id = 3;
+  string contract_name = 4;
+  string network = 5;
+  string wasm_path = 6;
+  string deployed_at = 7;
+  string message = 8;
+}
+
+service SorobanService {
+  rpc Compile(CompileRequest) returns (CompileResponse) {
+    option (google.api.http) = {
+      post: "/v1/compile"
+      body: "*"
+    };
+  }
+
+  rpc CompileStream(stream CompileRequest) returns (stream CompileResponse);
+
+  rpc Simulate(SimulateRequest) returns (SimulateResponse) {
+    option (google.api.http) = {
+      post: "/v1/simulate"
+      body: "*"
+    };
+  }
+
+  rpc Deploy(DeployRequest) returns (DeployResponse) {
+    option (google.api.http) = {
+      post: "/v1/deploy"
+      body: "*"
+    };
+  }
+}

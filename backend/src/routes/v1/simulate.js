@@ -170,7 +170,7 @@ function buildResourceProfile(usage) {
 function buildGasVisualizer(rpcResult, usage) {
   const events = Array.isArray(rpcResult.events) ? rpcResult.events : [];
   const diagnosticEvents = Array.isArray(rpcResult.diagnosticEvents)
-    ? rpdResult.diagnosticEvents
+    ? rpcResult.diagnosticEvents
     : [];
 
   const cpuBudget = Math.max(usage.cpuInstructions, 1);
@@ -221,7 +221,7 @@ function buildSimulationReport(rpcResult, { network, fallback }) {
   };
 }
 
-async function runSimulation(xdrToSimulate, network) {
+export async function runSimulation(xdrToSimulate, network) {
   let rpcResult;
   let fallback = false;
   try {
