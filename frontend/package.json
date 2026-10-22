@@ -23,7 +23,7 @@
     "@noble/curves": "^1.8.1",
     "@scalar/rust-fmt": "^0.3.0",
     "@stellar/freighter-api": "^6.0.1",
-    "@stellar/stellar-sdk": "^12.3.0",
+    "@stellar/stellar-sdk": "^17.2.1",
     "@wry/caches": "^1.0.1",
     "@wry/context": "^0.7.4",
     "@wry/equality": "^0.5.7",
