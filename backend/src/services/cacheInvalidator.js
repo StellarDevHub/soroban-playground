@@ -301,7 +301,9 @@ export class CacheInvalidator {
   async #deleteKeys(keys) {
     let deleted = 0;
     for (const key of keys) {
-      if (this.localCache?.l1?.delete) {
+      if (typeof this.localCache?.invalidateLocal === 'function') {
+        this.localCache.invalidateLocal(key);
+      } else if (this.localCache?.l1?.delete) {
         this.localCache.l1.delete(key);
       } else if (typeof this.localCache?.invalidate === 'function') {
         await this.localCache.invalidate(key);
@@ -362,7 +364,11 @@ export class CacheInvalidator {
     }
     const keys = parsed?.keys || [];
     for (const key of keys) {
-      this.localCache?.l1?.delete?.(key);
+      if (typeof this.localCache?.invalidateLocal === 'function') {
+        this.localCache.invalidateLocal(key);
+      } else {
+        this.localCache?.l1?.delete?.(key);
+      }
       const ownedTags = this.localKeyTags.get(key);
       if (ownedTags) {
         for (const tag of ownedTags) {
@@ -373,6 +379,9 @@ export class CacheInvalidator {
     }
     for (const tag of parsed?.tags || []) {
       this.localTags.delete(tag);
+    }
+    if (typeof parsed?.prefix === 'string') {
+      this.localCache?.invalidatePatternLocal?.(parsed.prefix);
     }
   }
 

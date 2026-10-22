@@ -1,6 +1,7 @@
 import express from 'express';
 import client from 'prom-client';
 import { oracleLockRegistry } from '../services/oracle/lockMetrics.js';
+import { tieredCacheMetrics } from '../services/multiLevelCache.js';
 
 const router = express.Router();
 
@@ -62,6 +63,10 @@ export const cacheLatencyHistogram = new client.Histogram({
   labelNames: ['action'],
 });
 register.registerMetric(cacheLatencyHistogram);
+
+register.registerMetric(tieredCacheMetrics.hits);
+register.registerMetric(tieredCacheMetrics.misses);
+register.registerMetric(tieredCacheMetrics.evictions);
 
 export const requestLatency = new client.Histogram({
   name: 'http_request_duration_seconds',
