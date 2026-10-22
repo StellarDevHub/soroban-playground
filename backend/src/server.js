@@ -107,6 +107,8 @@ import { startMemoryLeakDetector } from './services/memoryLeakDetector.js';
 
 import { contractEventIndexer } from './services/contractEventIndexer.js';
 
+import { kafkaEventConsumer } from './services/kafka/eventConsumer.ts';
+
 import { runStartupMigrations } from './services/migrationService.js';
 
 import healthService from './services/healthService.js';
@@ -371,6 +373,9 @@ async function start() {
     await initializeCompileService();
     await oracleWorkerPool.start();
     await contractEventIndexer.start();
+    if (process.env.KAFKA_ENABLED === 'true') {
+      await kafkaEventConsumer.start();
+    }
     await LedgerSyncService.start();
     await credentialRotationService.start();
     await featureFlagService.initialize();
@@ -436,6 +441,7 @@ async function shutdown(signal) {
     if (grpcServer) await shutdownGrpcServer(grpcServer);
     await oracleWorkerPool.stop();
     await contractEventIndexer.stop();
+    await kafkaEventConsumer.stop();
     await LedgerSyncService.stop();
     await credentialRotationService.stop();
     await cacheInvalidator.stop();

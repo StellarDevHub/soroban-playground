@@ -2,6 +2,7 @@ import express from 'express';
 import client from 'prom-client';
 import { oracleLockRegistry } from '../services/oracle/lockMetrics.js';
 import { tieredCacheMetrics } from '../services/multiLevelCache.js';
+import { kafkaConsumerRegistry } from '../metrics/kafkaConsumerMetrics.js';
 import { metricsAuthMiddleware } from '../telemetry/middleware.js';
 
 const router = express.Router();
@@ -326,6 +327,7 @@ router.get('/', metricsAuthMiddleware(), async (req, res) => {
     const merged = await client.Registry.merge([
       register,
       oracleLockRegistry,
+      kafkaConsumerRegistry,
     ]).metrics();
     res.end(merged);
   } catch (ex) {
