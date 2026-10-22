@@ -80,6 +80,12 @@ jobs:
         env:
           NODE_ENV: test
 
+      - name: Run Ephemeral Quickstart Orchestrator Tests (BE-07)
+        working-directory: backend
+        run: npx jest tests/ephemeralQuickstart.integration.test.js --forceExit
+        env:
+          NODE_ENV: test
+
       - name: Run CORS & OpenAPI Tests
         working-directory: backend
         run: >-
