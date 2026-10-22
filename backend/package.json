@@ -20,6 +20,7 @@
     "test:e2e": "jest tests/syntheticAssets.e2e.test.js",
     "test:synthetic": "jest tests/syntheticAssets.*.test.js",
     "test:all": "npm run test:unit && npm run test:synthetic",
+    "test:jsonpatch": "jest tests/jsonPatchSync.*.test.js",
     "init-db": "SEED_SAMPLE_DATA=false knex migrate:latest && node src/database/init.js --no-seed",
     "backup:restore": "node src/services/backupService.js restore",
     "migrate:make": "knex migrate:make",
@@ -28,7 +29,7 @@
     "persisted-query:warm": "node scripts/warm-persisted-queries.js",
     "load:http": "k6 run load-tests/http.js",
     "load:ws": "k6 run load-tests/websocket.js",
-    "dlq": "node scripts/dlq.js"
+    "dlq": "node scripts/dl.js"
   },
   "keywords": [
     "soroban",
@@ -60,6 +61,7 @@
     "envalid": "^8.2.0",
     "express": "^4.21.2",
     "express-rate-limit": "^8.3.1",
+    "fast-json-patch": "^3.1.0",
     "graphql": "^16.13.2",
     "graphql-query-complexity": "^2.0.0",
     "graphql-yoga": "^5.21.0",
