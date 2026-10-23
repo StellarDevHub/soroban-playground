@@ -8,7 +8,11 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useCompileStore } from "@/state/compileStore";
+import {
+  SPOTLIGHT_COMPILE_REQUEST_EVENT,
+  SPOTLIGHT_DEPLOY_REQUEST_EVENT,
+  useCompileStore,
+} from "@/state/compileStore";
 import { formatRustInWorker } from "@/lib/rustfmtClient";
 import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
 import {
@@ -832,6 +836,36 @@ export default function Home() {
       setIsDeploying(false);
     }
   };
+
+  /*
+   * Issue #1725 — the spotlight palette is mounted once in the root layout
+   * and cannot call `handleCompile` / `handleDeploy` directly, so it signals
+   * through these DOM events. Handlers are read through refs to keep the
+   * subscription stable across renders while always invoking the latest
+   * closures (which capture the current `code`, `deploymentPlan`, …).
+   */
+  const compileRequestRef = useRef(handleCompile);
+  compileRequestRef.current = handleCompile;
+  const deployRequestRef = useRef(handleDeploy);
+  deployRequestRef.current = handleDeploy;
+
+  useEffect(() => {
+    const onCompileRequest = () => {
+      void compileRequestRef.current();
+    };
+    const onDeployRequest = () => {
+      void deployRequestRef.current();
+    };
+    window.addEventListener(SPOTLIGHT_COMPILE_REQUEST_EVENT, onCompileRequest);
+    window.addEventListener(SPOTLIGHT_DEPLOY_REQUEST_EVENT, onDeployRequest);
+    return () => {
+      window.removeEventListener(
+        SPOTLIGHT_COMPILE_REQUEST_EVENT,
+        onCompileRequest,
+      );
+      window.removeEventListener(SPOTLIGHT_DEPLOY_REQUEST_EVENT, onDeployRequest);
+    };
+  }, []);
 
   const handleBatchDeploy = async () => {
     let contracts: Array<Record<string, unknown>>;

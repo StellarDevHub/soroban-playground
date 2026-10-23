@@ -81,7 +81,9 @@ test("warming dialog contains Tab and Shift+Tab and closes with Escape", async (
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
 });
-test("command palette contains focus and restores its previous control", async ({
+// Issue #1725 — Cmd/Ctrl+K now opens the Spotlight palette; the classic
+// #1527 "command search" palette moved to bare "/" (covered below).
+test("spotlight palette contains focus and restores its previous control", async ({
   page,
 }, info) => {
   await page.goto("/");
@@ -89,7 +91,7 @@ test("command palette contains focus and restores its previous control", async (
   await trigger.focus();
   await page.keyboard.press("Control+k");
   const dialog = page.getByRole("dialog", {
-    name: "Command palette",
+    name: "Spotlight command palette",
     exact: true,
   });
   await expect(dialog).toBeVisible();
@@ -101,8 +103,32 @@ test("command palette contains focus and restores its previous control", async (
       element.contains(document.activeElement),
     ),
   ).toBe(true);
+  // Arrow-key navigation walks the painted order, mouse-free.
+  await page.keyboard.press("ArrowDown");
+  await expect(input).toHaveAttribute(
+    "aria-activedescendant",
+    /spotlight-option-/,
+  );
   await scan(page, info);
   await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+test("classic command search still opens on slash and traps focus", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "Compile", exact: true });
+  await trigger.focus();
+  await page.keyboard.press("/");
+  const dialog = page.getByRole("dialog", {
+    name: "Command palette",
+    exact: true,
+  });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("combobox")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
 });
 test("mobile navigation has a trapped keyboard cycle and restores its opener", async ({

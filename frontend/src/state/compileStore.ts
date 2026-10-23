@@ -40,6 +40,34 @@ export const selectStatus = (state: CompileProgressState) => state.status;
 export const selectProgress = (state: CompileProgressState) => state.progress;
 export const selectError = (state: CompileProgressState) => state.error;
 
+/**
+ * Cross-component "please compile" signal (issue #1725).
+ *
+ * Compilation is owned by `PlaygroundClient` because it drives the Monaco
+ * buffer, the deployment pre-flight state and the websocket log. The spotlight
+ * palette lives in the root layout and therefore cannot call `handleCompile`
+ * directly — it dispatches this DOM event instead and the playground listens.
+ * Components that do not care about compiling never touch it.
+ */
+export const SPOTLIGHT_COMPILE_REQUEST_EVENT = "sp:spotlight-compile-request";
+
+export function requestPlaygroundCompile(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(SPOTLIGHT_COMPILE_REQUEST_EVENT));
+}
+
+/**
+ * Same bridge for "deploy the last artifact" (issue #1725). Deployment needs
+ * the playground's pre-flight plan, so the signal is honoured only when a
+ * fresh plan exists — otherwise the playground logs the miss and does nothing.
+ */
+export const SPOTLIGHT_DEPLOY_REQUEST_EVENT = "sp:spotlight-deploy-request";
+
+export function requestPlaygroundDeploy(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(SPOTLIGHT_DEPLOY_REQUEST_EVENT));
+}
+
 export const useCompileStore = create<CompileProgressState>((set) => ({
   isCompiling: false,
   status: "idle",

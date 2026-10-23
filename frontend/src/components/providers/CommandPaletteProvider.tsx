@@ -2,26 +2,31 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Owns the global command palette (issue #1527).
+ * Owns the global command palettes (issues #1527, #1725).
  *
  * Mounted once in the root layout. Responsibilities:
  *
- *  - bind **Cmd/Ctrl+K** (and `/` when the user is not already typing) to
- *    toggle the palette, without swallowing the shortcut inside a text field
- *    that legitimately needs the key;
- *  - contribute the shell's local actions — theme toggle, offline sync now,
- *    workspace reset — so they are reachable from anywhere;
- *  - record every navigation the user performs through the palette into the
- *    recent-files log that the index reads back (#1525).
+ *  - render the **Spotlight palette** (#1725), which binds Cmd/Ctrl+K itself
+ *    and owns the five categorized groups (Navigation, Build, Deploy, Wallets,
+ *    Settings);
+ *  - keep bare `/` (when the user is not already typing) opening the classic
+ *    #1527 "command search" palette, and guarantee the two are never open at
+ *    once so their focus traps cannot fight;
+ *  - contribute the shell's local actions — offline sync now, connection
+ *    status, workspace reset — to both palettes;
+ *  - record every navigation the user performs into the recent-files log that
+ *    both indexes read back (#1525).
  */
 
 "use client";
 
 import React, { useCallback, useMemo, useState } from "react";
 import CommandPalette from "@/components/CommandPalette";
+import SpotlightModal from "@/components/CommandPalette/SpotlightModal";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
 import type { PaletteAction } from "@/lib/commandRegistry";
+import type { SpotlightAction } from "@/lib/spotlightRegistry";
 
 /** Elements that own the keyboard while the user is typing in them. */
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -46,11 +51,21 @@ export function CommandPaletteProvider({
   children,
   onResetWorkspace,
 }: CommandPaletteProviderProps) {
+  /** Classic #1527 "command search" palette (full template index). */
   const [open, setOpen] = useState(false);
+  /** Spotlight-style palette (#1725) — the Cmd/Ctrl+K surface. */
+  const [spotlightOpen, setSpotlightOpen] = useState(false);
   const { state: theme, toggle: toggleTheme } = useTheme();
   const { flush, queuedCount, isOnline, status } = useOffline();
 
   const close = useCallback(() => setOpen(false), []);
+
+  // The two palettes are mutually exclusive: whichever opens first wins, so
+  // their focus traps never overlap.
+  const onSpotlightOpenChange = useCallback((next: boolean) => {
+    setSpotlightOpen(next);
+    if (next) setOpen(false);
+  }, []);
 
   const actions = useMemo<PaletteAction[]>(() => {
     const list: PaletteAction[] = [
@@ -98,21 +113,31 @@ export function CommandPaletteProvider({
     return list;
   }, [flush, isOnline, onResetWorkspace, queuedCount, status, theme.mode, toggleTheme]);
 
+  // The shell actions, retyped for the Spotlight's Settings group. The theme
+  // toggle is filtered out because SpotlightModal ships its own Settings-group
+  // version, and two "toggle theme" rows would be noise.
+  const spotlightShellActions = useMemo<SpotlightAction[]>(
+    () =>
+      actions
+        .filter((action) => action.id !== "theme.toggle")
+        .map((action) => ({
+          id: action.id,
+          title: action.label,
+          subtitle: action.description,
+          group: "Settings" as const,
+          keywords: action.keywords,
+          action: action.run,
+        })),
+    [actions],
+  );
+
+  // Cmd/Ctrl+K is bound by SpotlightModal itself (#1725). The provider keeps
+  // only bare "/" — a familiar "search" affordance, but only outside a field.
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const isPaletteKey =
-        (event.key === "k" || event.key === "K") &&
-        (event.metaKey || event.ctrlKey);
-
-      if (isPaletteKey) {
-        event.preventDefault();
-        setOpen((previous) => !previous);
-        return;
-      }
-
-      // Bare "/" is a familiar "search" affordance, but only outside a field.
       if (event.key === "/" && !isTypingTarget(event.target)) {
         event.preventDefault();
+        setSpotlightOpen(false);
         setOpen(true);
       }
     };
@@ -136,6 +161,18 @@ export function CommandPaletteProvider({
           actions={actions}
         />
       ) : null}
+      {/*
+        #1725 — Spotlight. Always mounted (it binds the global Cmd/Ctrl+K
+        listener) but renders nothing while closed, so it costs a few effects
+        and no DOM. The theme toggle is skipped because the Spotlight ships its
+        own Settings-group version of it.
+      */}
+      <SpotlightModal
+        open={spotlightOpen}
+        onOpenChange={onSpotlightOpenChange}
+        actions={spotlightShellActions}
+        onOpenClassicPalette={() => setOpen(true)}
+      />
     </>
   );
 }

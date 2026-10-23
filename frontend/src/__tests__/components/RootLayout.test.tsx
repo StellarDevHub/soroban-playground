@@ -1,9 +1,11 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 
-// Mock next/navigation usePathname
+// Mock next/navigation (the root tree now always mounts the Spotlight
+// palette, #1725, which uses the router and the pathname).
 jest.mock("next/navigation", () => ({
   usePathname: () => "/",
+  useRouter: () => ({ push: jest.fn() }),
 }));
 
 // Mock wallet hook used by Sidebar
