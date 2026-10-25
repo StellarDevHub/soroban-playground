@@ -19,5 +19,7 @@ describe('/metrics', () => {
     expect(res.text).toContain('db_queries_total');
     expect(res.text).toContain('soroban_rpc_call_duration_seconds');
     expect(res.text).toContain('soroban_rpc_calls_total');
+    expect(res.text).toContain('stellar_nonce_sequence_depth');
+    expect(res.text).toContain('stellar_nonce_reservations_total');
   });
 });
