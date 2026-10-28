@@ -199,6 +199,13 @@ export const NAVIGATION: NavigationGroup[] = [
         keywords: ["synthetic", "mint", "collateral", "home", "overview"],
       },
       {
+        name: "Cross-Chain Bridge",
+        href: "/bridge",
+        icon: "globe",
+        description: "Simulate cross-chain transfers, relayer proofs and replay protection.",
+        keywords: ["teleport", "bridge", "relayer", "merkle", "cosmos", "evm"],
+      },
+      {
         name: "Limit Order Book",
         href: "/orderbook",
         icon: "boxes",
