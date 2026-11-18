@@ -33,7 +33,7 @@ import RootLayout from "@/app/layout";
 describe("RootLayout (Dashboard Layout)", () => {
   it("renders children and the sidebar brand", () => {
     render(
-      // @ts-ignore - Next layout typing in tests
+      // @ts-expect-error - Next layout typing in tests
       <RootLayout>
         <div>child-content</div>
       </RootLayout>,
@@ -41,5 +41,25 @@ describe("RootLayout (Dashboard Layout)", () => {
 
     expect(screen.getByText("child-content")).toBeInTheDocument();
     expect(screen.getAllByText(/Soroban Play/i)[0]).toBeInTheDocument();
+  });
+
+  it("wraps layout children in an ErrorBoundary and isolates child crash with recovery options", () => {
+    const CrashingChild = () => {
+      throw new Error("Simulated root child crash");
+    };
+    const consoleError = console.error;
+    console.error = jest.fn();
+
+    render(
+      // @ts-expect-error - Next layout typing in tests
+      <RootLayout>
+        <CrashingChild />
+      </RootLayout>,
+    );
+
+    expect(screen.getAllByRole("alert").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("recover-workspace-btn")).toBeInTheDocument();
+
+    console.error = consoleError;
   });
 });
