@@ -57,6 +57,59 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('Healthy Component')).toBeInTheDocument();
   });
 
+  it('provides a one-click Recover Workspace button that invokes onRecoverWorkspace', () => {
+    const onRecoverWorkspace = jest.fn();
+    render(
+      <ErrorBoundary onRecoverWorkspace={onRecoverWorkspace} componentName="Monaco Editor">
+        <ProblemChild shouldThrow />
+      </ErrorBoundary>,
+    );
+
+    const recoverBtn = screen.getByTestId('recover-workspace-btn');
+    expect(recoverBtn).toBeInTheDocument();
+    expect(recoverBtn).toHaveTextContent('Recover Workspace');
+
+    fireEvent.click(recoverBtn);
+    expect(onRecoverWorkspace).toHaveBeenCalledTimes(1);
+    expect(toastManager.show).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Workspace Recovered',
+      type: 'success',
+    }));
+  });
+
+  it('recovers workspace buffers from localStorage when onRecoverWorkspace is not provided', () => {
+    localStorage.setItem('soroban_editor_code', 'fn test_restored() {}');
+    const recoverListener = jest.fn();
+    window.addEventListener('soroban:recover-workspace', recoverListener);
+
+    render(
+      <ErrorBoundary storageBackupKey="soroban_editor_code" componentName="Monaco Editor">
+        <ProblemChild shouldThrow />
+      </ErrorBoundary>,
+    );
+
+    fireEvent.click(screen.getByTestId('recover-workspace-btn'));
+    expect(recoverListener).toHaveBeenCalled();
+    expect(toastManager.show).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Workspace Recovered',
+      type: 'success',
+    }));
+
+    window.removeEventListener('soroban:recover-workspace', recoverListener);
+    localStorage.removeItem('soroban_editor_code');
+  });
+
+  it('renders granular widget titles and component badges', () => {
+    render(
+      <ErrorBoundary level="widget" componentName="Interactive Visualizer">
+        <ProblemChild shouldThrow />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Interactive Visualizer Crashed');
+    expect(screen.getByText('Interactive Visualizer')).toBeInTheDocument();
+  });
+
   it('renders a supplied fallback without exposing diagnostic controls', () => {
     render(<ErrorBoundary fallback={<div>Safe fallback</div>}><ProblemChild shouldThrow /></ErrorBoundary>);
     expect(screen.getByText('Safe fallback')).toBeInTheDocument();
@@ -88,6 +141,19 @@ describe('ErrorBoundary diagnostics', () => {
     const described = describeUnknownError({ name: 'RpcError', message: 'simulation failed', token: 'secret-token', result: { code: -1 } });
     expect(described).toMatchObject({ name: 'RpcError', message: 'simulation failed' });
     expect(described.details).not.toHaveProperty('token');
+  });
+
+  it('sanitizes user file system paths and stellar secrets in stack traces', () => {
+    const errorWithStack = new Error('Engine crash');
+    errorWithStack.stack = 'Error: Engine crash\n at /home/developer_bob/projects/soroban/contract.rs:42:10\n at /Users/alice/repo/index.ts:15:4\n secret: SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const log = createDiagnosticLog(errorWithStack, null, 'global', 'ContractEngine');
+
+    expect(log.stack).toContain('/home/[ANONYMIZED_USER]/projects/soroban/contract.rs:42:10');
+    expect(log.stack).toContain('/Users/[ANONYMIZED_USER]/repo/index.ts:15:4');
+    expect(log.stack).toContain('[REDACTED_STELLAR_SECRET]');
+    expect(log.stack).not.toContain('developer_bob');
+    expect(log.stack).not.toContain('alice');
+    expect(log.anonymized).toBe(true);
   });
 
   it('includes component context and strips query data from exported URLs', () => {
