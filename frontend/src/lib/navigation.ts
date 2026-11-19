@@ -115,6 +115,22 @@ export const NAVIGATION: NavigationGroup[] = [
         keywords: ["documentation", "help", "guide", "manual", "sdk"],
       },
       {
+        name: "Docs: Soroban SDK Reference",
+        href: "/docs?topic=sdk",
+        icon: "book",
+        description: "Guides, Rust and JavaScript SDK documentation and API endpoints.",
+        keywords: ["docs", "documentation", "guide", "sdk", "quick-link", "manual"],
+        hiddenInSidebar: true,
+      },
+      {
+        name: "Docs: Smart Contract Architecture",
+        href: "/docs?topic=architecture",
+        icon: "book",
+        description: "Storage types, authorization models and contract security patterns.",
+        keywords: ["docs", "architecture", "security", "auth", "storage", "quick-link"],
+        hiddenInSidebar: true,
+      },
+      {
         name: "Audit Explorer",
         href: "/audit",
         icon: "shield",
