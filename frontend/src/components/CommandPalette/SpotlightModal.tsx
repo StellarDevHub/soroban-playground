@@ -51,7 +51,6 @@ import {
 } from "@/lib/spotlightRegistry";
 import {
   chordFromEvent,
-  chordsMatch,
   effectiveChord,
   formatChord,
   loadKeybindingOverrides,
@@ -234,6 +233,7 @@ export function SpotlightModal({
 
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [previewActive, setPreviewActive] = useState(false);
   const [shortcuts, setShortcuts] = useState<Record<string, KeyChord>>({});
   const [rebindingId, setRebindingId] = useState<string | null>(null);
   const [rebindError, setRebindError] = useState<string | null>(null);
@@ -409,6 +409,7 @@ export function SpotlightModal({
     if (!open) return;
     setQuery("");
     setActiveIndex(0);
+    setPreviewActive(false);
     setRebindingId(null);
     setRebindError(null);
     const focusTimer = setTimeout(() => inputRef.current?.focus(), 0);
@@ -602,6 +603,10 @@ export function SpotlightModal({
           event.preventDefault();
           setActiveIndex(Math.max(0, visibleResults.length - 1));
           break;
+        case "Tab":
+          event.preventDefault();
+          setPreviewActive((active) => !active);
+          break;
         case "Enter":
           // Alt+Enter records a new shortcut for the highlighted row.
           if (event.altKey) {
@@ -687,6 +692,39 @@ export function SpotlightModal({
           />
         </div>
 
+        {previewActive && visibleResults[activeIndex] ? (
+          <div
+            data-testid="action-preview"
+            role="region"
+            aria-label="Action preview"
+            className="border-b border-slate-800 bg-accent/5 px-4 py-3 text-xs text-slate-300"
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-foreground">
+                Action Preview: {visibleResults[activeIndex].action.title}
+              </span>
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                {visibleResults[activeIndex].action.group.toUpperCase()}
+              </span>
+            </div>
+            {visibleResults[activeIndex].action.subtitle ? (
+              <p className="mt-1 text-slate-400">
+                {visibleResults[activeIndex].action.subtitle}
+              </p>
+            ) : null}
+            {visibleResults[activeIndex].action.href ? (
+              <p className="mt-1 font-mono text-[11px] text-accent">
+                Target: {visibleResults[activeIndex].action.href}
+              </p>
+            ) : null}
+            <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-500">
+              <span>Press <kbd className="rounded border border-slate-700 bg-slate-800 px-1">↵</kbd> to execute</span>
+              <span>•</span>
+              <span>Press <kbd className="rounded border border-slate-700 bg-slate-800 px-1">Tab</kbd> to toggle preview</span>
+            </div>
+          </div>
+        ) : null}
+
         {rebindingAction ? (
           <div
             role="status"
@@ -751,6 +789,7 @@ export function SpotlightModal({
         <div className="flex items-center justify-between border-t border-slate-800 px-4 py-2 text-[11px] text-slate-500">
           <span className="flex items-center gap-3">
             <span>↑↓ navigate</span>
+            <span>Tab preview</span>
             <span>↵ run</span>
             <span>⌥↵ change shortcut</span>
             <span>esc close</span>
