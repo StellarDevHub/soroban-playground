@@ -11,6 +11,7 @@ export type ConnectionStatus =
   | "idle"
   | "connecting"
   | "connected"
+  | "signing"
   | "error"
   | "unavailable";
 

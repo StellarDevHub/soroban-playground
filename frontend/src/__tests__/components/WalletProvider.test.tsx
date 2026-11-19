@@ -1,6 +1,10 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { WalletProvider, useWallet } from "@/components/providers/WalletProvider";
+import {
+  WalletProvider,
+  isSessionFresh,
+  useWallet,
+} from "@/components/providers/WalletProvider";
 
 const mockWalletKit = {
   init: jest.fn(),
@@ -85,6 +89,7 @@ function WalletControls() {
   return (
     <div>
       <output data-testid="status">{wallet.status}</output>
+      <output data-testid="connectionState">{wallet.connectionState}</output>
       <output data-testid="address">{wallet.address}</output>
       <output data-testid="error">{wallet.error}</output>
       <output data-testid="reauthentication">
@@ -355,6 +360,12 @@ describe("WalletProvider", () => {
     await React.act(async () => {
       await Promise.resolve();
       await Promise.resolve();
+    });
+    expect(screen.getByTestId("connectionState")).toHaveTextContent("signing");
+
+    await React.act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
       await jest.advanceTimersByTimeAsync(120_001);
       await Promise.resolve();
     });
@@ -391,5 +402,156 @@ describe("WalletProvider", () => {
         address: undefined,
       }),
     );
+  });
+
+  it("surfaces a user-rejected connection as ERROR instead of deadlocking", async () => {
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    mockWalletKit.fetchAddress.mockRejectedValueOnce(
+      new Error("User rejected the request"),
+    );
+
+    render(
+      <WalletProvider>
+        <WalletControls />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("status")).toHaveTextContent("error"),
+    );
+    expect(screen.getByTestId("connectionState")).toHaveTextContent("error");
+    expect(screen.getByTestId("error")).toHaveTextContent(
+      "User rejected the request",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("status")).toHaveTextContent("connected"),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("treats a Ledger WebHID user rejection during signing as ERROR", async () => {
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    mockWalletKit.refreshSupportedWallets.mockResolvedValue([
+      { id: "LEDGER", isAvailable: true },
+    ]);
+    mockWebHidTransport.isSupported.mockResolvedValue(true);
+    mockWebHidTransport.create.mockResolvedValue({ close: jest.fn() });
+    mockWalletKit.signTransaction.mockRejectedValueOnce(
+      new Error("Ledger device: user rejected the signature"),
+    );
+
+    render(
+      <WalletProvider>
+        <WalletControls />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect Ledger" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("status")).toHaveTextContent("connected"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("status")).toHaveTextContent("error"),
+    );
+    expect(screen.getByTestId("connectionState")).toHaveTextContent("error");
+    expect(screen.getByTestId("error")).toHaveTextContent(
+      "user rejected the signature",
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("does not dispatch state when a connection resolves after unmount", async () => {
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    let resolveFetch: (value: { address: string }) => void = () => {};
+    mockWalletKit.fetchAddress.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const { unmount } = render(
+      <WalletProvider>
+        <WalletControls />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(mockWalletKit.fetchAddress).toHaveBeenCalled());
+
+    unmount();
+    await React.act(async () => {
+      resolveFetch({ address: TEST_ADDRESS });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const actWarnings = errorSpy.mock.calls
+      .flat()
+      .filter((message) =>
+        String(message).toLowerCase().includes("not wrapped in act"),
+      );
+    expect(actWarnings).toHaveLength(0);
+    errorSpy.mockRestore();
+  });
+
+  it("auto-reconnects from a validated session through the CONNECTING state", async () => {
+    window.localStorage.setItem(
+      "stellar_wallet_session",
+      JSON.stringify({
+        version: 1,
+        wallet: "freighter",
+        address: TEST_ADDRESS,
+        network: "TESTNET",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        lastActivityAt: Date.now(),
+        signerKeys: [TEST_ADDRESS],
+      }),
+    );
+
+    render(
+      <WalletProvider>
+        <WalletControls />
+      </WalletProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("connectionState")).toHaveTextContent(
+        "connected",
+      ),
+    );
+    expect(screen.getByTestId("status")).toHaveTextContent("connected");
+    expect(mockWalletKit.fetchAddress).not.toHaveBeenCalled();
+  });
+});
+
+describe("isSessionFresh (auto-reconnect cache validation)", () => {
+  const now = 1_700_000_000_000;
+  const session = {
+    version: 1 as const,
+    wallet: "freighter" as const,
+    address: `G${"A".repeat(55)}`,
+    network: "TESTNET",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    lastActivityAt: now - 60_000,
+    signerKeys: [],
+  };
+
+  it("accepts a recent session", () => {
+    expect(isSessionFresh(session, now)).toBe(true);
+  });
+
+  it("rejects an expired session", () => {
+    expect(isSessionFresh({ ...session, lastActivityAt: now - 30 * 60 * 1000 }, now)).toBe(false);
+  });
+
+  it("rejects a session from the future", () => {
+    expect(isSessionFresh({ ...session, lastActivityAt: now + 61_000 }, now)).toBe(false);
   });
 });

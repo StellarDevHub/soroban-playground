@@ -6,16 +6,55 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useReducer,
   useRef,
   ReactNode,
 } from "react";
 import type { ModuleInterface } from "@creit.tech/stellar-wallets-kit/types";
 import { walletRegistry } from "@/lib/wallets";
+import {
+  connectionReducer,
+  initialConnectionMachineState,
+  toConnectionStatus,
+  type ConnectionEvent,
+  type ConnectionState,
+  type ConnectionStatus,
+} from "@/lib/wallets/connectionMachine";
+
+export type { ConnectionStatus } from "@/lib/wallets/connectionMachine";
 
 export type WalletType =
   "freighter" | "albedo" | "xbull" | "hana" | "walletconnect" | "ledger";
-export type ConnectionStatus =
-  "idle" | "connecting" | "connected" | "error" | "unavailable";
+
+/**
+ * FRONTEND-265 — a ref that is only true while the provider is mounted. Every
+ * asynchronous continuation routes its state updates through this guard so a
+ * late wallet callback can never dispatch into an unmounted tree.
+ */
+function useMountedFlag() {
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  return mountedRef;
+}
+
+function useGuardedState<T>(
+  mountedRef: React.RefObject<boolean>,
+  initialValue: T | (() => T),
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [value, setValue] = useState(initialValue);
+  const setGuarded = useCallback<React.Dispatch<React.SetStateAction<T>>>(
+    (next) => {
+      if (mountedRef.current) setValue(next);
+    },
+    [mountedRef],
+  );
+  return [value, setGuarded];
+}
 
 const WALLET_MODULE_IDS: Record<WalletType, string> = {
   freighter: "freighter",
@@ -56,7 +95,7 @@ const HORIZON_URL_BY_PASSPHRASE: Record<string, string> = {
 const walletConnectProjectId =
   process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 
-interface PersistedWalletSession {
+export interface PersistedWalletSession {
   version: 1;
   wallet: WalletType;
   address: string;
@@ -106,6 +145,22 @@ function parsePersistedSession(value: string | null): PersistedWalletSession | n
   } catch {
     return null;
   }
+}
+
+/**
+ * FRONTEND-265 — cache validation for auto-reconnect. A persisted session is
+ * only adopted when its clock is sane and it is still inside the inactivity
+ * window; anything else is treated as stale and requires an explicit connect.
+ */
+export function isSessionFresh(
+  session: PersistedWalletSession,
+  now: number = Date.now(),
+): boolean {
+  return (
+    Number.isFinite(session.lastActivityAt) &&
+    session.lastActivityAt <= now + 60_000 &&
+    now - session.lastActivityAt < SESSION_INACTIVITY_MS
+  );
 }
 
 function readPersistedSession(): PersistedWalletSession | null {
@@ -302,6 +357,8 @@ export interface WalletContextType {
   address: string | null; // Alias for activeAccount
   allAccounts: WalletAccount[];
   status: ConnectionStatus;
+  /** Canonical FSM state (FRONTEND-265) behind the UI-facing `status`. */
+  connectionState: ConnectionState;
   network: string | null;
   networkPassphrase: string;
   error: string | null;
@@ -314,6 +371,8 @@ export interface WalletContextType {
   signTransaction: (xdr: string) => Promise<string | null>;
   isWalletDetected: (type: WalletType) => boolean;
   retry: () => Promise<void>;
+  /** Re-run auto-reconnect from the validated session cache (FRONTEND-265). */
+  reconnect: () => Promise<void>;
   lastAttemptedWallet: WalletType | null;
 }
 
@@ -329,28 +388,60 @@ const WalletContext = createContext<WalletContextType | undefined>(undefined);
  * access can never leak into the server HTML or cause a layout shift.
  */
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const [activeWallet, setActiveWallet] = useState<WalletType | null>(null);
-  const [activeAccount, setActiveAccount] = useState<string | null>(null);
-  const [allAccounts, setAllAccounts] = useState<WalletAccount[]>([]);
-  const [status, setStatus] = useState<ConnectionStatus>("idle");
-  const [network, setNetwork] = useState<string | null>(null);
-  const [networkPassphrase, setNetworkPassphrase] =
-    useState(TESTNET_PASSPHRASE);
-  const [sessionValidation, setSessionValidation] =
-    useState<SessionValidation>("idle");
+  const mountedRef = useMountedFlag();
+
+  const [machine, dispatchMachine] = useReducer(
+    connectionReducer,
+    initialConnectionMachineState,
+  );
+  const status = toConnectionStatus(machine);
+  const { state: connectionState } = machine;
+  const send = useCallback(
+    (event: ConnectionEvent) => {
+      if (mountedRef.current) dispatchMachine(event);
+    },
+    [mountedRef],
+  );
+
+  const [activeWallet, setActiveWallet] = useGuardedState<WalletType | null>(
+    mountedRef,
+    null,
+  );
+  const [activeAccount, setActiveAccount] = useGuardedState<string | null>(
+    mountedRef,
+    null,
+  );
+  const [allAccounts, setAllAccounts] = useGuardedState<WalletAccount[]>(
+    mountedRef,
+    [],
+  );
+  const [network, setNetwork] = useGuardedState<string | null>(mountedRef, null);
+  const [networkPassphrase, setNetworkPassphrase] = useGuardedState(
+    mountedRef,
+    TESTNET_PASSPHRASE,
+  );
+  const [sessionValidation, setSessionValidation] = useGuardedState<SessionValidation>(
+    mountedRef,
+    "idle",
+  );
   const [reauthenticationRequired, setReauthenticationRequired] =
-    useState(false);
+    useGuardedState(mountedRef, false);
   const [reauthenticationWallet, setReauthenticationWallet] =
-    useState<WalletType | null>(null);
-  const [lastActivityAt, setLastActivityAt] = useState(0);
-  const [horizonSignerKeys, setHorizonSignerKeys] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [detectedWallets, setDetectedWallets] = useState<Set<WalletType>>(
-    () => new Set(),
+    useGuardedState<WalletType | null>(mountedRef, null);
+  const [lastActivityAt, setLastActivityAt] = useGuardedState(mountedRef, 0);
+  const [horizonSignerKeys, setHorizonSignerKeys] = useGuardedState<string[]>(
+    mountedRef,
+    [],
+  );
+  const [error, setError] = useGuardedState<string | null>(mountedRef, null);
+  const [detectedWallets, setDetectedWallets] = useGuardedState(
+    mountedRef,
+    () => new Set<WalletType>(),
   );
   const [lastAttemptedWallet, setLastAttemptedWallet] =
-    useState<WalletType | null>(null);
+    useGuardedState<WalletType | null>(mountedRef, null);
   const lastActivityWriteRef = useRef(0);
+  const signingRef = useRef(false);
 
   const isWalletDetected = useCallback(
     (type: WalletType) => detectedWallets.has(type),
@@ -376,7 +467,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     setDetectedWallets(detected);
     return detected;
-  }, []);
+  }, [setDetectedWallets]);
 
   const requireReauthentication = useCallback((wallet: WalletType) => {
     removePersistedSession();
@@ -385,20 +476,32 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setAllAccounts([]);
     setNetwork(null);
     setNetworkPassphrase(TESTNET_PASSPHRASE);
-    setStatus("idle");
+    send({ type: "DISCONNECT" });
     setSessionValidation("idle");
     setHorizonSignerKeys([]);
     setReauthenticationWallet(wallet);
     setReauthenticationRequired(true);
     setLastAttemptedWallet(null);
-  }, []);
+  }, [
+    send,
+    setActiveWallet,
+    setActiveAccount,
+    setAllAccounts,
+    setNetwork,
+    setNetworkPassphrase,
+    setSessionValidation,
+    setHorizonSignerKeys,
+    setReauthenticationWallet,
+    setReauthenticationRequired,
+    setLastAttemptedWallet,
+  ]);
 
   const connect = useCallback(
     async (type: WalletType, auto = false) => {
-      if (typeof window === "undefined") return;
+      if (typeof window === "undefined" || !mountedRef.current) return;
 
       setLastAttemptedWallet(type);
-      setStatus("connecting");
+      send({ type: "CONNECT_START" });
       setError(null);
 
       try {
@@ -409,6 +512,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           const adapter = walletRegistry.get(type as any);
           if (adapter) {
             const res = await adapter.connect(auto);
+            if (!mountedRef.current) return;
             setActiveWallet(type);
             setActiveAccount(res.address);
             setAllAccounts(
@@ -418,7 +522,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             );
             setNetwork(res.network || "TESTNET");
             setNetworkPassphrase(TESTNET_PASSPHRASE);
-            setStatus("connected");
+            send({ type: "CONNECT_SUCCESS" });
             setLastAttemptedWallet(null);
             if (typeof window !== "undefined") {
               try {
@@ -432,14 +536,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         }
 
         const availableWallets = await refreshWallets();
+        if (!mountedRef.current) return;
 
         if (!availableWallets.has(type)) {
           if (auto) {
-            setStatus("idle");
+            send({ type: "DISCONNECT" });
             setLastAttemptedWallet(null);
             return;
           }
-          setStatus("unavailable");
+          send({ type: "CONNECT_UNAVAILABLE" });
           setError(`${type} wallet is not available in this browser.`);
           return;
         }
@@ -448,6 +553,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (auto) {
           try {
             const { address } = await kit.getAddress();
+            if (!mountedRef.current) return;
             if (address) {
               const activityTime = Date.now();
               setActiveWallet(type);
@@ -459,12 +565,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
               lastActivityWriteRef.current = activityTime;
               setReauthenticationRequired(false);
               setReauthenticationWallet(null);
-              setStatus("connected");
+              send({ type: "CONNECT_SUCCESS" });
             } else {
-              setStatus("idle");
+              send({ type: "DISCONNECT" });
             }
           } catch {
-            setStatus("idle");
+            send({ type: "FAILURE" });
           }
           setLastAttemptedWallet(null);
           return;
@@ -472,6 +578,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
         const { address } = await kit.fetchAddress();
         if (!address) throw new Error("Wallet returned no account address.");
+        if (!mountedRef.current) return;
 
         const configuredNetwork = getConfiguredNetwork();
         let net = configuredNetwork.name;
@@ -490,7 +597,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setNetwork(net);
         setNetworkPassphrase(passphrase);
         setHorizonSignerKeys([]);
-        setStatus("connected");
+        send({ type: "CONNECT_SUCCESS" });
         setSessionValidation("checking");
         setReauthenticationRequired(false);
         setReauthenticationWallet(null);
@@ -503,13 +610,30 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           window.localStorage.setItem("preferred_wallet", type);
         } catch {}
       } catch (err) {
+        if (!mountedRef.current) return;
         const msg = walletErrorMessage(err, "Failed to connect wallet");
-        setStatus("error");
+        send({ type: "FAILURE" });
         setError(msg);
         console.error("Wallet connection error:", msg);
       }
     },
-    [refreshWallets],
+    [
+      mountedRef,
+      refreshWallets,
+      send,
+      setLastAttemptedWallet,
+      setError,
+      setActiveWallet,
+      setActiveAccount,
+      setAllAccounts,
+      setNetwork,
+      setNetworkPassphrase,
+      setLastActivityAt,
+      setReauthenticationRequired,
+      setReauthenticationWallet,
+      setHorizonSignerKeys,
+      setSessionValidation,
+    ],
   );
 
   const disconnect = useCallback(() => {
@@ -523,7 +647,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setAllAccounts([]);
     setNetwork(null);
     setNetworkPassphrase(TESTNET_PASSPHRASE);
-    setStatus("idle");
+    send({ type: "DISCONNECT" });
     setSessionValidation("idle");
     setHorizonSignerKeys([]);
     setReauthenticationRequired(false);
@@ -537,7 +661,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       } catch {}
       removePersistedSession();
     }
-  }, [activeWallet]);
+  }, [
+    activeWallet,
+    send,
+    setActiveWallet,
+    setActiveAccount,
+    setAllAccounts,
+    setNetwork,
+    setNetworkPassphrase,
+    setSessionValidation,
+    setHorizonSignerKeys,
+    setReauthenticationRequired,
+    setReauthenticationWallet,
+    setLastActivityAt,
+    setError,
+    setLastAttemptedWallet,
+  ]);
 
   const reauthenticate = useCallback(async () => {
     if (reauthenticationWallet) await connect(reauthenticationWallet);
@@ -549,7 +688,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         ? address
         : current,
     );
-  }, [allAccounts]);
+  }, [allAccounts, setActiveAccount]);
 
   const retry = useCallback(async () => {
     if (lastAttemptedWallet) {
@@ -557,8 +696,63 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [connect, lastAttemptedWallet]);
 
+  /**
+   * FRONTEND-265 — explicit recovery path for a stale/deadlocked session. It
+   * re-reads and validates the cache before adopting it; an invalid cache is
+   * dropped and the last wallet is reconnected through the FSM instead.
+   */
+  const reconnect = useCallback(async () => {
+    if (typeof window === "undefined" || !mountedRef.current) return;
+    const session = readPersistedSession();
+    if (session && isSessionFresh(session)) {
+      send({ type: "DISCONNECT" });
+      send({ type: "CONNECT_START" });
+      setActiveWallet(session.wallet);
+      setActiveAccount(session.address);
+      setAllAccounts([
+        { address: session.address, name: `${session.wallet} Account` },
+      ]);
+      setNetwork(session.network);
+      setNetworkPassphrase(session.networkPassphrase);
+      setLastActivityAt(session.lastActivityAt);
+      lastActivityWriteRef.current = session.lastActivityAt;
+      setHorizonSignerKeys(session.signerKeys);
+      setSessionValidation("checking");
+      setError(null);
+      setReauthenticationRequired(false);
+      setReauthenticationWallet(null);
+      send({ type: "CONNECT_SUCCESS" });
+      return;
+    }
+
+    removePersistedSession();
+    const target = reauthenticationWallet ?? lastAttemptedWallet;
+    if (target) {
+      send({ type: "DISCONNECT" });
+      await connect(target, true);
+    }
+  }, [
+    connect,
+    lastAttemptedWallet,
+    reauthenticationWallet,
+    send,
+    mountedRef,
+    setActiveWallet,
+    setActiveAccount,
+    setAllAccounts,
+    setNetwork,
+    setNetworkPassphrase,
+    setLastActivityAt,
+    setHorizonSignerKeys,
+    setSessionValidation,
+    setError,
+    setReauthenticationRequired,
+    setReauthenticationWallet,
+  ]);
+
   const signTransaction = useCallback(
     async (xdr: string): Promise<string | null> => {
+      if (!mountedRef.current || signingRef.current) return null;
       if (!activeWallet || status !== "connected") {
         const errMsg = "No wallet connected";
         setError(errMsg);
@@ -566,10 +760,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
+      signingRef.current = true;
+      send({ type: "SIGN_START" });
+
       let timeoutId: number | undefined;
       let kit: WalletKit | null = null;
       try {
         kit = await initializeWalletKit();
+        if (!mountedRef.current) return null;
         kit.setWallet(WALLET_MODULE_IDS[activeWallet]);
         const signingRequest = kit.signTransaction(xdr, {
           networkPassphrase,
@@ -596,6 +794,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setError("The wallet account changed. Reconnect to continue signing.");
           return null;
         }
+        if (!mountedRef.current) return null;
+        send({ type: "SIGN_SUCCESS" });
         return result.signedTxXdr || null;
       } catch (err) {
         if (
@@ -608,13 +808,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setError("Ledger confirmation timed out. Reconnect your device and try again.");
           return null;
         }
+        if (!mountedRef.current) return null;
         const errMsg =
           err instanceof Error ? err.message : "Transaction signing failed";
+        send({ type: "FAILURE" });
         setError(errMsg);
         console.error("Transaction signing error:", errMsg);
         return null;
       } finally {
         if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        signingRef.current = false;
       }
     },
     [
@@ -623,6 +826,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       status,
       networkPassphrase,
       requireReauthentication,
+      send,
+      mountedRef,
+      setError,
     ],
   );
 
@@ -639,7 +845,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, [refreshWallets]);
+  }, [refreshWallets, setError]);
 
   useEffect(() => {
     if (typeof window === "undefined" || activeWallet !== "ledger") return;
@@ -653,7 +859,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     window.addEventListener("soroban-network-change", syncSelectedNetwork);
     return () =>
       window.removeEventListener("soroban-network-change", syncSelectedNetwork);
-  }, [activeWallet]);
+  }, [activeWallet, setNetwork, setNetworkPassphrase]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !activeWallet) return;
@@ -661,6 +867,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (!adapter) return;
 
     const unsubAccount = adapter.onAccountChange?.((address) => {
+      if (!mountedRef.current) return;
       setActiveAccount(address);
       try {
         window.localStorage.setItem("preferred_account", address);
@@ -668,6 +875,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
 
     const unsubNetwork = adapter.onNetworkChange?.((net) => {
+      if (!mountedRef.current) return;
       setNetwork(net);
     });
 
@@ -675,28 +883,33 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       unsubAccount?.();
       unsubNetwork?.();
     };
-  }, [activeWallet]);
+  }, [activeWallet, mountedRef, setActiveAccount, setNetwork]);
 
+  /**
+   * FRONTEND-265 — auto-reconnect on page refresh. The cached session is
+   * structurally parsed (`parsePersistedSession`) and freshness-checked before
+   * any state is dispatched; the machine walks CONNECTING -> CONNECTED so a
+   * reload can never land in an undefined or stale state.
+   */
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !mountedRef.current) return;
     const session = readPersistedSession();
     if (!session) {
       removePersistedSession();
       return;
     }
 
-    const now = Date.now();
-    if (
-      session.lastActivityAt > now + 60_000 ||
-      now - session.lastActivityAt >= SESSION_INACTIVITY_MS
-    ) {
+    if (!isSessionFresh(session)) {
       removePersistedSession();
+      send({ type: "CONNECT_START" });
+      send({ type: "FAILURE" });
       setReauthenticationWallet(session.wallet);
       setReauthenticationRequired(true);
       setError("Your wallet session expired after inactivity. Reconnect to continue.");
       return;
     }
 
+    send({ type: "CONNECT_START" });
     setActiveWallet(session.wallet);
     setActiveAccount(session.address);
     setAllAccounts([{ address: session.address, name: `${session.wallet} Account` }]);
@@ -706,8 +919,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setHorizonSignerKeys(session.signerKeys);
     lastActivityWriteRef.current = session.lastActivityAt;
     setSessionValidation("checking");
-    setStatus("connected");
-  }, []);
+    send({ type: "CONNECT_SUCCESS" });
+  }, [send, mountedRef, setActiveWallet, setActiveAccount, setAllAccounts, setNetwork, setNetworkPassphrase, setLastActivityAt, setHorizonSignerKeys, setSessionValidation, setReauthenticationWallet, setReauthenticationRequired, setError]);
 
   useEffect(() => {
     if (
@@ -802,6 +1015,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     networkPassphrase,
     horizonSignerKeys,
     requireReauthentication,
+    setError,
+    setHorizonSignerKeys,
+    setSessionValidation,
   ]);
 
   useEffect(() => {
@@ -823,7 +1039,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       Math.max(0, SESSION_INACTIVITY_MS - (Date.now() - lastActivityAt)),
     );
     return () => window.clearTimeout(timeout);
-  }, [status, activeWallet, activeAccount, lastActivityAt, requireReauthentication]);
+  }, [status, activeWallet, activeAccount, lastActivityAt, requireReauthentication, setError]);
 
   useEffect(() => {
     if (status !== "connected" || !activeWallet || !activeAccount) return;
@@ -848,7 +1064,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("keydown", recordActivity);
       window.removeEventListener("touchstart", recordActivity);
     };
-  }, [status, activeWallet, activeAccount]);
+  }, [status, activeWallet, activeAccount, setLastActivityAt]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -868,7 +1084,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     window.addEventListener("storage", syncSession);
     return () => window.removeEventListener("storage", syncSession);
-  }, [activeWallet, activeAccount, requireReauthentication]);
+  }, [activeWallet, activeAccount, requireReauthentication, setLastActivityAt]);
 
   return (
     <WalletContext.Provider
@@ -878,6 +1094,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         address: activeAccount,
         allAccounts,
         status,
+        connectionState,
         network,
         networkPassphrase,
         error,
@@ -890,6 +1107,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         signTransaction,
         isWalletDetected,
         retry,
+        reconnect,
         lastAttemptedWallet,
       }}
     >
