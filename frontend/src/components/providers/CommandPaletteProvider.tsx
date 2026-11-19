@@ -25,7 +25,10 @@ import CommandPalette from "@/components/CommandPalette";
 import SpotlightModal from "@/components/CommandPalette/SpotlightModal";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
-import type { PaletteAction } from "@/lib/commandRegistry";
+import {
+  BUILTIN_PALETTE_ACTIONS,
+  type PaletteAction,
+} from "@/lib/commandRegistry";
 import type { SpotlightAction } from "@/lib/spotlightRegistry";
 
 /** Elements that own the keyboard while the user is typing in them. */
@@ -58,8 +61,6 @@ export function CommandPaletteProvider({
   const { state: theme, toggle: toggleTheme } = useTheme();
   const { flush, queuedCount, isOnline, status } = useOffline();
 
-  const close = useCallback(() => setOpen(false), []);
-
   // The two palettes are mutually exclusive: whichever opens first wins, so
   // their focus traps never overlap.
   const onSpotlightOpenChange = useCallback((next: boolean) => {
@@ -69,6 +70,7 @@ export function CommandPaletteProvider({
 
   const actions = useMemo<PaletteAction[]>(() => {
     const list: PaletteAction[] = [
+      ...BUILTIN_PALETTE_ACTIONS,
       {
         id: "theme.toggle",
         label: theme.mode === "dark" ? "Switch to light theme" : "Switch to dark theme",
@@ -119,7 +121,12 @@ export function CommandPaletteProvider({
   const spotlightShellActions = useMemo<SpotlightAction[]>(
     () =>
       actions
-        .filter((action) => action.id !== "theme.toggle")
+        .filter(
+          (action) =>
+            action.id !== "theme.toggle" &&
+            action.id !== "build.compile" &&
+            action.id !== "deploy.artifact",
+        )
         .map((action) => ({
           id: action.id,
           title: action.label,
