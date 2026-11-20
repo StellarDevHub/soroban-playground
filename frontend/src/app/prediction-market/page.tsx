@@ -7,6 +7,10 @@ import { useState, useCallback } from "react";
 import PredictionMarketPanel, {
   MarketData,
 } from "../../components/PredictionMarketPanel";
+import {
+  DEFAULT_TAKEOUT_FEE_RATE,
+  calculateNetPool,
+} from "../../lib/predictionMarketMath";
 
 const CONTRACT_ID_RE = /^C[A-Z0-9]{55}$/;
 
@@ -27,6 +31,7 @@ export default function PredictionMarketPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [takeoutFeeRate, setTakeoutFeeRate] = useState<number>(DEFAULT_TAKEOUT_FEE_RATE);
 
   function applyConfig() {
     if (inputContract && !CONTRACT_ID_RE.test(inputContract)) {
@@ -217,6 +222,23 @@ export default function PredictionMarketPage() {
       if (!data.success) throw new Error(data.error);
       return data.data.payout ?? 0;
     } catch {
+      // Parimutuel fallback: if backend is unreachable, estimate payout mathematically
+      const targetMarket = markets.find((m) => m.id === marketId);
+      if (
+        targetMarket &&
+        targetMarket.status === "Resolved" &&
+        targetMarket.winningOutcome
+      ) {
+        const isYes = targetMarket.winningOutcome === "YES";
+        const winningStake = isYes
+          ? targetMarket.totalYesStake
+          : targetMarket.totalNoStake;
+        const totalPool = targetMarket.totalYesStake + targetMarket.totalNoStake;
+        if (winningStake > 0) {
+          const { netPool } = calculateNetPool(totalPool, takeoutFeeRate);
+          return Math.round((netPool / winningStake) * 100) / 100;
+        }
+      }
       return 0;
     }
   }
@@ -230,8 +252,8 @@ export default function PredictionMarketPage() {
             📈 Prediction Market
           </h1>
           <p className="text-sm text-gray-400 mt-1">
-            Decentralized prediction markets on Stellar Soroban — buy YES/NO
-            shares and resolve outcomes via on-chain Oracle.
+            Decentralized parimutuel prediction markets on Stellar Soroban — buy YES/NO
+            shares, monitor dynamic odds slippage, and resolve outcomes via on-chain Oracle.
           </p>
         </header>
 
@@ -327,6 +349,7 @@ export default function PredictionMarketPage() {
           walletAddress={walletAddress || undefined}
           markets={markets}
           isLoading={isLoading}
+          takeoutFeeRate={takeoutFeeRate}
           onCreateMarket={handleCreateMarket}
           onPlaceBet={handlePlaceBet}
           onResolveMarket={handleResolveMarket}
