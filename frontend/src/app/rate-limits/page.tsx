@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import RateLimitBanner from "../../components/RateLimitBanner";
+import { rateLimitTracker } from "../../lib/rateLimitTracker";
 import {
   ActivitySquare,
   AlertTriangle,
@@ -87,6 +89,7 @@ export default function RateLimitsPage() {
       const response = await fetch(`${API_BASE_URL}/api/admin/api-keys`, {
         headers: { "Content-Type": "application/json" },
       });
+      rateLimitTracker.updateFromHeaders(response.headers);
       if (response.ok) {
         const data = await response.json();
         setApiKeys(data.keys);
@@ -113,6 +116,7 @@ export default function RateLimitsPage() {
               headers: { "Content-Type": "application/json" },
             },
           );
+          rateLimitTracker.updateFromHeaders(response.headers);
           if (response.ok) {
             const data = await response.json();
             setUsageStats(data);
@@ -208,6 +212,9 @@ export default function RateLimitsPage() {
             </button>
           </div>
         </div>
+
+        {/* Proactive Rate Limit Warning Banner */}
+        <RateLimitBanner />
 
         {error && (
           <div className="mb-6 p-4 bg-red-900/50 border border-red-500 rounded-lg flex items-center gap-2 text-red-200">
