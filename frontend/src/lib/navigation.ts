@@ -264,6 +264,13 @@ export const NAVIGATION: NavigationGroup[] = [
     groupName: "Governance & Trust",
     items: [
       {
+        name: "DID Credential Studio",
+        href: "/did",
+        icon: "fingerprint",
+        description: "Design and export verifiable credentials and QR presentation tokens.",
+        keywords: ["did", "credentials", "identity", "w3c", "qr", "attestation", "card"],
+      },
+      {
         name: "Governance Portal",
         href: "/governance/history",
         icon: "users",
