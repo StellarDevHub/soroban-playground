@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import {
   Shield,
+  ShieldCheck,
   Lock,
   History,
   AlertTriangle,
@@ -13,12 +14,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import AuditExplorer, { AuditEntry } from "@/components/AuditExplorer";
+import VerificationBadge from "@/components/VerificationBadge";
 
 export default function AuditDashboardPage() {
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isValid, setIsValid] = useState<boolean | undefined>(undefined);
+  const [inspectContractId, setInspectContractId] = useState("CABX1234SAMPLECONTRACTID");
 
   const fetchLogs = async () => {
     setIsLoading(true);
@@ -214,6 +217,40 @@ export default function AuditDashboardPage() {
                   <History size={12} />
                   Rotate Chain Log
                 </button>
+              </div>
+            </div>
+
+            {/* Reproducible Contract Verification Card */}
+            <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-6 space-y-4">
+              <div className="space-y-1">
+                <h3 className="text-xs font-bold text-violet-300 uppercase tracking-wider flex items-center gap-2">
+                  <ShieldCheck size={14} className="text-emerald-400" />
+                  Contract Verification Badge
+                </h3>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Inspect cryptographic build attestations and reproducible bytecode hashes for deployed Soroban smart contracts.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">
+                  Inspect Contract ID
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={inspectContractId}
+                    onChange={(e) => setInspectContractId(e.target.value)}
+                    placeholder="Enter Contract ID (e.g. CABX...1234)"
+                    className="w-full bg-slate-950/80 rounded-xl border border-white/10 px-3 py-2 text-xs font-mono outline-none focus:border-violet-500 transition"
+                  />
+                </div>
+                {inspectContractId && (
+                  <div className="pt-2 flex items-center justify-between">
+                    <span className="text-[10px] text-slate-500 font-medium">Attestation Status:</span>
+                    <VerificationBadge contractId={inspectContractId} size="sm" />
+                  </div>
+                )}
               </div>
             </div>
 

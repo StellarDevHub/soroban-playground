@@ -16,6 +16,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { format } from "date-fns";
+import VerificationBadge from "./VerificationBadge";
 
 export interface AuditEntry {
   id: string;
@@ -186,9 +187,27 @@ export default function AuditExplorer({
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {/* JSON Payload & Diff */}
                       <div className="space-y-3">
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                          <Database size={12} /> State Payload
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                            <Database size={12} /> State Payload
+                          </h4>
+                          {(() => {
+                            try {
+                              const parsed = JSON.parse(log.payload);
+                              if (parsed.contract_id) {
+                                return (
+                                  <VerificationBadge
+                                    contractId={parsed.contract_id}
+                                    size="sm"
+                                  />
+                                );
+                              }
+                            } catch {
+                              return null;
+                            }
+                            return null;
+                          })()}
+                        </div>
                         <div className="rounded-xl bg-slate-950 p-4 overflow-x-auto border border-white/5 max-h-[300px] custom-scrollbar">
                           <pre className="text-[11px] leading-relaxed text-emerald-400 font-mono">
                             {JSON.stringify(JSON.parse(log.payload), null, 2)}
