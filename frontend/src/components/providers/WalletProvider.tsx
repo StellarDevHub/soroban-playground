@@ -317,7 +317,7 @@ export interface WalletContextType {
   lastAttemptedWallet: WalletType | null;
 }
 
-const WalletContext = createContext<WalletContextType | undefined>(undefined);
+export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 /**
  * SSR-safe wallet initialization (#1369).
