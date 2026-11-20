@@ -1,16 +1,24 @@
 import { format } from "@scalar/rust-fmt";
-import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
-import { parseRustfmtDiagnostic } from "@/lib/rustfmtDiagnostics";
+import type {
+  RustFormatDiagnostic,
+  RustfmtConfig,
+} from "@/lib/rustfmtDiagnostics";
+import {
+  parseRustfmtDiagnostic,
+  resolveRustfmtOptions,
+} from "@/lib/rustfmtDiagnostics";
 
-interface FormatRequest {
+export interface FormatRequest {
   id: number;
   code: string;
+  config?: RustfmtConfig | string;
 }
 
-interface FormatResponse {
+export interface FormatResponse {
   id: number;
   formatted?: string;
   diagnostics?: RustFormatDiagnostic[];
+  durationMs?: number;
   error?: string;
 }
 
@@ -24,19 +32,32 @@ const workerScope = self as unknown as {
 
 workerScope.addEventListener("message", (event) => {
   void (async () => {
+    const startTime = performance.now();
     try {
-      const formatted = await format(event.data.code, { edition: "2021" });
-      workerScope.postMessage({ id: event.data.id, formatted });
+      const options = resolveRustfmtOptions(event.data.config);
+      const formatted = await format(event.data.code, options as any);
+      const durationMs = performance.now() - startTime;
+      workerScope.postMessage({
+        id: event.data.id,
+        formatted,
+        durationMs,
+      });
     } catch (error) {
+      const durationMs = performance.now() - startTime;
       const message = error instanceof Error ? error.message : String(error);
       const diagnostic = parseRustfmtDiagnostic(message);
       if (diagnostic) {
         workerScope.postMessage({
           id: event.data.id,
           diagnostics: [diagnostic],
+          durationMs,
         });
       } else {
-        workerScope.postMessage({ id: event.data.id, error: message });
+        workerScope.postMessage({
+          id: event.data.id,
+          error: message,
+          durationMs,
+        });
       }
     }
   })();
