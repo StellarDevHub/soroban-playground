@@ -5,6 +5,7 @@ import {
   CONTRAST_REQUIREMENTS,
   DARK_TOKENS,
   DEFAULT_THEME_MODE,
+  HIGH_CONTRAST_TOKENS,
   LIGHT_TOKENS,
   THEME_CSS_VARIABLES,
   THEME_TOKENS,
@@ -13,10 +14,9 @@ import {
 } from "../../lib/theme/tokens";
 import type { ThemeTokens } from "../../lib/theme/types";
 
-const GLOBALS_CSS = fs.readFileSync(
-  path.join(__dirname, "..", "..", "app", "globals.css"),
-  "utf8",
-);
+const GLOBALS_CSS = fs
+  .readFileSync(path.join(__dirname, "..", "..", "app", "globals.css"), "utf8")
+  .replace(/\r\n/g, "\n");
 
 /** Everything between the first `{` after `selector` and its matching `}`. */
 function ruleBody(css: string, selector: string): string {
@@ -30,14 +30,19 @@ function ruleBody(css: string, selector: string): string {
 }
 
 describe("token definitions", () => {
-  it("exposes exactly two themes plus a default", () => {
-    expect(Object.keys(THEME_TOKENS).sort()).toEqual(["dark", "light"]);
+  it("exposes shipped themes plus a default", () => {
+    expect(Object.keys(THEME_TOKENS).sort()).toEqual([
+      "dark",
+      "high-contrast",
+      "light",
+    ]);
     expect(DEFAULT_THEME_MODE).toBe("dark");
   });
 
   it("returns the same object identity for a mode", () => {
     expect(tokensForMode("dark")).toBe(DARK_TOKENS);
     expect(tokensForMode("light")).toBe(LIGHT_TOKENS);
+    expect(tokensForMode("high-contrast")).toBe(HIGH_CONTRAST_TOKENS);
   });
 
   it("defines the same keys in both palettes", () => {
@@ -85,6 +90,10 @@ describe("CSS variable bridge", () => {
 describe("globals.css stays in sync with the tokens", () => {
   const darkBlock = ruleBody(GLOBALS_CSS, ':root,\n[data-theme="dark"]');
   const lightBlock = ruleBody(GLOBALS_CSS, '[data-theme="light"] {');
+  const highContrastBlock = ruleBody(
+    GLOBALS_CSS,
+    '[data-theme="high-contrast"] {',
+  );
 
   it("declares every token for the default + dark theme", () => {
     for (const [token, name] of Object.entries(THEME_CSS_VARIABLES)) {
@@ -102,9 +111,30 @@ describe("globals.css stays in sync with the tokens", () => {
     }
   });
 
+  it("declares every token for the high-contrast theme", () => {
+    for (const [token, name] of Object.entries(THEME_CSS_VARIABLES)) {
+      expect(highContrastBlock).toContain(
+        `${name}: ${HIGH_CONTRAST_TOKENS[token as keyof ThemeTokens]};`,
+      );
+    }
+  });
+
+  it("binds semantic CSS custom properties across themes", () => {
+    expect(darkBlock).toContain("--bg-primary:");
+    expect(darkBlock).toContain("--text-primary:");
+    expect(darkBlock).toContain("--border-primary:");
+    expect(lightBlock).toContain("--bg-primary:");
+    expect(lightBlock).toContain("--text-primary:");
+    expect(lightBlock).toContain("--border-primary:");
+    expect(highContrastBlock).toContain("--bg-primary: #000000;");
+    expect(highContrastBlock).toContain("--text-primary: #ffffff;");
+    expect(highContrastBlock).toContain("--border-primary: #ffffff;");
+  });
+
   it("keys the default palette off [data-theme] so the engine can switch it", () => {
     expect(GLOBALS_CSS).toContain('[data-theme="dark"]');
     expect(GLOBALS_CSS).toContain('[data-theme="light"]');
+    expect(GLOBALS_CSS).toContain('[data-theme="high-contrast"]');
     expect(GLOBALS_CSS).toContain("color-scheme: dark");
     expect(GLOBALS_CSS).toContain("color-scheme: light");
   });

@@ -14,7 +14,11 @@ import {
   validateTheme,
   writeStoredPreference,
 } from "../../lib/theme/engine";
-import { DARK_TOKENS, LIGHT_TOKENS } from "../../lib/theme/tokens";
+import {
+  DARK_TOKENS,
+  HIGH_CONTRAST_TOKENS,
+  LIGHT_TOKENS,
+} from "../../lib/theme/tokens";
 
 /** Minimal in-memory `Storage` so tests never touch the real localStorage. */
 function fakeStorage(initial: Record<string, string> = {}): Storage {
@@ -35,11 +39,16 @@ function fakeStorage(initial: Record<string, string> = {}): Storage {
   } as Storage;
 }
 
-/** A `matchMedia` implementation that always reports the same OS preference. */
-function fakeMatchMedia(dark: boolean) {
+/** A `matchMedia` implementation that reports OS preferences accurately. */
+function fakeMatchMedia(dark: boolean, highContrast: boolean = false) {
   return ((query: string) =>
     ({
-      matches: dark,
+      matches:
+        query.includes("forced-colors") || query.includes("prefers-contrast")
+          ? highContrast
+          : query.includes("prefers-color-scheme")
+            ? dark
+            : false,
       media: query,
       onchange: null,
       addEventListener: jest.fn(),
@@ -64,6 +73,7 @@ describe("theme preference resolution", () => {
   it("reads the OS preference from matchMedia", () => {
     expect(systemTheme(fakeMatchMedia(true))).toBe("dark");
     expect(systemTheme(fakeMatchMedia(false))).toBe("light");
+    expect(systemTheme(fakeMatchMedia(false, true))).toBe("high-contrast");
   });
 
   it("falls back to dark when matchMedia is unavailable", () => {
@@ -154,6 +164,8 @@ describe("applying a theme to the document", () => {
     expect(getAppliedTokens()).toBe(DARK_TOKENS);
     applyTheme("light");
     expect(getAppliedTokens()).toBe(LIGHT_TOKENS);
+    applyTheme("high-contrast");
+    expect(getAppliedTokens()).toBe(HIGH_CONTRAST_TOKENS);
   });
 
   it("reports null before any theme has been applied", () => {
@@ -169,9 +181,10 @@ describe("applying a theme to the document", () => {
 });
 
 describe("contrast validation", () => {
-  it("passes for both shipped themes", () => {
+  it("passes for all shipped themes including WCAG AAA high contrast", () => {
     expect(validateTheme("dark").passes).toBe(true);
     expect(validateTheme("light").passes).toBe(true);
+    expect(validateTheme("high-contrast").passes).toBe(true);
   });
 });
 
@@ -185,6 +198,7 @@ describe("bootstrap script", () => {
     expect(THEME_BOOTSTRAP_SCRIPT).toContain("sp-theme");
     expect(THEME_BOOTSTRAP_SCRIPT).toContain(THEME_ATTRIBUTE);
     expect(THEME_BOOTSTRAP_SCRIPT).toContain("prefers-color-scheme");
+    expect(THEME_BOOTSTRAP_SCRIPT).toContain("high-contrast");
   });
 });
 

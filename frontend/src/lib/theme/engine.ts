@@ -15,6 +15,7 @@ import { evaluateContrast, type ContrastReport } from "./contrast";
 import {
   CONTRAST_REQUIREMENTS,
   DEFAULT_THEME_MODE,
+  getSemanticVariables,
   tokensForMode,
   tokensToCssVariables,
 } from "./tokens";
@@ -50,7 +51,7 @@ export interface ThemeState {
 }
 
 function isThemeMode(value: unknown): value is ThemeMode {
-  return value === "light" || value === "dark";
+  return value === "light" || value === "dark" || value === "high-contrast";
 }
 
 function isThemePreference(value: unknown): value is ThemePreference {
@@ -110,6 +111,12 @@ export function systemTheme(
     matchMediaImplementation ?? getWindow()?.matchMedia?.bind(getWindow());
   if (!matchMedia) return DEFAULT_THEME_MODE;
   try {
+    if (matchMedia("(forced-colors: active)").matches) {
+      return "high-contrast";
+    }
+    if (matchMedia("(prefers-contrast: more)").matches) {
+      return "high-contrast";
+    }
     return matchMedia(SYSTEM_THEME_QUERY).matches ? "dark" : "light";
   } catch {
     return DEFAULT_THEME_MODE;
@@ -158,10 +165,17 @@ export function applyTheme(
   if (!root) return mode;
 
   root.setAttribute(THEME_ATTRIBUTE, mode);
-  root.style.setProperty("color-scheme", mode);
+  root.classList.remove("dark", "light", "high-contrast");
+  root.classList.add(mode);
+  root.style.setProperty("color-scheme", mode === "light" ? "light" : "dark");
 
   const variables = tokensToCssVariables(tokensForMode(mode));
   for (const [name, value] of Object.entries(variables)) {
+    root.style.setProperty(name, value);
+  }
+
+  const semanticVars = getSemanticVariables(mode);
+  for (const [name, value] of Object.entries(semanticVars)) {
     root.style.setProperty(name, value);
   }
 
@@ -199,13 +213,13 @@ export function validateTheme(mode: ThemeMode): ContrastReport {
  */
 export const THEME_BOOTSTRAP_SCRIPT = `(function(){try{var k=${JSON.stringify(
   THEME_STORAGE_KEY,
-)},l=${JSON.stringify(LEGACY_STORAGE_KEY)},d=${JSON.stringify(
+)},l=${JSON.stringify(LEGACY_STORAGE_KEY)},alt="theme",d=${JSON.stringify(
   DEFAULT_THEME_MODE,
-)},a=${JSON.stringify(THEME_ATTRIBUTE)};var s=null;try{s=window.localStorage}catch(e){}var p=null;if(s){p=s.getItem(k)||s.getItem(l)}if(p!=="light"&&p!=="dark"&&p!=="system"){p=null}var m=p;if(m==="system"||m===null){m=window.matchMedia&&window.matchMedia(${JSON.stringify(
+)},a=${JSON.stringify(THEME_ATTRIBUTE)};var s=null;try{s=window.localStorage}catch(e){}var p=null;if(s){p=s.getItem(k)||s.getItem(l)||s.getItem(alt)}if(p!=="light"&&p!=="dark"&&p!=="high-contrast"&&p!=="system"){p=null}var m=p;if(m==="system"||m===null){if(window.matchMedia&&window.matchMedia("(forced-colors: active)").matches){m="high-contrast"}else if(window.matchMedia&&window.matchMedia("(prefers-contrast: more)").matches){m="high-contrast"}else{m=window.matchMedia&&window.matchMedia(${JSON.stringify(
   SYSTEM_THEME_QUERY,
-)}).matches?"dark":"light"}var r=document.documentElement;r.setAttribute(a,m);r.style.colorScheme=m}catch(e){document.documentElement.setAttribute(${JSON.stringify(
+)}).matches?"dark":"light"}}var r=document.documentElement;r.setAttribute(a,m);r.classList.remove("dark","light","high-contrast");r.classList.add(m);r.style.colorScheme=m==="light"?"light":"dark"}catch(e){document.documentElement.setAttribute(${JSON.stringify(
   THEME_ATTRIBUTE,
-)},${JSON.stringify(DEFAULT_THEME_MODE)})}})();`;
+)},${JSON.stringify(DEFAULT_THEME_MODE)});document.documentElement.classList.add(${JSON.stringify(DEFAULT_THEME_MODE)})}})();`;
 
 export interface ThemeController {
   /** Current preference, resolved mode and provenance. */

@@ -115,7 +115,7 @@ describe("WCAG contrast maths", () => {
   });
 });
 
-describe.each<ThemeMode>(["dark", "light"])(
+describe.each<ThemeMode>(["dark", "light", "high-contrast"])(
   "theme %s meets its contrast contract",
   (mode) => {
     const tokens = THEME_TOKENS[mode];

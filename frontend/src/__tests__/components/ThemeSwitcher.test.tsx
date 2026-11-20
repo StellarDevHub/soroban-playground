@@ -8,6 +8,9 @@ import { THEME_ATTRIBUTE, THEME_STORAGE_KEY } from "../../lib/theme/engine";
 jest.mock("lucide-react", () => ({
   Sun: (props: Record<string, unknown>) => <svg data-icon="sun" {...props} />,
   Moon: (props: Record<string, unknown>) => <svg data-icon="moon" {...props} />,
+  Contrast: (props: Record<string, unknown>) => (
+    <svg data-icon="contrast" {...props} />
+  ),
   Monitor: (props: Record<string, unknown>) => (
     <svg data-icon="monitor" {...props} />
   ),
@@ -36,6 +39,9 @@ describe("ThemeSwitcher", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /dark theme/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /high contrast theme/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /system theme/i }),
@@ -89,6 +95,23 @@ describe("ThemeSwitcher", () => {
 
     await waitFor(() =>
       expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("system"),
+    );
+  });
+
+  it("applies and persists high contrast theme", async () => {
+    renderSwitcher();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /high contrast theme/i }),
+    );
+
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute(THEME_ATTRIBUTE)).toBe(
+        "high-contrast",
+      );
+    });
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe(
+      "high-contrast",
     );
   });
 });

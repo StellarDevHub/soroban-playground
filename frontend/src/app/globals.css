@@ -40,6 +40,20 @@
   --code-function: 190 80% 72%;
   --code-type: 45 90% 70%;
   --code-operator: 210 25% 85%;
+
+  /* Semantic CSS custom properties */
+  --bg-primary: hsl(var(--background));
+  --bg-secondary: hsl(var(--panel));
+  --bg-surface: hsl(var(--panel));
+  --bg-code: hsl(var(--code-background));
+  --text-primary: hsl(var(--foreground));
+  --text-secondary: hsl(var(--code-comment));
+  --text-muted: hsl(var(--code-comment));
+  --text-accent: hsl(var(--accent));
+  --border-primary: hsl(var(--panel-border) / 0.3);
+  --border-secondary: hsl(var(--panel-border) / 0.15);
+  --border-focus: hsl(var(--accent));
+  --ring-focus: hsl(var(--accent) / 0.5);
 }
 
 /* ---------- Light theme ---------- */
@@ -106,6 +120,58 @@
   /* `bg-white/5` overlays and `text-white` headings are dark-on-light here. */
   --color-white: oklch(0.208 0.042 265.755);
   --color-black: oklch(0.984 0.003 247.858);
+
+  /* Semantic CSS custom properties */
+  --bg-primary: hsl(var(--background));
+  --bg-secondary: hsl(var(--panel));
+  --bg-surface: hsl(var(--panel));
+  --bg-code: hsl(var(--code-background));
+  --text-primary: hsl(var(--foreground));
+  --text-secondary: hsl(var(--code-comment));
+  --text-muted: hsl(var(--code-comment));
+  --text-accent: hsl(var(--accent));
+  --border-primary: hsl(var(--panel-border) / 0.3);
+  --border-secondary: hsl(var(--panel-border) / 0.15);
+  --border-focus: hsl(var(--accent));
+  --ring-focus: hsl(var(--accent) / 0.5);
+}
+
+/* ---------- High-Contrast theme (WCAG AAA Accessibility) ---------- */
+
+[data-theme="high-contrast"] {
+  color-scheme: dark;
+
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
+  --accent: 60 100% 50%;
+  --accent-strong: 180 100% 50%;
+  --panel: 0 0% 0%;
+  --panel-border: 0 0% 100%;
+  --grid: 0 0% 100%;
+
+  --code-background: 0 0% 0%;
+  --code-foreground: 0 0% 100%;
+  --code-keyword: 60 100% 50%;
+  --code-string: 120 100% 70%;
+  --code-number: 35 100% 65%;
+  --code-comment: 0 0% 85%;
+  --code-function: 180 100% 50%;
+  --code-type: 45 100% 60%;
+  --code-operator: 0 0% 100%;
+
+  /* High contrast semantic properties */
+  --bg-primary: #000000;
+  --bg-secondary: #000000;
+  --bg-surface: #000000;
+  --bg-code: #000000;
+  --text-primary: #ffffff;
+  --text-secondary: #ffffff;
+  --text-muted: #d4d4d4;
+  --text-accent: #ffff00;
+  --border-primary: #ffffff;
+  --border-secondary: #ffffff;
+  --border-focus: #ffff00;
+  --ring-focus: #ffff00;
 }
 
 /* ---------- Tailwind theme bridge ---------- */
@@ -116,6 +182,9 @@
   --color-panel: hsl(var(--panel));
   --color-accent: hsl(var(--accent));
   --color-accent-strong: hsl(var(--accent-strong));
+  --color-bg-primary: var(--bg-primary);
+  --color-text-primary: var(--text-primary);
+  --color-border-primary: var(--border-primary);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
