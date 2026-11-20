@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Contrast, Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import type { ThemePreference } from "@/lib/theme/types";
 
@@ -14,6 +14,7 @@ interface ThemeOption {
 const OPTIONS: ThemeOption[] = [
   { value: "light", label: "Light", Icon: Sun },
   { value: "dark", label: "Dark", Icon: Moon },
+  { value: "high-contrast", label: "High Contrast", Icon: Contrast },
   { value: "system", label: "System", Icon: Monitor },
 ];
 

@@ -62,11 +62,89 @@ export const LIGHT_TOKENS: ThemeTokens = {
   codeOperator: "222 30% 25%",
 };
 
+/**
+ * Official WCAG AAA High-Contrast theme tokens.
+ * Specially designed for low-vision accessibility with stark 21:1 contrast ratios
+ * and ultra-vivid, high-saturation semantic syntax highlights.
+ */
+export const HIGH_CONTRAST_TOKENS: ThemeTokens = {
+  background: "0 0% 0%",
+  foreground: "0 0% 100%",
+  accent: "60 100% 50%",
+  accentStrong: "180 100% 50%",
+  panel: "0 0% 0%",
+  panelBorder: "0 0% 100%",
+  grid: "0 0% 100%",
+  codeBackground: "0 0% 0%",
+  codeForeground: "0 0% 100%",
+  codeKeyword: "60 100% 50%",
+  codeString: "120 100% 70%",
+  codeNumber: "35 100% 65%",
+  codeComment: "0 0% 85%",
+  codeFunction: "180 100% 50%",
+  codeType: "45 100% 60%",
+  codeOperator: "0 0% 100%",
+};
+
 /** Token values keyed by mode. */
 export const THEME_TOKENS: Record<ThemeMode, ThemeTokens> = {
   dark: DARK_TOKENS,
   light: LIGHT_TOKENS,
+  "high-contrast": HIGH_CONTRAST_TOKENS,
 };
+
+/**
+ * Semantic CSS custom properties mapping.
+ * Binds component colors to semantic variables like --bg-primary, --text-primary.
+ */
+export const SEMANTIC_CSS_VARIABLES = {
+  bgPrimary: "--bg-primary",
+  bgSecondary: "--bg-secondary",
+  bgSurface: "--bg-surface",
+  bgCode: "--bg-code",
+  textPrimary: "--text-primary",
+  textSecondary: "--text-secondary",
+  textMuted: "--text-muted",
+  textAccent: "--text-accent",
+  borderPrimary: "--border-primary",
+  borderSecondary: "--border-secondary",
+  borderFocus: "--border-focus",
+  ringFocus: "--ring-focus",
+} as const;
+
+export function getSemanticVariables(mode: ThemeMode): Record<string, string> {
+  const tokens = tokensForMode(mode);
+  if (mode === "high-contrast") {
+    return {
+      "--bg-primary": "#000000",
+      "--bg-secondary": "#000000",
+      "--bg-surface": "#000000",
+      "--bg-code": "#000000",
+      "--text-primary": "#ffffff",
+      "--text-secondary": "#ffffff",
+      "--text-muted": "#d4d4d4",
+      "--text-accent": "#ffff00",
+      "--border-primary": "#ffffff",
+      "--border-secondary": "#ffffff",
+      "--border-focus": "#ffff00",
+      "--ring-focus": "#ffff00",
+    };
+  }
+  return {
+    "--bg-primary": `hsl(${tokens.background})`,
+    "--bg-secondary": `hsl(${tokens.panel})`,
+    "--bg-surface": `hsl(${tokens.panel})`,
+    "--bg-code": `hsl(${tokens.codeBackground})`,
+    "--text-primary": `hsl(${tokens.foreground})`,
+    "--text-secondary": `hsl(${tokens.codeComment})`,
+    "--text-muted": `hsl(${tokens.codeComment})`,
+    "--text-accent": `hsl(${tokens.accent})`,
+    "--border-primary": `hsl(${tokens.panelBorder} / 0.3)`,
+    "--border-secondary": `hsl(${tokens.panelBorder} / 0.15)`,
+    "--border-focus": `hsl(${tokens.accent})`,
+    "--ring-focus": `hsl(${tokens.accent} / 0.5)`,
+  };
+}
 
 /** The mode used when nothing has been stored and the OS has no preference. */
 export const DEFAULT_THEME_MODE: ThemeMode = "dark";

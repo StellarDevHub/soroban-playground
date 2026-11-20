@@ -8,8 +8,8 @@
  * exact channels that the browser will paint.
  */
 
-/** The two concrete themes the app can render. */
-export type ThemeMode = "light" | "dark";
+/** The three concrete themes the app can render. */
+export type ThemeMode = "light" | "dark" | "high-contrast";
 
 /**
  * What the user asked for. `"system"` follows `prefers-color-scheme` and is the

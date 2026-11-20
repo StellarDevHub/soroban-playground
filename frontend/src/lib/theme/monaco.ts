@@ -44,7 +44,7 @@ export function buildMonacoTheme(
   const accent = hslToHex(tokens.accent);
 
   return {
-    base: mode === "dark" ? "vs-dark" : "vs",
+    base: mode === "high-contrast" ? "hc-black" : mode === "dark" ? "vs-dark" : "vs",
     inherit: true,
     rules: TOKEN_RULES.map(({ token, tokenKey }) => ({
       token,
