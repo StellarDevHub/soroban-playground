@@ -4,6 +4,8 @@
 
 export type TemplateCategoryType =
   | "DeFi"
+  | "Gaming"
+  | "RWA"
   | "NFT"
   | "Governance"
   | "Storage"
