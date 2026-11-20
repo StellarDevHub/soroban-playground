@@ -2501,7 +2501,11 @@ export default function Home() {
       } else {
         setFormatDiagnostics([]);
         setCode(result.formatted);
-        appendLog("[editor] Code formatted successfully");
+        appendLog(
+          result.durationMs !== undefined
+            ? `[editor] Code formatted successfully (${result.durationMs.toFixed(1)}ms)`
+            : "[editor] Code formatted successfully",
+        );
       }
     } catch (error) {
       appendLog(`[error] Format failed: ${String(error)}`);
@@ -2683,6 +2687,7 @@ export default function Home() {
                   setCode={setCode}
                   onFormat={handleFormat}
                   formatDiagnostics={formatDiagnostics}
+                  formatOnSave={true}
                 />
               </section>
             }

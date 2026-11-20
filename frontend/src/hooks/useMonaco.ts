@@ -11,7 +11,11 @@ import { monacoViewStates } from "@/lib/monacoViewState";
 import { getAppliedTheme } from "@/lib/theme/engine";
 import { MONACO_THEME_NAME, registerMonacoTheme } from "@/lib/theme/monaco";
 import { observeTheme } from "@/lib/theme/observe";
-import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
+import type {
+  RustFormatDiagnostic,
+  RustfmtConfig,
+} from "@/lib/rustfmtDiagnostics";
+import { formatRustInWorker } from "@/lib/rustfmtClient";
 import "monaco-editor/min/vs/style.css";
 
 let instanceCounter = 0;
@@ -21,8 +25,10 @@ interface UseMonacoProps {
   value: string;
   onChange: (value: string) => void;
   viewStateKey?: string;
-  onFormat?: (source?: string) => void;
+  onFormat?: (source?: string) => void | Promise<void>;
   formatDiagnostics?: RustFormatDiagnostic[];
+  formatOnSave?: boolean;
+  rustfmtConfig?: RustfmtConfig | string;
 }
 
 interface UseMonacoResult {
@@ -38,6 +44,8 @@ export function useMonaco({
   viewStateKey,
   onFormat,
   formatDiagnostics,
+  formatOnSave = true,
+  rustfmtConfig,
 }: UseMonacoProps): UseMonacoResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -46,6 +54,8 @@ export function useMonaco({
   const workerRef = useRef<Worker | null>(null);
   const onChangeRef = useRef(onChange);
   const onFormatRef = useRef(onFormat);
+  const formatOnSaveRef = useRef(formatOnSave);
+  const rustfmtConfigRef = useRef(rustfmtConfig);
   const valueRef = useRef(value);
   const [isEditorReady, setIsEditorReady] = useState(false);
 
@@ -56,6 +66,14 @@ export function useMonaco({
   useEffect(() => {
     onFormatRef.current = onFormat;
   }, [onFormat]);
+
+  useEffect(() => {
+    formatOnSaveRef.current = formatOnSave;
+  }, [formatOnSave]);
+
+  useEffect(() => {
+    rustfmtConfigRef.current = rustfmtConfig;
+  }, [rustfmtConfig]);
 
   useEffect(() => {
     const model = modelRef.current;
@@ -174,13 +192,113 @@ export function useMonaco({
 
           setIsEditorReady(true);
 
+          if (language === "rust") {
+            const formattingProviderDisposable =
+              monacoAPI.languages.registerDocumentFormattingEditProvider("rust", {
+                async provideDocumentFormattingEdits(model) {
+                  const text = model.getValue();
+                  try {
+                    const result = await formatRustInWorker(
+                      text,
+                      rustfmtConfigRef.current,
+                    );
+                    if ("formatted" in result && result.formatted !== text) {
+                      return [
+                        {
+                          range: model.getFullModelRange(),
+                          text: result.formatted,
+                        },
+                      ];
+                    }
+                    const monaco = monacoAPI;
+                    if (
+                      "diagnostics" in result &&
+                      result.diagnostics.length > 0 &&
+                      monaco
+                    ) {
+                      monaco.editor.setModelMarkers(
+                        model,
+                        "rustfmt",
+                        result.diagnostics.map((d) => ({
+                          severity: monaco.MarkerSeverity.Error,
+                          startLineNumber: d.startLineNumber,
+                          startColumn: d.startColumn,
+                          endLineNumber: d.startLineNumber,
+                          endColumn: d.startColumn + 1,
+                          message: d.message,
+                          source: "rustfmt",
+                        })),
+                      );
+                    }
+                  } catch (err) {
+                    console.error("[editor] Document formatting failed", err);
+                  }
+                  return [];
+                },
+              });
+
+            scope.track({
+              kind: "disposable",
+              label: "rust document formatting provider",
+              disposable: formattingProviderDisposable,
+            });
+          }
+
           editor.addAction({
             id: "soroban.format-rust",
             label: "Format Rust",
             keybindings: [
               monacoAPI.KeyMod.CtrlCmd | monacoAPI.KeyCode.KeyS,
             ],
-            run: () => onFormatRef.current?.(modelRef.current?.getValue()),
+            run: async () => {
+              const currentModel = modelRef.current;
+              if (!currentModel) return;
+
+              if (formatOnSaveRef.current && language === "rust") {
+                const currentText = currentModel.getValue();
+                try {
+                  const result = await formatRustInWorker(
+                    currentText,
+                    rustfmtConfigRef.current,
+                  );
+                  if ("formatted" in result) {
+                    if (result.formatted !== currentText) {
+                      currentModel.setValue(result.formatted);
+                      onChangeRef.current(result.formatted);
+                    }
+                    monacoAPI?.editor.setModelMarkers(
+                      currentModel,
+                      "rustfmt",
+                      [],
+                    );
+                    await onFormatRef.current?.(result.formatted);
+                  } else if ("diagnostics" in result) {
+                    const monaco = monacoAPI;
+                    if (monaco) {
+                      monaco.editor.setModelMarkers(
+                        currentModel,
+                        "rustfmt",
+                        result.diagnostics.map((d) => ({
+                          severity: monaco.MarkerSeverity.Error,
+                          startLineNumber: d.startLineNumber,
+                          startColumn: d.startColumn,
+                          endLineNumber: d.startLineNumber,
+                          endColumn: d.startColumn + 1,
+                          message: d.message,
+                          source: "rustfmt",
+                        })),
+                      );
+                    }
+                    await onFormatRef.current?.(currentText);
+                  }
+                } catch (err) {
+                  console.error("[editor] Format on save failed", err);
+                  await onFormatRef.current?.(currentText);
+                }
+              } else {
+                await onFormatRef.current?.(currentModel.getValue());
+              }
+            },
           });
 
           // Re-register the Monaco theme whenever the app theme changes so the
