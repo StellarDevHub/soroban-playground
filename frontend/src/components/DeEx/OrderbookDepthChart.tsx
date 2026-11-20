@@ -15,8 +15,8 @@ import {
   TrendingUp,
   TrendingDown,
   Info,
-  CheckCircle2,
   X,
+  Move,
 } from "lucide-react";
 
 // ── Types & Interfaces ────────────────────────────────────────────────────────
@@ -65,12 +65,13 @@ export interface OrderbookDepthChartProps {
   demoMode?: boolean;
 }
 
-interface HoverState {
+export interface HoverState {
   x: number;
   y: number;
   price: number;
   volume: number;
   cumulativeVolume: number;
+  depthPercentile: number;
   side: "bid" | "ask" | "spread";
 }
 
@@ -80,7 +81,42 @@ interface FlashGlow {
   intensity: number;
 }
 
+// ── Safe requestAnimationFrame Helpers for 60 FPS Throttling ──────────────────
+
+const safeRequestAnimationFrame = (callback: FrameRequestCallback): number => {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    return window.requestAnimationFrame(callback);
+  }
+  return setTimeout(callback, 16) as unknown as number;
+};
+
+const safeCancelAnimationFrame = (id: number) => {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.cancelAnimationFrame === "function"
+  ) {
+    window.cancelAnimationFrame(id);
+  } else {
+    clearTimeout(id);
+  }
+};
+
 // ── Mathematical Core & Pure Utility Functions ───────────────────────────────
+
+/**
+ * Calculates cumulative depth percentile (0 - 100%) against total side liquidity.
+ */
+export function calculateDepthPercentile(
+  cumulativeVolume: number,
+  totalDepth: number
+): number {
+  if (totalDepth <= 0 || cumulativeVolume <= 0) return 0;
+  const pct = (cumulativeVolume / totalDepth) * 100;
+  return Math.min(100, Math.max(0, Number(pct.toFixed(2))));
+}
 
 /**
  * Aggregates buy orders into discrete price buckets.
@@ -347,9 +383,12 @@ export default function OrderbookDepthChart({
     }
   }, [initialBids, initialAsks, demoMode]);
 
-  // Controls state
+  // Controls state: step aggregation, zoom level, and pan offset
   const [step, setStep] = useState<number>(defaultStep);
   const [zoom, setZoom] = useState<number>(1.0);
+  const [panOffset, setPanOffset] = useState<number>(0);
+  const [isPanning, setIsPanning] = useState(false);
+
   const [selectedSimulation, setSelectedSimulation] =
     useState<SlippageSimulation | null>(null);
   const [hoverAnnouncement, setHoverAnnouncement] = useState("");
@@ -365,6 +404,14 @@ export default function OrderbookDepthChart({
   const dimensionsRef = useRef<{ width: number; height: number }>({
     width: 600,
     height,
+  });
+
+  // Drag-to-pan tracking refs
+  const isDraggingRef = useRef(false);
+  const hasDraggedRef = useRef(false);
+  const dragStartRef = useRef<{ mouseX: number; panStart: number }>({
+    mouseX: 0,
+    panStart: 0,
   });
 
   // Aggregated depth data
@@ -411,7 +458,7 @@ export default function OrderbookDepthChart({
     flashesRef.current = newFlashes;
   }, [aggregatedBids, aggregatedAsks]);
 
-  // ── High-Performance Canvas Rendering Loop ──────────────────────────────────
+  // ── High-Performance Canvas Rendering Loop (Retina High-DPI Scaled) ────────
 
   const renderCanvas = useCallback(() => {
     rafIdRef.current = null;
@@ -424,18 +471,23 @@ export default function OrderbookDepthChart({
     if (width <= 0 || chartHeight <= 0) return;
 
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const displayWidth = Math.max(1, width);
+    const displayHeight = Math.max(1, chartHeight);
+    const physicalWidth = Math.round(displayWidth * dpr);
+    const physicalHeight = Math.round(displayHeight * dpr);
 
-    // Synchronize canvas physical size with logical display scale
-    if (canvas.width !== width * dpr || canvas.height !== chartHeight * dpr) {
-      canvas.width = width * dpr;
-      canvas.height = chartHeight * dpr;
+    // Synchronize canvas physical size with logical display scale (HiDPI Retina)
+    if (canvas.width !== physicalWidth || canvas.height !== physicalHeight) {
+      canvas.width = physicalWidth;
+      canvas.height = physicalHeight;
     }
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${chartHeight}px`;
+    canvas.style.width = `${displayWidth}px`;
+    canvas.style.height = `${displayHeight}px`;
 
-    // Reset to logical pixel coordinates on every frame; canvas resizing resets
-    // the context state, while setTransform also prevents accumulated scaling.
+    // Reset transform to logical pixel coordinates; prevents accumulated scaling
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
     // Layout Margins
     const padTop = 32;
@@ -463,7 +515,7 @@ export default function OrderbookDepthChart({
         : 0;
     const maxVolume = Math.max(maxBidVol, maxAskVol, 1) * 1.15;
 
-    // Price Bounds
+    // Price Bounds with Pan and Zoom
     const lowestBid = aggregatedBids.length > 0
       ? aggregatedBids[aggregatedBids.length - 1].price
       : stats.bestBid;
@@ -474,7 +526,8 @@ export default function OrderbookDepthChart({
       ? highestAsk - lowestBid
       : Math.max(highestAsk, lowestBid) * 0.2;
     const fullPriceSpan = Math.max(0.001, rawSpan);
-    const centerPrice = stats.midPrice || (highestAsk + lowestBid) / 2 || 1;
+    const baseCenterPrice = stats.midPrice || (highestAsk + lowestBid) / 2 || 1;
+    const centerPrice = baseCenterPrice + panOffset;
     const visibleSpan = fullPriceSpan / zoom;
 
     const minPrice = Math.max(0.0001, centerPrice - visibleSpan / 2);
@@ -486,8 +539,6 @@ export default function OrderbookDepthChart({
       padLeft + ((p - minPrice) / priceRange) * plotWidth;
     const volumeToY = (v: number) =>
       padTop + plotHeight - (v / maxVolume) * plotHeight;
-    const xToPrice = (x: number) =>
-      minPrice + ((x - padLeft) / plotWidth) * priceRange;
 
     // ── Gridlines & Axes ─────────────────────────────────────────────────────
 
@@ -516,7 +567,7 @@ export default function OrderbookDepthChart({
       );
     }
 
-    // Vertical Price Grids (5 vertical lines)
+    // Vertical Price Grids (6 vertical lines)
     ctx.textAlign = "center";
     const priceSteps = 6;
     for (let i = 0; i <= priceSteps; i++) {
@@ -546,7 +597,10 @@ export default function OrderbookDepthChart({
       const alpha = (1 - elapsed / 400) * 0.28;
       const x = priceToX(price);
       if (x >= padLeft && x <= padLeft + plotWidth) {
-        const glowWidth = Math.max(6, plotWidth / (aggregatedBids.length + aggregatedAsks.length || 20));
+        const glowWidth = Math.max(
+          6,
+          plotWidth / (aggregatedBids.length + aggregatedAsks.length || 20)
+        );
         ctx.fillStyle =
           flash.side === "bid"
             ? `rgba(16, 185, 129, ${alpha})`
@@ -737,7 +791,7 @@ export default function OrderbookDepthChart({
       ctx.setLineDash([]);
     }
 
-    // ── Interactive Hover Crosshair & Axis Markers ───────────────────────────
+    // ── Interactive Hover Crosshair, Axis Badges & Depth Percentile ──────────
 
     const hover = hoverRef.current;
     if (
@@ -763,43 +817,89 @@ export default function OrderbookDepthChart({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Axis Price Badge (Bottom)
+      // Intersection target dot
+      ctx.beginPath();
+      ctx.arc(hover.x, hover.y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle =
+        hover.side === "bid"
+          ? "#10b981"
+          : hover.side === "ask"
+          ? "#ef4444"
+          : "#38bdf8";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Axis Price Badge (Bottom X-axis)
       const pLabel = hover.price.toFixed(step < 0.1 ? 3 : 2);
       ctx.font = "bold 10px monospace";
       const pTextWidth = ctx.measureText(pLabel).width;
       ctx.fillStyle = "#1e293b";
       ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
       ctx.beginPath();
-      ctx.roundRect(hover.x - pTextWidth / 2 - 6, padTop + plotHeight + 4, pTextWidth + 12, 18, 4);
+      ctx.roundRect(
+        hover.x - pTextWidth / 2 - 6,
+        padTop + plotHeight + 4,
+        pTextWidth + 12,
+        18,
+        4
+      );
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = "#f8fafc";
       ctx.textAlign = "center";
       ctx.fillText(pLabel, hover.x, padTop + plotHeight + 17);
 
-      // Axis Volume Badge (Right)
-      const vVal = ((padTop + plotHeight - hover.y) / plotHeight) * maxVolume;
-      const vLabel = vVal >= 1000 ? `${(vVal / 1000).toFixed(1)}k` : vVal.toFixed(0);
+      // Axis Volume Badge (Right Y-axis)
+      const vVal =
+        ((padTop + plotHeight - hover.y) / plotHeight) * maxVolume;
+      const vLabel =
+        vVal >= 1000 ? `${(vVal / 1000).toFixed(1)}k` : vVal.toFixed(0);
       const vTextWidth = ctx.measureText(vLabel).width;
       ctx.fillStyle = "#1e293b";
       ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
       ctx.beginPath();
-      ctx.roundRect(padLeft + plotWidth + 4, hover.y - 9, vTextWidth + 12, 18, 4);
+      ctx.roundRect(
+        padLeft + plotWidth + 4,
+        hover.y - 9,
+        vTextWidth + 12,
+        18,
+        4
+      );
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = "#f8fafc";
       ctx.textAlign = "left";
       ctx.fillText(vLabel, padLeft + plotWidth + 10, hover.y + 4);
 
-      // Exact level data beside the crosshair.
-      const sideLabel = hover.side === "spread" ? "Spread" : `${hover.side.toUpperCase()} level`;
-      const detail = `${sideLabel}  Qty ${hover.volume.toLocaleString()}  Depth ${hover.cumulativeVolume.toLocaleString()}`;
+      // Exact level data beside the crosshair (Price, Volume, Depth, Percentile)
+      const sideLabel =
+        hover.side === "spread"
+          ? "Spread"
+          : `${hover.side.toUpperCase()} level`;
+      const percentileStr =
+        hover.side !== "spread" && hover.depthPercentile > 0
+          ? ` (${hover.depthPercentile.toFixed(1)}%)`
+          : "";
+      const detail = `${sideLabel}  Qty ${hover.volume.toLocaleString()}  Depth ${hover.cumulativeVolume.toLocaleString()}${percentileStr}`;
       ctx.font = "10px monospace";
       const detailWidth = ctx.measureText(detail).width;
-      const detailX = Math.max(padLeft + 4, Math.min(padLeft + plotWidth - detailWidth - 16, hover.x + 12));
-      const detailY = Math.max(padTop + 4, Math.min(padTop + plotHeight - 24, hover.y + 12));
+      const detailX = Math.max(
+        padLeft + 4,
+        Math.min(padLeft + plotWidth - detailWidth - 16, hover.x + 12)
+      );
+      const detailY = Math.max(
+        padTop + 4,
+        Math.min(padTop + plotHeight - 24, hover.y + 12)
+      );
       ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.strokeStyle =
+        hover.side === "bid"
+          ? "rgba(16, 185, 129, 0.4)"
+          : hover.side === "ask"
+          ? "rgba(239, 68, 68, 0.4)"
+          : "rgba(255, 255, 255, 0.2)";
       ctx.beginPath();
       ctx.roundRect(detailX, detailY, detailWidth + 12, 20, 4);
       ctx.fill();
@@ -810,24 +910,48 @@ export default function OrderbookDepthChart({
     }
 
     // Re-request frame if any flashes are currently decaying
-    if (activeFlashes.size > 0 && mountedRef.current && rafIdRef.current === null) {
-      rafIdRef.current = requestAnimationFrame(renderCanvas);
+    if (
+      activeFlashes.size > 0 &&
+      mountedRef.current &&
+      rafIdRef.current === null
+    ) {
+      rafIdRef.current = safeRequestAnimationFrame(() => {
+        rafIdRef.current = null;
+        renderCanvas();
+      });
     }
-  }, [aggregatedBids, aggregatedAsks, stats, zoom, step, selectedSimulation]);
+  }, [
+    aggregatedBids,
+    aggregatedAsks,
+    stats,
+    zoom,
+    panOffset,
+    step,
+    selectedSimulation,
+  ]);
 
-  // Request Animation Frame on state changes and release any pending frame on
-  // rerender or unmount.
+  // ── Throttled Schedule Render Function (60 FPS vsync loop) ─────────────────
+
+  const scheduleRender = useCallback(() => {
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = safeRequestAnimationFrame(() => {
+      rafIdRef.current = null;
+      renderCanvas();
+    });
+  }, [renderCanvas]);
+
+  // Request Animation Frame on state changes and release any pending frame on unmount
   useEffect(() => {
     mountedRef.current = true;
     if (rafIdRef.current !== null) {
-      cancelAnimationFrame(rafIdRef.current);
+      safeCancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
     renderCanvas();
     return () => {
       mountedRef.current = false;
       if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
+        safeCancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
     };
@@ -844,15 +968,62 @@ export default function OrderbookDepthChart({
       const { width } = entry.contentRect;
       if (width > 0) {
         dimensionsRef.current = { width, height };
-        renderCanvas();
+        scheduleRender();
       }
     });
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [height, renderCanvas]);
+  }, [height, scheduleRender]);
 
-  // ── Mouse & Touch Event Handlers ──────────────────────────────────────────
+  // Global mouseup cleanup to end drag-to-pan safely
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        setIsPanning(false);
+      }
+    };
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
+  }, []);
+
+  // ── Mouse & Touch Event Handlers (Pan, Zoom, Hover Crosshair) ──────────────
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (e.button !== 0) return; // Left mouse button only
+      isDraggingRef.current = true;
+      hasDraggedRef.current = false;
+      dragStartRef.current = {
+        mouseX: e.clientX,
+        panStart: panOffset,
+      };
+      setIsPanning(true);
+    },
+    [panOffset]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    isDraggingRef.current = false;
+    setIsPanning(false);
+  }, []);
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      setZoom((prevZoom) => {
+        const nextZoom = Math.min(
+          10.0,
+          Math.max(0.2, Number((prevZoom * zoomFactor).toFixed(2)))
+        );
+        return nextZoom;
+      });
+      scheduleRender();
+    },
+    [scheduleRender]
+  );
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -862,37 +1033,67 @@ export default function OrderbookDepthChart({
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      const { width, height: chartHeight } = dimensionsRef.current;
+      const { width } = dimensionsRef.current;
       const padLeft = 14;
       const padRight = 68;
-      const plotWidth = width - padLeft - padRight;
+      const plotWidth = Math.max(10, width - padLeft - padRight);
 
-      const lowestBid = aggregatedBids.length > 0
-        ? aggregatedBids[aggregatedBids.length - 1].price
-        : stats.bestBid;
-      const highestAsk = aggregatedAsks.length > 0
-        ? aggregatedAsks[aggregatedAsks.length - 1].price
-        : stats.bestAsk;
-      const rawSpan = highestAsk > 0 && lowestBid > 0
-        ? highestAsk - lowestBid
-        : Math.max(highestAsk, lowestBid) * 0.2;
+      const lowestBid =
+        aggregatedBids.length > 0
+          ? aggregatedBids[aggregatedBids.length - 1].price
+          : stats.bestBid;
+      const highestAsk =
+        aggregatedAsks.length > 0
+          ? aggregatedAsks[aggregatedAsks.length - 1].price
+          : stats.bestAsk;
+      const rawSpan =
+        highestAsk > 0 && lowestBid > 0
+          ? highestAsk - lowestBid
+          : Math.max(highestAsk, lowestBid) * 0.2;
       const fullPriceSpan = Math.max(0.001, rawSpan);
-      const centerPrice = stats.midPrice || (highestAsk + lowestBid) / 2 || 1;
       const visibleSpan = fullPriceSpan / zoom;
+
+      // Handle active drag-to-pan
+      if (isDraggingRef.current) {
+        const deltaPixel = e.clientX - dragStartRef.current.mouseX;
+        if (Math.abs(deltaPixel) > 2) {
+          hasDraggedRef.current = true;
+        }
+        const pricePerPixel = visibleSpan / plotWidth;
+        const nextPan = Number(
+          (dragStartRef.current.panStart - deltaPixel * pricePerPixel).toFixed(6)
+        );
+        setPanOffset(nextPan);
+        scheduleRender();
+        return;
+      }
+
+      // Compute hovered price based on pan offset & zoom
+      const baseCenterPrice =
+        stats.midPrice || (highestAsk + lowestBid) / 2 || 1;
+      const centerPrice = baseCenterPrice + panOffset;
       const minPrice = Math.max(0.0001, centerPrice - visibleSpan / 2);
       const maxPrice = centerPrice + visibleSpan / 2;
       const priceRange = maxPrice - minPrice;
 
       const price = minPrice + ((mouseX - padLeft) / plotWidth) * priceRange;
 
-      // Classify hover side
+      // Classify hover side and compute depth percentiles
       let side: HoverState["side"] = "spread";
       let volume = 0;
       let cumulativeVolume = 0;
 
+      const totalBidVolume =
+        aggregatedBids.length > 0
+          ? aggregatedBids[aggregatedBids.length - 1].cumulativeVolume
+          : 0;
+      const totalAskVolume =
+        aggregatedAsks.length > 0
+          ? aggregatedAsks[aggregatedAsks.length - 1].cumulativeVolume
+          : 0;
+
       if (stats.bestBid > 0 && price <= stats.bestBid) {
         side = "bid";
-        // Find closest aggregated bid
         let closest = aggregatedBids[0];
         let minDist = Infinity;
         for (let i = 0; i < aggregatedBids.length; i++) {
@@ -923,31 +1124,48 @@ export default function OrderbookDepthChart({
         }
       }
 
+      const totalSideVolume =
+        side === "bid" ? totalBidVolume : side === "ask" ? totalAskVolume : 0;
+      const depthPercentile = calculateDepthPercentile(
+        cumulativeVolume,
+        totalSideVolume
+      );
+
       hoverRef.current = {
         x: mouseX,
         y: mouseY,
         price,
         volume,
         cumulativeVolume,
+        depthPercentile,
         side,
       };
+
       setHoverAnnouncement(
-        `Hovered ${side} price ${price.toFixed(4)}, quantity ${volume}, cumulative depth ${cumulativeVolume}.`
+        `Hovered ${side} price ${price.toFixed(4)}, quantity ${volume.toLocaleString()}, cumulative depth ${cumulativeVolume.toLocaleString()} (${depthPercentile.toFixed(1)}% depth percentile).`
       );
 
-      renderCanvas();
+      scheduleRender();
     },
-    [aggregatedBids, aggregatedAsks, stats, zoom, renderCanvas]
+    [aggregatedBids, aggregatedAsks, stats, zoom, panOffset, scheduleRender]
   );
 
   const handleMouseLeave = useCallback(() => {
+    isDraggingRef.current = false;
+    setIsPanning(false);
     hoverRef.current = null;
     setHoverAnnouncement("");
-    renderCanvas();
-  }, [renderCanvas]);
+    scheduleRender();
+  }, [scheduleRender]);
 
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Ignore click if the user was dragging to pan
+      if (hasDraggedRef.current) {
+        hasDraggedRef.current = false;
+        return;
+      }
+
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -956,20 +1174,25 @@ export default function OrderbookDepthChart({
       const { width } = dimensionsRef.current;
       const padLeft = 14;
       const padRight = 68;
-      const plotWidth = width - padLeft - padRight;
+      const plotWidth = Math.max(10, width - padLeft - padRight);
 
-      const lowestBid = aggregatedBids.length > 0
-        ? aggregatedBids[aggregatedBids.length - 1].price
-        : stats.bestBid;
-      const highestAsk = aggregatedAsks.length > 0
-        ? aggregatedAsks[aggregatedAsks.length - 1].price
-        : stats.bestAsk;
-      const rawSpan = highestAsk > 0 && lowestBid > 0
-        ? highestAsk - lowestBid
-        : Math.max(highestAsk, lowestBid) * 0.2;
+      const lowestBid =
+        aggregatedBids.length > 0
+          ? aggregatedBids[aggregatedBids.length - 1].price
+          : stats.bestBid;
+      const highestAsk =
+        aggregatedAsks.length > 0
+          ? aggregatedAsks[aggregatedAsks.length - 1].price
+          : stats.bestAsk;
+      const rawSpan =
+        highestAsk > 0 && lowestBid > 0
+          ? highestAsk - lowestBid
+          : Math.max(highestAsk, lowestBid) * 0.2;
       const fullPriceSpan = Math.max(0.001, rawSpan);
-      const centerPrice = stats.midPrice || (highestAsk + lowestBid) / 2 || 1;
       const visibleSpan = fullPriceSpan / zoom;
+      const baseCenterPrice =
+        stats.midPrice || (highestAsk + lowestBid) / 2 || 1;
+      const centerPrice = baseCenterPrice + panOffset;
       const minPrice = Math.max(0.0001, centerPrice - visibleSpan / 2);
       const maxPrice = centerPrice + visibleSpan / 2;
       const priceRange = maxPrice - minPrice;
@@ -992,7 +1215,7 @@ export default function OrderbookDepthChart({
         setSelectedSimulation(null);
       }
     },
-    [aggregatedBids, aggregatedAsks, stats, zoom, onLevelClick]
+    [aggregatedBids, aggregatedAsks, stats, zoom, panOffset, onLevelClick]
   );
 
   // ── Render Component UI ───────────────────────────────────────────────────
@@ -1034,7 +1257,7 @@ export default function OrderbookDepthChart({
           )}
         </div>
 
-        {/* Aggregation & Zoom Controls */}
+        {/* Aggregation & Zoom / Pan Controls */}
         {showControls && (
           <div className="flex items-center gap-2">
             {/* Price Step Aggregation Selector */}
@@ -1060,14 +1283,35 @@ export default function OrderbookDepthChart({
               ))}
             </div>
 
-            {/* Zoom Controls */}
+            {/* Active Pan/Zoom Badge */}
+            {(zoom !== 1.0 || Math.abs(panOffset) > 0.0001) && (
+              <div
+                className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px] font-mono text-cyan-300"
+                title="Active Pan & Zoom magnification"
+              >
+                <span>{zoom.toFixed(2)}x</span>
+                {Math.abs(panOffset) > 0.0001 && (
+                  <>
+                    <span className="text-slate-600">|</span>
+                    <span className="text-slate-300 flex items-center gap-0.5">
+                      <Move size={10} />
+                      {panOffset > 0 ? `+${panOffset.toFixed(2)}` : panOffset.toFixed(2)}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Zoom & Pan Reset Controls */}
             <div
               className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800"
               role="group"
               aria-label="Chart zoom controls"
             >
               <button
-                onClick={() => setZoom((z) => Math.min(5.0, Number((z * 1.25).toFixed(2))))}
+                onClick={() =>
+                  setZoom((z) => Math.min(10.0, Number((z * 1.25).toFixed(2))))
+                }
                 className="p-1 text-slate-400 hover:text-slate-100 transition-colors"
                 title="Zoom in"
                 aria-label="Zoom in"
@@ -1075,7 +1319,9 @@ export default function OrderbookDepthChart({
                 <ZoomIn size={14} />
               </button>
               <button
-                onClick={() => setZoom((z) => Math.max(0.5, Number((z / 1.25).toFixed(2))))}
+                onClick={() =>
+                  setZoom((z) => Math.max(0.2, Number((z / 1.25).toFixed(2))))
+                }
                 className="p-1 text-slate-400 hover:text-slate-100 transition-colors"
                 title="Zoom out"
                 aria-label="Zoom out"
@@ -1083,9 +1329,13 @@ export default function OrderbookDepthChart({
                 <ZoomOut size={14} />
               </button>
               <button
-                onClick={() => setZoom(1.0)}
+                onClick={() => {
+                  setZoom(1.0);
+                  setPanOffset(0);
+                  scheduleRender();
+                }}
                 className="p-1 text-slate-400 hover:text-slate-100 transition-colors"
-                title="Reset zoom"
+                title="Reset zoom and pan"
                 aria-label="Reset zoom"
               >
                 <RotateCcw size={13} />
@@ -1101,15 +1351,20 @@ export default function OrderbookDepthChart({
           ref={canvasRef}
           width={1}
           height={1}
-          aria-label="Interactive orderbook depth chart. Hover to inspect price, quantity, and cumulative depth; click a price to simulate a trade."
+          aria-label="Interactive orderbook depth chart. Hover to inspect price, quantity, cumulative depth, and depth percentiles; drag horizontally to pan; scroll to zoom; click to simulate trade."
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
+          onWheel={handleWheel}
           onClick={handleCanvasClick}
-          className="w-full h-full cursor-crosshair block rounded-lg"
+          className={`w-full h-full block rounded-lg select-none ${
+            isPanning ? "cursor-grabbing" : "cursor-crosshair"
+          }`}
         />
 
         {hoverAnnouncement && (
-          <div className="absolute left-3 top-3 rounded bg-slate-900/95 border border-slate-700 px-2 py-1 text-[11px] font-mono text-slate-100 pointer-events-none">
+          <div className="absolute left-3 top-3 rounded bg-slate-900/95 border border-slate-700 px-2 py-1 text-[11px] font-mono text-slate-100 pointer-events-none shadow-md">
             {hoverAnnouncement}
           </div>
         )}
