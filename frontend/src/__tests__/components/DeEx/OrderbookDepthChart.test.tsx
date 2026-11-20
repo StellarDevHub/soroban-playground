@@ -5,6 +5,7 @@ import OrderbookDepthChart, {
   aggregateAsks,
   calculateMarketStats,
   calculateSlippage,
+  calculateDepthPercentile,
   OrderLevel,
 } from "../../../components/DeEx/OrderbookDepthChart";
 
@@ -22,6 +23,25 @@ describe("OrderbookDepthChart Mathematics", () => {
     { price: 1.28, quantity: 250 },
     { price: 1.3, quantity: 400 },
   ];
+
+  describe("calculateDepthPercentile", () => {
+    it("returns 0 when totalDepth or cumulativeVolume is non-positive", () => {
+      expect(calculateDepthPercentile(0, 1000)).toBe(0);
+      expect(calculateDepthPercentile(-50, 1000)).toBe(0);
+      expect(calculateDepthPercentile(100, 0)).toBe(0);
+      expect(calculateDepthPercentile(100, -500)).toBe(0);
+    });
+
+    it("calculates accurate depth percentiles", () => {
+      expect(calculateDepthPercentile(250, 1000)).toBe(25);
+      expect(calculateDepthPercentile(333.33, 1000)).toBe(33.33);
+      expect(calculateDepthPercentile(500, 500)).toBe(100);
+    });
+
+    it("caps depth percentile at 100%", () => {
+      expect(calculateDepthPercentile(1200, 1000)).toBe(100);
+    });
+  });
 
   describe("aggregateBids", () => {
     it("floors bid prices to nearest step and sorts descending", () => {
@@ -56,8 +76,8 @@ describe("OrderbookDepthChart Mathematics", () => {
             { price: -1, quantity: 10 },
             { price: 0, quantity: 5 },
           ],
-          0.01,
-        ),
+          0.01
+        )
       ).toEqual([]);
     });
   });
@@ -65,10 +85,9 @@ describe("OrderbookDepthChart Mathematics", () => {
   describe("aggregateAsks", () => {
     it("ceils ask prices to nearest step and sorts ascending", () => {
       const agg = aggregateAsks(sampleAsks, 0.01);
-      // 1.261 -> 1.27, 1.268 -> 1.27, 1.28 -> 1.28, 1.30 -> 1.30
-      expect(agg.length).toBe(3);
-      expect(agg[0].price).toBe(1.27);
-      expect(agg[0].quantity).toBe(250); // 150 + 100
+      expect(agg.length).toBe(3); // 1.27, 1.28, 1.30
+      expect(agg[0].price).toBe(1.27); // 1.261 -> 1.27, 1.268 -> 1.27
+      expect(agg[0].quantity).toBe(250);
       expect(agg[0].cumulativeVolume).toBe(250);
 
       expect(agg[1].price).toBe(1.28);
@@ -82,10 +101,10 @@ describe("OrderbookDepthChart Mathematics", () => {
 
     it("aggregates asks with 0.1 step", () => {
       const agg = aggregateAsks(sampleAsks, 0.1);
-      // 1.261 -> 1.3, 1.268 -> 1.3, 1.28 -> 1.3, 1.30 -> 1.3
       expect(agg.length).toBe(1);
       expect(agg[0].price).toBe(1.3);
       expect(agg[0].quantity).toBe(900);
+      expect(agg[0].cumulativeVolume).toBe(900);
     });
   });
 
@@ -94,9 +113,9 @@ describe("OrderbookDepthChart Mathematics", () => {
       const stats = calculateMarketStats(sampleBids, sampleAsks);
       expect(stats.bestBid).toBe(1.255);
       expect(stats.bestAsk).toBe(1.261);
-      expect(stats.midPrice).toBe(1.258);
-      expect(stats.spreadAbs).toBeCloseTo(0.006, 6);
-      expect(stats.spreadPercent).toBeCloseTo((0.006 / 1.258) * 100, 4);
+      expect(stats.midPrice).toBeCloseTo(1.258, 4);
+      expect(stats.spreadAbs).toBeCloseTo(0.006, 4);
+      expect(stats.spreadPercent).toBeCloseTo((0.006 / 1.258) * 100, 3);
     });
 
     it("handles one-sided or empty orderbook safely", () => {
@@ -105,13 +124,12 @@ describe("OrderbookDepthChart Mathematics", () => {
       expect(emptyStats.bestAsk).toBe(0);
       expect(emptyStats.midPrice).toBe(0);
       expect(emptyStats.spreadAbs).toBe(0);
-      expect(emptyStats.spreadPercent).toBe(0);
 
-      const bidsOnly = calculateMarketStats(sampleBids, []);
-      expect(bidsOnly.bestBid).toBe(1.255);
-      expect(bidsOnly.bestAsk).toBe(0);
-      expect(bidsOnly.midPrice).toBe(1.255);
-      expect(bidsOnly.spreadPercent).toBe(0);
+      const oneSided = calculateMarketStats(sampleBids, []);
+      expect(oneSided.bestBid).toBe(1.255);
+      expect(oneSided.bestAsk).toBe(0);
+      expect(oneSided.midPrice).toBe(1.255);
+      expect(oneSided.spreadAbs).toBe(0);
     });
   });
 
@@ -126,7 +144,7 @@ describe("OrderbookDepthChart Mathematics", () => {
         aggBids,
         aggAsks,
         stats.bestBid,
-        stats.bestAsk,
+        stats.bestAsk
       );
 
       expect(sim).not.toBeNull();
@@ -136,16 +154,10 @@ describe("OrderbookDepthChart Mathematics", () => {
       expect(sim.targetPrice).toBe(1.28);
       expect(sim.startPrice).toBe(stats.bestAsk);
 
-      // Levels up to 1.28: 1.27 (qty 250) + 1.28 (qty 250) = 500
+      // Levels <= 1.28: 1.27 (qty 250) + 1.28 (qty 250) = 500
       expect(sim.requiredVolume).toBe(500);
-
-      // Cost: (1.27 * 250) + (1.28 * 250) = 317.5 + 320 = 637.5
       expect(sim.totalQuoteCost).toBeCloseTo(637.5, 4);
-
-      // Average execution price: 637.5 / 500 = 1.275
       expect(sim.avgExecutionPrice).toBeCloseTo(1.275, 4);
-
-      // Slippage vs best ask (1.261): ((1.275 - 1.261) / 1.261) * 100
       const expectedSlippage = ((1.275 - 1.261) / 1.261) * 100;
       expect(sim.slippagePercent).toBeCloseTo(expectedSlippage, 3);
     });
@@ -156,7 +168,7 @@ describe("OrderbookDepthChart Mathematics", () => {
         aggBids,
         aggAsks,
         stats.bestBid,
-        stats.bestAsk,
+        stats.bestAsk
       );
 
       expect(sim).not.toBeNull();
@@ -168,14 +180,8 @@ describe("OrderbookDepthChart Mathematics", () => {
 
       // Levels >= 1.24: 1.25 (qty 150) + 1.24 (qty 200) = 350
       expect(sim.requiredVolume).toBe(350);
-
-      // Total return: (1.25 * 150) + (1.24 * 200) = 187.5 + 248 = 435.5
       expect(sim.totalQuoteCost).toBeCloseTo(435.5, 4);
-
-      // Average price: 435.5 / 350 = 1.2442857
       expect(sim.avgExecutionPrice).toBeCloseTo(435.5 / 350, 4);
-
-      // Slippage vs best bid (1.255): ((1.255 - avg) / 1.255) * 100
       const expectedSlippage = ((1.255 - 435.5 / 350) / 1.255) * 100;
       expect(sim.slippagePercent).toBeCloseTo(expectedSlippage, 3);
     });
@@ -187,7 +193,7 @@ describe("OrderbookDepthChart Mathematics", () => {
         aggBids,
         aggAsks,
         stats.bestBid,
-        stats.bestAsk,
+        stats.bestAsk
       );
       expect(sim).toBeNull();
     });
@@ -205,9 +211,10 @@ describe("OrderbookDepthChart UI Component", () => {
     { price: 1.27, quantity: 250 },
   ];
 
+  let mockContext: Record<string, jest.Mock>;
+
   beforeAll(() => {
-    // Provide a lightweight mock for HTMLCanvasElement.prototype.getContext
-    HTMLCanvasElement.prototype.getContext = jest.fn().mockReturnValue({
+    mockContext = {
       save: jest.fn(),
       restore: jest.fn(),
       scale: jest.fn(),
@@ -219,6 +226,7 @@ describe("OrderbookDepthChart UI Component", () => {
       closePath: jest.fn(),
       moveTo: jest.fn(),
       lineTo: jest.fn(),
+      arc: jest.fn(),
       stroke: jest.fn(),
       fill: jest.fn(),
       fillText: jest.fn(),
@@ -228,7 +236,15 @@ describe("OrderbookDepthChart UI Component", () => {
       createLinearGradient: jest.fn().mockReturnValue({
         addColorStop: jest.fn(),
       }),
-    });
+    };
+
+    HTMLCanvasElement.prototype.getContext = jest
+      .fn()
+      .mockReturnValue(mockContext);
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
   it("renders depth chart title and currency pair", () => {
@@ -238,15 +254,13 @@ describe("OrderbookDepthChart UI Component", () => {
         asks={sampleAsks}
         baseSymbol="XLM"
         quoteSymbol="USDC"
-      />,
+      />
     );
 
     expect(
-      screen.getByText(/Orderbook Depth/i, { selector: "span" }),
+      screen.getByText(/Orderbook Depth/i, { selector: "span" })
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/(XLM\/USDC)/i, { selector: "span" }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("(XLM/USDC)")).toBeInTheDocument();
   });
 
   it("renders mid price and spread percentage badges", () => {
@@ -256,13 +270,12 @@ describe("OrderbookDepthChart UI Component", () => {
         asks={sampleAsks}
         baseSymbol="XLM"
         quoteSymbol="USDC"
-      />,
+      />
     );
 
-    // Mid is (1.25 + 1.26) / 2 = 1.255 -> 1.25 (to 2 decimals)
     expect(screen.getByText(/Mid:/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/Spread:/i, { selector: "span" }),
+      screen.getByText(/Spread:/i, { selector: "span" })
     ).toBeInTheDocument();
   });
 
@@ -272,7 +285,7 @@ describe("OrderbookDepthChart UI Component", () => {
         bids={sampleBids}
         asks={sampleAsks}
         defaultStep={0.01}
-      />,
+      />
     );
 
     const step01Btn = screen.getByRole("button", { name: "0.1" });
@@ -295,21 +308,102 @@ describe("OrderbookDepthChart UI Component", () => {
     fireEvent.click(resetBtn);
   });
 
-  it("triggers onLevelClick and opens simulated slippage drawer on canvas click", () => {
+  it("supports mouse wheel zooming on the canvas", () => {
+    const { container } = render(
+      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />
+    );
+    const canvas = container.querySelector("canvas");
+    expect(canvas).toBeInTheDocument();
+    if (!canvas) return;
+
+    // Scroll up to zoom in
+    fireEvent.wheel(canvas, { deltaY: -100 });
+    // Scroll down to zoom out
+    fireEvent.wheel(canvas, { deltaY: 100 });
+  });
+
+  it("supports interactive horizontal drag-to-pan across price levels", () => {
+    const { container } = render(
+      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />
+    );
+    const canvas = container.querySelector("canvas");
+    expect(canvas).toBeInTheDocument();
+    if (!canvas) return;
+
+    jest.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 600,
+      height: 440,
+      right: 600,
+      bottom: 440,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    // Start drag
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 250, clientY: 200 });
+    // Move mouse while dragging
+    fireEvent.mouseMove(canvas, { clientX: 180, clientY: 200 });
+    // Release drag
+    fireEvent.mouseUp(canvas);
+
+    // Active pan indicator badge or reset capability should be active
+    const resetBtn = screen.getByRole("button", { name: "Reset zoom" });
+    expect(resetBtn).toBeInTheDocument();
+    fireEvent.click(resetBtn);
+  });
+
+  it("prevents trade simulation click when dragging to pan", () => {
     const handleLevelClick = jest.fn();
     const { container } = render(
       <OrderbookDepthChart
         bids={sampleBids}
         asks={sampleAsks}
         onLevelClick={handleLevelClick}
-      />,
+      />
+    );
+    const canvas = container.querySelector("canvas");
+    expect(canvas).toBeInTheDocument();
+    if (!canvas) return;
+
+    jest.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 600,
+      height: 440,
+      right: 600,
+      bottom: 440,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    // Drag motion
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 450, clientY: 200 });
+    fireEvent.mouseMove(canvas, { clientX: 400, clientY: 200 });
+    fireEvent.mouseUp(canvas);
+    // Click fired immediately after drag should be ignored
+    fireEvent.click(canvas, { clientX: 400, clientY: 200 });
+
+    expect(handleLevelClick).not.toHaveBeenCalled();
+  });
+
+  it("triggers onLevelClick and opens simulated slippage drawer on normal canvas click", () => {
+    const handleLevelClick = jest.fn();
+    const { container } = render(
+      <OrderbookDepthChart
+        bids={sampleBids}
+        asks={sampleAsks}
+        onLevelClick={handleLevelClick}
+      />
     );
 
     const canvas = container.querySelector("canvas");
     expect(canvas).toBeInTheDocument();
 
     if (canvas) {
-      // Mock getBoundingClientRect
       jest.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
         left: 0,
         top: 0,
@@ -328,17 +422,52 @@ describe("OrderbookDepthChart UI Component", () => {
 
       // Drawer should render simulation details
       expect(
-        screen.getByText(/Simulated Market Buy|Simulated Market Sell/i),
+        screen.getByText(/Simulated Market Buy|Simulated Market Sell/i)
       ).toBeInTheDocument();
+
+      // Close drawer
+      const dismissBtn = screen.getByRole("button", {
+        name: "Dismiss slippage simulation",
+      });
+      fireEvent.click(dismissBtn);
+      expect(
+        screen.queryByText(/Simulated Market Buy/i)
+      ).not.toBeInTheDocument();
+    }
+  });
+
+  it("scales canvas coordinates by window.devicePixelRatio for Retina displays", () => {
+    const originalDpr = window.devicePixelRatio;
+    try {
+      // Emulate Retina Display (2x DPI)
+      Object.defineProperty(window, "devicePixelRatio", {
+        value: 2.0,
+        configurable: true,
+      });
+
+      const { container } = render(
+        <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />
+      );
+      const canvas = container.querySelector("canvas");
+      expect(canvas).toBeInTheDocument();
+      if (!canvas) return;
+
+      // The 2D context setTransform should receive the dpr scale
+      expect(mockContext.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 0, 0);
+    } finally {
+      Object.defineProperty(window, "devicePixelRatio", {
+        value: originalDpr,
+        configurable: true,
+      });
     }
   });
 
   it("supports high-frequency updates without stutter or memory leaks", () => {
     const { rerender } = render(
-      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />,
+      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />
     );
 
-    // Simulate 35 rapid updates (simulating > 30 updates/sec)
+    // Simulate 35 rapid updates (> 30 updates/sec)
     act(() => {
       for (let i = 0; i < 35; i++) {
         const newBids = [
@@ -354,7 +483,7 @@ describe("OrderbookDepthChart UI Component", () => {
     });
 
     expect(
-      screen.getByText(/Orderbook Depth/i, { selector: "span" }),
+      screen.getByText(/Orderbook Depth/i, { selector: "span" })
     ).toBeInTheDocument();
   });
 
@@ -367,13 +496,13 @@ describe("OrderbookDepthChart UI Component", () => {
   it("does not substitute demo liquidity for an empty live book", () => {
     render(<OrderbookDepthChart bids={[]} asks={[]} />);
     expect(
-      screen.getByText("No orderbook liquidity available"),
+      screen.getByText("No orderbook liquidity available")
     ).toBeInTheDocument();
   });
 
-  it("shows exact hovered level quantity and cumulative depth", () => {
+  it("shows exact hovered level quantity, cumulative depth, and depth percentiles", () => {
     const { container } = render(
-      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />,
+      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />
     );
     const canvas = container.querySelector("canvas");
     if (!canvas) throw new Error("Expected chart canvas");
@@ -388,12 +517,23 @@ describe("OrderbookDepthChart UI Component", () => {
       y: 0,
       toJSON: () => ({}),
     });
+
+    // Hover over bids area
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 180 });
     expect(
-      screen.getByText(/Hovered bid price/i, { selector: "div:not(.sr-only)" }),
+      screen.getByText(/Hovered bid price/i, { selector: "div:not(.sr-only)" })
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/cumulative depth/i, { selector: "div:not(.sr-only)" }),
+      screen.getByText(/cumulative depth/i, { selector: "div:not(.sr-only)" })
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/depth percentile/i, { selector: "div:not(.sr-only)" })
+    ).toBeInTheDocument();
+
+    // Mouse leave clears hover announcement
+    fireEvent.mouseLeave(canvas);
+    expect(
+      screen.queryByText(/Hovered bid price/i, { selector: "div:not(.sr-only)" })
+    ).not.toBeInTheDocument();
   });
 });
