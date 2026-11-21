@@ -11,8 +11,8 @@
  *  - Multiple roots
  */
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import FileTree, { type FileTreeNode } from "../../components/FileTree";
+import { fireEvent, render, screen } from "@testing-library/react";
+import FileTree, { type FileTreeNode, flattenFileTree } from "../../components/FileTree";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -285,6 +285,108 @@ describe("FileTree", () => {
       expect(() =>
         fireEvent.click(screen.getByRole("treeitem", { name: "lib.rs" })),
       ).not.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #2044: Virtualization, Flattening & Drag-and-Drop Reordering
+  // -------------------------------------------------------------------------
+  describe("flattenFileTree helper", () => {
+    it("flattens tree respecting open and closed folder states", () => {
+      const openSet = new Set(["src"]);
+      const flat = flattenFileTree([folderSrc, fileCargo], openSet);
+      expect(flat).toHaveLength(3); // folderSrc, fileRs, fileCargo
+      expect(flat[0].node.id).toBe("src");
+      expect(flat[1].node.id).toBe("src/lib.rs");
+      expect(flat[1].depth).toBe(1);
+      expect(flat[2].node.id).toBe("Cargo.toml");
+      expect(flat[2].depth).toBe(0);
+    });
+
+    it("omits children when parent folder is closed", () => {
+      const closedSet = new Set<string>();
+      const flat = flattenFileTree([folderSrc, fileCargo], closedSet);
+      expect(flat).toHaveLength(2); // folderSrc, fileCargo
+      expect(flat.find((i) => i.node.id === "src/lib.rs")).toBeUndefined();
+    });
+  });
+
+  describe("virtualized mode", () => {
+    it("renders virtualized list container when virtualized prop is true", () => {
+      render(<FileTree nodes={[folderSrc, fileCargo]} virtualized={true} virtualHeight={300} />);
+      const tree = screen.getByRole("tree");
+      expect(tree).toBeInTheDocument();
+      expect(screen.getByText("Cargo.toml")).toBeInTheDocument();
+    });
+  });
+
+  describe("drag and drop reordering", () => {
+    it("triggers onMoveNode callback when dropping a node into a target folder", () => {
+      const handleMove = jest.fn();
+      render(<FileTree nodes={[fileRs, folderContracts]} onMoveNode={handleMove} />);
+
+      const fileItem = screen.getByRole("treeitem", { name: "lib.rs" });
+      const folderItem = screen.getByRole("treeitem", { name: "contracts" });
+
+      // Start dragging file
+      fireEvent.dragStart(fileItem, {
+        dataTransfer: { setData: jest.fn(), getData: jest.fn() },
+      });
+
+      // Drag over and drop on contracts folder
+      fireEvent.dragOver(folderItem, {
+        dataTransfer: { dropEffect: "move" },
+      });
+      fireEvent.drop(folderItem);
+
+      expect(handleMove).toHaveBeenCalledWith("src/lib.rs", "contracts");
+    });
+  });
+
+  describe("inline CRUD operations with optimistic updates", () => {
+    it("creates a new file optimistically when using toolbar", () => {
+      const handleCreate = jest.fn();
+      render(<FileTree nodes={[fileCargo]} onCreateNode={handleCreate} />);
+
+      const newFileBtn = screen.getByTestId("filetree-new-file");
+      fireEvent.click(newFileBtn);
+
+      const inlineInput = screen.getByTestId("filetree-inline-input");
+      expect(inlineInput).toBeInTheDocument();
+
+      fireEvent.change(inlineInput, { target: { value: "README.md" } });
+      fireEvent.keyDown(inlineInput, { key: "Enter" });
+
+      expect(handleCreate).toHaveBeenCalledWith(null, "README.md", "file");
+      expect(screen.getByText("README.md")).toBeInTheDocument();
+    });
+
+    it("renames a node optimistically", () => {
+      const handleRename = jest.fn();
+      render(<FileTree nodes={[fileCargo]} onRenameNode={handleRename} />);
+
+      const renameBtn = screen.getByTestId("filetree-rename-Cargo.toml");
+      fireEvent.click(renameBtn);
+
+      const renameInput = screen.getByTestId("filetree-rename-input-Cargo.toml");
+      expect(renameInput).toBeInTheDocument();
+
+      fireEvent.change(renameInput, { target: { value: "Cargo_v2.toml" } });
+      fireEvent.keyDown(renameInput, { key: "Enter" });
+
+      expect(handleRename).toHaveBeenCalledWith("Cargo.toml", "Cargo_v2.toml");
+      expect(screen.getByText("Cargo_v2.toml")).toBeInTheDocument();
+    });
+
+    it("deletes a node optimistically", () => {
+      const handleDelete = jest.fn();
+      render(<FileTree nodes={[fileCargo]} onDeleteNode={handleDelete} />);
+
+      const deleteBtn = screen.getByTestId("filetree-delete-Cargo.toml");
+      fireEvent.click(deleteBtn);
+
+      expect(handleDelete).toHaveBeenCalledWith("Cargo.toml");
+      expect(screen.queryByText("Cargo.toml")).not.toBeInTheDocument();
     });
   });
 });
