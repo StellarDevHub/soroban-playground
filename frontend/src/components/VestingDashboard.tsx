@@ -8,32 +8,18 @@ import {
   Clock,
   Coins,
   Lock,
-  Unlock,
   XCircle,
 } from "lucide-react";
+import VestingScheduleChart from "./VestingScheduleChart";
+import {
+  VestingType,
+  MilestoneData,
+  VestingScheduleData,
+} from "../types/vesting";
+import { calculateVestedTokens } from "../utils/vestingMath";
 
-export type VestingType = "Linear" | "Milestone";
-
-export interface MilestoneData {
-  index: number;
-  descriptionHash: number;
-  pctBps: number;
-  approved: boolean;
-}
-
-export interface VestingScheduleData {
-  id: number;
-  beneficiary: string;
-  token: string;
-  totalAmount: number;
-  releasedAmount: number;
-  cliffTimestamp: number;
-  startTimestamp: number;
-  endTimestamp: number;
-  vestingType: VestingType;
-  milestones: MilestoneData[];
-  revoked: boolean;
-}
+export type { VestingType, MilestoneData, VestingScheduleData };
+export { VestingScheduleChart };
 
 interface VestingDashboardProps {
   contractId?: string;
@@ -242,33 +228,17 @@ export default function VestingDashboard({
 
                 {expanded === s.id && (
                   <div className="border-t border-gray-800 p-3 space-y-3 bg-gray-950/50">
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <InfoRow
-                        label="Token"
-                        value={`${s.token.slice(0, 8)}…`}
-                      />
-                      <InfoRow
-                        label="Total"
-                        value={s.totalAmount.toLocaleString()}
-                      />
-                      <InfoRow
-                        label="Released"
-                        value={s.releasedAmount.toLocaleString()}
-                      />
-                      <InfoRow
-                        label="Cliff"
-                        value={new Date(
-                          s.cliffTimestamp * 1000,
-                        ).toLocaleDateString()}
-                      />
-                    </div>
+                    <VestingScheduleChart
+                      schedule={s}
+                      onClaim={onRelease}
+                    />
 
-                    {/* Milestones */}
+                    {/* Milestones Approval (Milestone-based vesting) */}
                     {s.vestingType === "Milestone" &&
                       s.milestones.length > 0 && (
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 pt-2 border-t border-gray-800">
                           <p className="text-[10px] text-gray-500 uppercase tracking-wider">
-                            Milestones
+                            Milestones Approval
                           </p>
                           {s.milestones.map((m) => (
                             <div
@@ -304,30 +274,18 @@ export default function VestingDashboard({
                         </div>
                       )}
 
-                    {/* Actions */}
+                    {/* Revoke Action */}
                     {!s.revoked && (
-                      <div className="flex gap-2 pt-1 border-t border-gray-800">
-                        <button
-                          onClick={() => onRelease(s.id)}
-                          disabled={isLoading}
-                          className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-300 text-xs rounded transition-colors"
-                        >
-                          <Unlock size={12} />
-                          Release
-                        </button>
+                      <div className="flex justify-end pt-2 border-t border-gray-800">
                         <button
                           onClick={() => onRevoke(s.id)}
                           disabled={isLoading}
-                          className="px-3 py-1.5 bg-rose-900/20 hover:bg-rose-900/40 border border-rose-800/40 text-rose-400 text-xs rounded transition-colors"
+                          className="px-3 py-1.5 bg-rose-900/20 hover:bg-rose-900/40 border border-rose-800/40 text-rose-400 text-xs rounded transition-colors flex items-center gap-1.5"
                         >
-                          <XCircle size={12} />
+                          <XCircle size={14} />
+                          <span>Revoke Schedule</span>
                         </button>
                       </div>
-                    )}
-                    {s.revoked && (
-                      <p className="text-xs text-rose-400 flex items-center gap-1">
-                        <XCircle size={12} /> Revoked
-                      </p>
                     )}
                   </div>
                 )}
@@ -489,17 +447,6 @@ function Field({
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[10px] text-gray-500 uppercase tracking-wider">
-        {label}
-      </p>
-      <p className="text-xs text-gray-300 font-mono truncate">{value}</p>
-    </div>
-  );
-}
-
 function VestingBadge({
   type,
   revoked,
@@ -534,17 +481,8 @@ function nowSec(): number {
 
 function vestedPercent(s: VestingScheduleData, ts: number): number {
   if (s.totalAmount === 0) return 0;
-  if (s.vestingType === "Linear") {
-    if (ts < s.cliffTimestamp) return 0;
-    if (ts >= s.endTimestamp) return 100;
-    const elapsed = ts - s.cliffTimestamp;
-    const duration = s.endTimestamp - s.cliffTimestamp;
-    return Math.round((elapsed / duration) * 100);
-  }
-  const approvedBps = s.milestones
-    .filter((m) => m.approved)
-    .reduce((a, m) => a + m.pctBps, 0);
-  return Math.round(approvedBps / 100);
+  const vested = calculateVestedTokens(s, ts);
+  return Math.round((vested / s.totalAmount) * 100);
 }
 
 function releasedPercent(s: VestingScheduleData): number {
