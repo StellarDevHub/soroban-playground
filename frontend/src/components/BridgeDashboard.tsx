@@ -10,7 +10,11 @@ import {
   RefreshCw,
   Shield,
   XCircle,
+  Eye,
 } from "lucide-react";
+import { BridgeTransferTracker } from "./BridgeTransferTracker";
+import { BridgeSession, BridgeStage, StageStatus } from "../types/bridgeTracker";
+import { createDefaultBridgeSession } from "../utils/bridgeStorage";
 
 export interface BridgeDeposit {
   id: number;
@@ -76,6 +80,7 @@ export default function BridgeDashboard({
   const [mintDepositId, setMintDepositId] = useState("");
   const [mintTxHash, setMintTxHash] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [trackedSession, setTrackedSession] = useState<BridgeSession | null>(null);
 
   const handleLock = async () => {
     setError(null);
@@ -248,6 +253,16 @@ export default function BridgeDashboard({
         </div>
       )}
 
+      {/* Active Transfer Tracker */}
+      {trackedSession && (
+        <div className="mb-2">
+          <BridgeTransferTracker
+            session={trackedSession}
+            onSessionComplete={(s) => setTrackedSession(s)}
+          />
+        </div>
+      )}
+
       {/* Deposit list */}
       <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-300">
@@ -266,12 +281,30 @@ export default function BridgeDashboard({
                   <span className="font-mono text-xs text-gray-400">
                     #{d.id}
                   </span>
-                  <span
-                    className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLES[d.status]}`}
-                  >
-                    {STATUS_ICONS[d.status]}
-                    {d.status}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() =>
+                        setTrackedSession(
+                          createDefaultBridgeSession({
+                            depositId: d.id,
+                            token: d.token,
+                            amount: d.amount,
+                            sourceTxHash: `0x${Math.random().toString(16).slice(2, 18)}stellar`,
+                          })
+                        )
+                      }
+                      className="flex items-center gap-1 rounded bg-gray-800 px-2 py-0.5 text-[10px] text-cyan-400 hover:bg-gray-700"
+                    >
+                      <Eye size={10} />
+                      Track Multi-Hop
+                    </button>
+                    <span
+                      className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLES[d.status]}`}
+                    >
+                      {STATUS_ICONS[d.status]}
+                      {d.status}
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-1 grid grid-cols-2 gap-x-4 text-xs text-gray-400">
                   <span>
