@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import GasForecastBanner, {
   stroopsToXlm,
   xlmToStroops,
@@ -8,8 +8,8 @@ import GasForecastBanner, {
   calculateFeePresets,
   getHorizonFeeStatsUrl,
   getFeePollingIntervalMs,
+  calculateSorobanResourceFee,
   DEFAULT_BASE_FEE,
-  STROOPS_PER_XLM,
 } from "../../../components/Metrics/GasForecastBanner";
 
 beforeEach(() => {
@@ -254,5 +254,59 @@ describe("GasForecastBanner UI Component", () => {
 
     addEventListenerSpy.mockRestore();
     removeEventListenerSpy.mockRestore();
+  });
+
+  describe("[FRONTEND-276] Soroban Simulation Resource Forecaster & Interactive Slider", () => {
+    it("calculates Soroban CPU and memory resource fees accurately", () => {
+      // 500,000 CPU instructions @ 25 stroops / 10k = 1,250 stroops
+      // 65,536 bytes (64 KB) @ 50 stroops / KB = 3,200 stroops
+      // Base fee = 100 stroops -> Total = 4,550 stroops
+      const res = calculateSorobanResourceFee({
+        cpuInstructions: 500_000,
+        memoryBytes: 65_536,
+        baseFee: 100,
+      });
+
+      expect(res.cpuFeeStroops).toBe(1250);
+      expect(res.memoryFeeStroops).toBe(3200);
+      expect(res.totalResourceFeeStroops).toBe(4450);
+      expect(res.recommendedTotalFeeStroops).toBe(4550);
+    });
+
+    it("renders interactive fee slider in expanded details and updates fee on change", () => {
+      const onSelectFee = jest.fn();
+      render(<GasForecastBanner onSelectFee={onSelectFee} />);
+
+      const slider = screen.getByTestId("interactive-fee-slider");
+      expect(slider).toBeInTheDocument();
+
+      // Change fee slider to 450 Stroops
+      fireEvent.change(slider, { target: { value: "450" } });
+
+      expect(onSelectFee).toHaveBeenCalledWith(450, "custom");
+      expect(screen.getByTestId("slider-fee-display")).toHaveTextContent("450 Stroops");
+    });
+
+    it("renders Soroban resource footprint forecaster with interactive CPU and memory controls", () => {
+      render(<GasForecastBanner />);
+
+      expect(screen.getByTestId("soroban-resource-forecaster")).toBeInTheDocument();
+      expect(screen.getByTestId("resource-fee-badge")).toBeInTheDocument();
+
+      const cpuSlider = screen.getByTestId("cpu-instructions-slider");
+      const memSlider = screen.getByTestId("memory-bytes-slider");
+
+      expect(cpuSlider).toBeInTheDocument();
+      expect(memSlider).toBeInTheDocument();
+
+      // Adjust CPU slider to 1,000,000 instructions
+      fireEvent.change(cpuSlider, { target: { value: "1000000" } });
+      // Adjust Memory slider to 131,072 bytes (128 KB)
+      fireEvent.change(memSlider, { target: { value: "131072" } });
+
+      // Check updated total fee display
+      const totalRecommended = screen.getByTestId("total-recommended-fee");
+      expect(totalRecommended).toBeInTheDocument();
+    });
   });
 });

@@ -4,8 +4,6 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   Gauge,
   Zap,
-  TrendingUp,
-  AlertTriangle,
   Clock,
   ShieldAlert,
   ChevronDown,
@@ -14,8 +12,8 @@ import {
   Check,
   RefreshCw,
   Sliders,
-  Info,
   Radio,
+  Cpu,
 } from "lucide-react";
 
 // ── Constants & Conversions ───────────────────────────────────────────────────
@@ -23,6 +21,35 @@ import {
 export const STROOPS_PER_XLM = 10_000_000;
 export const DEFAULT_BASE_FEE = 100; // Standard Stellar base fee in Stroops
 export const LEDGER_TARGET_TIME_MS = 5000; // ~5 seconds per Stellar ledger
+export const SOROBAN_CPU_STROOPS_PER_10K_INSTR = 25;
+export const SOROBAN_MEM_STROOPS_PER_KB = 50;
+
+/**
+ * Calculates Soroban smart contract simulation resource fees based on pre-flight footprint.
+ */
+export function calculateSorobanResourceFee({
+  cpuInstructions = 0,
+  memoryBytes = 0,
+  baseFee = DEFAULT_BASE_FEE,
+  multiplier = 1.0,
+}: {
+  cpuInstructions?: number;
+  memoryBytes?: number;
+  baseFee?: number;
+  multiplier?: number;
+}) {
+  const cpuFee = Math.round((Math.max(0, cpuInstructions) / 10_000) * SOROBAN_CPU_STROOPS_PER_10K_INSTR * multiplier);
+  const memoryFee = Math.round((Math.max(0, memoryBytes) / 1024) * SOROBAN_MEM_STROOPS_PER_KB * multiplier);
+  const totalResourceFeeStroops = cpuFee + memoryFee;
+  const recommendedTotalFeeStroops = baseFee + totalResourceFeeStroops;
+
+  return {
+    cpuFeeStroops: cpuFee,
+    memoryFeeStroops: memoryFee,
+    totalResourceFeeStroops,
+    recommendedTotalFeeStroops,
+  };
+}
 
 export type CongestionState = "low" | "moderate" | "surge";
 
@@ -385,6 +412,31 @@ export default function GasForecastBanner({
 
     return { ...raw, custom: customPreset };
   }, [metrics, customStroopsInput]);
+
+  const [cpuInstructions, setCpuInstructions] = useState<number>(500_000);
+  const [memoryBytes, setMemoryBytes] = useState<number>(65_536);
+
+  const currentStroops = useMemo(() => {
+    if (activePreset === "custom") {
+      return parseInt(customStroopsInput, 10) || metrics.baseFee;
+    }
+    return presets[activePreset]?.stroops || metrics.baseFee;
+  }, [activePreset, customStroopsInput, metrics.baseFee, presets]);
+
+  const resourceFees = useMemo(() => {
+    return calculateSorobanResourceFee({
+      cpuInstructions,
+      memoryBytes,
+      baseFee: currentStroops,
+    });
+  }, [cpuInstructions, memoryBytes, currentStroops]);
+
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    setCustomStroopsInput(String(val));
+    setActivePreset("custom");
+    if (onSelectFee) onSelectFee(val, "custom");
+  };
 
   // Fetch fee percentiles from Horizon and, when configured, the latest ledger
   // sequence from Soroban RPC.
@@ -764,6 +816,103 @@ export default function GasForecastBanner({
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Interactive Fee Slider */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3" data-testid="interactive-fee-slider-container">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-cyan-400" /> Interactive Fee Slider
+              </span>
+              <span className="font-mono text-cyan-300 font-bold" data-testid="slider-fee-display">
+                {currentStroops.toLocaleString()} Stroops ({stroopsToXlm(currentStroops)})
+              </span>
+            </div>
+            <input
+              type="range"
+              data-testid="interactive-fee-slider"
+              aria-label="Interactive Fee Slider"
+              min={metrics.baseFee || 100}
+              max={Math.max((metrics.p99 || 500) * 4, 3000)}
+              step={10}
+              value={currentStroops}
+              onChange={handleSliderChange}
+              className="w-full accent-cyan-400 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] font-mono text-slate-500">
+              <span>Min ({metrics.baseFee} Str)</span>
+              <span>P50 ({metrics.p50} Str)</span>
+              <span>P90 ({metrics.p90} Str)</span>
+              <span>Priority ({Math.max((metrics.p99 || 500) * 4, 3000)} Str)</span>
+            </div>
+          </div>
+
+          {/* Soroban Simulation Resource Footprint Forecaster */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3" data-testid="soroban-resource-forecaster">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-purple-400" /> Soroban Simulation Resource Footprint
+              </span>
+              <span className="text-[11px] font-mono text-purple-300 font-semibold" data-testid="resource-fee-badge">
+                +{resourceFees.totalResourceFeeStroops.toLocaleString()} Stroops Non-Refundable Fee
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label htmlFor="cpu-slider" className="text-slate-400 flex justify-between mb-1">
+                  <span>CPU Instructions Limit:</span>
+                  <span className="font-mono text-slate-200">{cpuInstructions.toLocaleString()}</span>
+                </label>
+                <input
+                  id="cpu-slider"
+                  type="range"
+                  data-testid="cpu-instructions-slider"
+                  aria-label="CPU Instructions Limit"
+                  min="10000"
+                  max="5000000"
+                  step="10000"
+                  value={cpuInstructions}
+                  onChange={(e) => setCpuInstructions(Number(e.target.value))}
+                  className="w-full accent-purple-400 cursor-pointer"
+                />
+              </div>
+              <div>
+                <label htmlFor="mem-slider" className="text-slate-400 flex justify-between mb-1">
+                  <span>Memory Limit (Bytes):</span>
+                  <span className="font-mono text-slate-200">{memoryBytes.toLocaleString()} B</span>
+                </label>
+                <input
+                  id="mem-slider"
+                  type="range"
+                  data-testid="memory-bytes-slider"
+                  aria-label="Memory Limit Bytes"
+                  min="1024"
+                  max="1048576"
+                  step="1024"
+                  value={memoryBytes}
+                  onChange={(e) => setMemoryBytes(Number(e.target.value))}
+                  className="w-full accent-purple-400 cursor-pointer"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-[11px] font-mono">
+              <div className="bg-slate-950/60 p-2 rounded border border-slate-800">
+                <span className="text-slate-500 block">Inclusion Bid</span>
+                <span className="text-slate-300 font-bold">{currentStroops} Str</span>
+              </div>
+              <div className="bg-slate-950/60 p-2 rounded border border-slate-800">
+                <span className="text-slate-500 block">CPU & Mem Resource Fee</span>
+                <span className="text-purple-300 font-bold" data-testid="resource-fee-val">
+                  {resourceFees.totalResourceFeeStroops} Str
+                </span>
+              </div>
+              <div className="bg-slate-950/60 p-2 rounded border border-slate-800">
+                <span className="text-slate-500 block">Total Est. Gas Fee</span>
+                <span className="text-emerald-400 font-bold" data-testid="total-recommended-fee">
+                  {(currentStroops + resourceFees.totalResourceFeeStroops).toLocaleString()} Str
+                </span>
+              </div>
             </div>
           </div>
 
