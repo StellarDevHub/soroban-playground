@@ -1,5 +1,6 @@
 "use client";
 import WarrantyPanel from "@/components/WarrantyPanel";
+import SyntheticPositionRadar from "@/components/SyntheticPositionRadar";
 import * as freighterApiModule from "@stellar/freighter-api";
 
 import {
@@ -1201,6 +1202,18 @@ export default function Home() {
                             <span>Minimum {MIN_COLLATERAL_RATIO}%</span>
                           </div>
                         </div>
+
+                        {/* Interactive Multi-Axis Radar Chart & Stress Testing */}
+                        <SyntheticPositionRadar
+                          positionId={position.id}
+                          assetSymbol={position.assetSymbol}
+                          collateral={position.collateral}
+                          minted={position.minted}
+                          assetPrice={asset?.price || 1}
+                          liquidationThreshold={LIQUIDATION_THRESHOLD}
+                          minCollateralRatio={MIN_COLLATERAL_RATIO}
+                          className="mt-4"
+                        />
                       </div>
                     );
                   })
