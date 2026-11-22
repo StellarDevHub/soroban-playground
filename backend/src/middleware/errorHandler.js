@@ -1,8 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { alertManager } from '../utils/alerting.js';
-// - Standard JSON error format: { message, statusCode, details? }.
+import { getTraceId } from '../utils/tracing.js';
+import { redactSensitiveData, redactString } from '../utils/redaction.js';
+
+// - Standard JSON error format: { message, statusCode, traceId, details? }.
 // - Route handlers should throw/forward errors and let this middleware format the response.
 // - Unknown errors fall back to 500 with a safe default message.
-// - In production, internal 5xx details are hidden to avoid leaking implementation internals.
+// - In production, internal 5xx details and stacks are strictly redacted to avoid leaking implementation internals.
 // - Async route errors are captured via asyncHandler and forwarded to next(err).
 
 export class HttpError extends Error {
@@ -58,27 +62,38 @@ export function errorHandler(err, req, res, _next) {
   const isProduction = process.env.NODE_ENV === 'production';
   const isInternalError = statusCode >= 500;
 
-  // Alert on server errors
+  // Resolve unique traceId for customer support and distributed logging correlation
+  const traceId =
+    req?.traceId ||
+    req?.headers?.['x-request-id'] ||
+    getTraceId() ||
+    randomUUID();
+
+  // Alert on server errors with redacted payload
   if (isInternalError) {
     alertManager.alert('server_error', {
       statusCode,
-      message: err?.message,
-      path: req.path,
-      method: req.method,
+      message: redactString(err?.message || 'Internal server error'),
+      path: req?.path,
+      method: req?.method,
+      traceId,
+      details: redactSensitiveData(err?.details),
     });
   }
 
   const payload = {
-    message: err?.message || 'Internal server error',
+    message: redactString(err?.message || 'Internal server error'),
     statusCode,
+    traceId,
   };
 
   if (err?.details !== undefined && !isProduction) {
-    payload.details = err.details;
+    payload.details = redactSensitiveData(err.details);
   }
 
   if (isInternalError && isProduction) {
     payload.message = 'Internal server error';
+    delete payload.details;
   }
 
   res.status(statusCode).json(payload);

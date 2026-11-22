@@ -1,5 +1,6 @@
-import { getCurrentSpan, getTraceId } from '../utils/tracing.js';
+import { getTraceId } from '../utils/tracing.js';
 import config from '../config/index.js';
+import { redactSensitiveData } from '../utils/redaction.js';
 
 // Simple alerting based on logs and metrics
 export class AlertManager {
@@ -62,18 +63,19 @@ export class AlertManager {
     });
   }
 
-  // Generic alert method
+  // Generic alert method with automated sensitive credential and stack redaction
   alert(type, details) {
     const traceId = getTraceId();
+    const sanitizedDetails = redactSensitiveData(details);
     const alert = {
       type,
       timestamp: new Date().toISOString(),
       traceId,
-      details,
+      details: sanitizedDetails,
       severity: this.getSeverity(type),
     };
 
-    // Log the alert
+    // Log the alert with sanitized details
     console.error(`ALERT [${alert.severity.toUpperCase()}]: ${type}`, alert);
 
     // Store recent alerts (last 100)
