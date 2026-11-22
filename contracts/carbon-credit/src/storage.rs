@@ -149,14 +149,11 @@ pub fn get_certificate_id_by_fingerprint(env: &Env, fingerprint: &BytesN<32>) ->
         .get(&DataKey::CertificateByFingerprint(fingerprint.clone()))
 }
 
-pub fn set_certificate_indexes(
-    env: &Env,
-    cert: &RetirementCertificate,
-    fingerprint: &BytesN<32>,
-) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::CertificateByHash(cert.cert_hash.clone()), &cert.cert_id);
+pub fn set_certificate_indexes(env: &Env, cert: &RetirementCertificate, fingerprint: &BytesN<32>) {
+    env.storage().persistent().set(
+        &DataKey::CertificateByHash(cert.cert_hash.clone()),
+        &cert.cert_id,
+    );
     env.storage().persistent().set(
         &DataKey::CertificateByFingerprint(fingerprint.clone()),
         &cert.cert_id,

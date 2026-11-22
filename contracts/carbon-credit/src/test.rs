@@ -292,7 +292,10 @@ fn test_retire_with_certificate_records_serial_range() {
     assert_eq!(client.total_supply(), 700);
     assert_eq!(client.total_retired(), 300);
     assert_eq!(client.retirement_count(), 1);
-    assert_eq!(client.retired_serial_cursor(&registry(&env), &project(&env), &2024), 300);
+    assert_eq!(
+        client.retired_serial_cursor(&registry(&env), &project(&env), &2024),
+        300
+    );
 }
 
 #[test]
@@ -354,7 +357,10 @@ fn test_certificate_hashes_are_unique() {
     let c1 = client.get_certificate(&id1);
     let c2 = client.get_certificate(&id2);
     assert_ne!(c1.cert_hash, c2.cert_hash);
-    assert_eq!(client.retired_serial_cursor(&registry(&env), &project(&env), &2024), 250);
+    assert_eq!(
+        client.retired_serial_cursor(&registry(&env), &project(&env), &2024),
+        250
+    );
 }
 
 #[test]
