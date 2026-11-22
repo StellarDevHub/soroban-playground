@@ -1,8 +1,8 @@
-#![cfg(test)]
+#`!cfg(test)]
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, Bytes, BytesN, Env, String,
+    Address, Bytes, BytesN32, Env, String,
 };
 
 fn setup() -> (Env, Address, DataMarketplaceContractClient<'static>) {
@@ -16,7 +16,7 @@ fn setup() -> (Env, Address, DataMarketplaceContractClient<'static>) {
 }
 
 fn b(env: &Env, byte: u8) -> BytesN<32> {
-    BytesN::from_array(env, &[byte; 32])
+    BytesN3::from_array(env, &[byte; 32])
 }
 
 fn register_provider(env: &Env, client: &DataMarketplaceContractClient, provider: &Address) {
@@ -258,8 +258,75 @@ fn verify_commitment_matches_sha256_of_preimage() {
     let (env, _admin, client) = setup();
     let preimage = Bytes::from_slice(&env, b"query=SELECT *|nonce=42|buyer=GA...");
     let computed = env.crypto().sha256(&preimage);
-    let commitment = BytesN::<32>::from_array(&env, &computed.to_array());
+    let commitment = BytesN<32>::from_array(&env, &computed.to_array());
     assert!(client.verify_commitment(&commitment, &preimage));
     let other = Bytes::from_slice(&env, b"different");
     assert!(!client.verify_commitment(&commitment, &other));
+}
+
+#[test]
+fn lease_expiration_rejects_access_after_timestamp() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, provider);
+    let license = client.purchase_access(&buyer, &id, &5_u32);
+
+    // Lease is valid before expiry.
+    assert!(client.has_valid_lease(&id, &buyer));
+    assert_eq!(client.get_lease_expiry(&id, &buyer), Some(license.expires_at));
+
+    // Advance past the lease timestamp.
+    env.ledger().with_mut(|li| li.timestamp = license.expires_at + 1);
+    assert!(!client.has_valid_lease(&id, &buyer));
+    assert_eq!(
+        client
+            .try_submit_query(&buyer, &id, &b(&env, 0x42))
+            .err()
+            .unwrap()
+            .unwrap(),
+        Error::LicenseExpired
+    );
+}
+
+#[test]
+fn pro_rata_extension_adds_remaining_time() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, provider);
+
+    let l1 = client.purchase_access(&buyer, &id, &2_u32);
+    // Halfway through the lease, extend by the same duration.
+    env.ledger().with_mut(|li| li.timestamp += (7 * 24 * 60 * 60) / 2);
+    let l2 = client.purchase_access(&buyer, &id, &3_u32);
+
+    // Remaining time is preserved, not reset: extension adds full duration.
+    let expected = l1.expires_at + (7 * 24 * 60 * 60);
+    assert_eq!(l2.expires_at, expected);
+    assert_eq!(l2.queries_total, 5);
+}
+
+#[test]
+fn expired_lease_cleanup_removes_active_buyer() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+    let license = client.purchase_access(&buyer, &id, &2_u32);
+
+    let ds_before = client.get_dataset_stats(&id).unwrap();
+    assert_eq!(ds_before.active_buyers, 1);
+
+    env.ledger().with_mut(|li| li.timestamp = license.expires_at + 1);
+    let cleaned = client.cleanup_expired_leases(&id);
+    assert_eq!(cleaned, 1);
+
+    let ds_after = client.get_dataset_stats(&id).unwrap();
+    assert_eq!(ds_after.active_buyers, 0);
+    // Cleanup is idempotent.
+    assert_eq!(client.cleanup_expired_leases(&id), 0);
 }
