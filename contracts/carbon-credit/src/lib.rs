@@ -19,6 +19,7 @@ mod storage;
 mod test;
 mod types;
 
+use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String};
 
 use crate::storage::{
@@ -511,25 +512,12 @@ fn compute_cert_hash(
     env.crypto().sha256(&raw).into()
 }
 
+/// Appends `value` to `raw` as XDR. The XDR encoding is length-prefixed, so
+/// adjacent fields cannot run together and produce colliding hashes.
 fn append_string(env: &Env, raw: &mut Bytes, value: &String) {
-    let len = value.len() as u32;
-    for b in len.to_be_bytes() {
-        raw.push_back(b);
-    }
-    let mut buf = [0u8; 64];
-    let mut offset = 0u32;
-    while offset < len {
-        let chunk = core::cmp::min(64, len - offset);
-        value.copy_into_slice(offset, &mut buf[..chunk as usize]);
-        for i in 0..chunk {
-            raw.push_back(buf[i as usize]);
-        }
-        offset += chunk;
-    }
-    let _ = env;
+    raw.append(&value.clone().to_xdr(env));
 }
 
 fn append_address(env: &Env, raw: &mut Bytes, address: &Address) {
-    let serialized = address.to_string();
-    append_string(env, raw, &serialized);
+    raw.append(&address.clone().to_xdr(env));
 }
