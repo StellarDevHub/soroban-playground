@@ -24,47 +24,32 @@ pub enum Error {
     InvalidThreshold = 13,
     AlreadyExists = 14,
     AlreadySigned = 15,
-}
-
-// ── Structs ───────────────────────────────────────────────────────────────────
-
-/// A proposal for pausing or unpausing the contract.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct PauseProposal {
-    pub id: u32,
-    pub proposer: Address,
-    pub action: PauseAction,
-    pub reason: soroban_sdk::String,
-    pub created_at: u64,
-    pub expires_at: u64,
-    pub executed: bool,
-    pub signers: soroban_sdk::Vec<Address>,
-}
-
-/// The type of pause action.
-#[contracttype]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum PauseAction {
-    Pause,
-    Unpause,
+    NoPendingUnpause = 16,
+    EmergencyWithdrawNotAllowed = 17,
+    InsufficientBalance = 18,
+    AdminAlreadyAdded = 19,
+    AdminNotFound = 20,
+    DuplicateSigner = 21,
+    InvalidAmount = 22,
+    TokenNotSet = 23,
+    Overflow = 24,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
 #[contracttype]
 pub enum InstanceKey {
-    Admin,
+    Admins,
+    AdminThreshold,
+    Guardians,
     Paused,
-    Threshold,
-    GuardianCount,
     PauseReason,
     PauseTimestamp,
-    ProposalCount,
+    UnpauseEta,
+    Token,
 }
 
 #[contracttype]
 pub enum DataKey {
-    Guardian(Address),
-    Proposal(u32),
+    Balance(Address),
 }
