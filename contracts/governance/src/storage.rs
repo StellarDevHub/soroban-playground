@@ -108,7 +108,10 @@ pub fn total_supply_at(env: &Env, snapshot: u32) -> i128 {
 pub fn record_delegate_checkpoint(env: &Env, addr: &Address, delegate: Option<Address>) {
     let index = next_checkpoint(env);
     env.storage().persistent().set(&DataKey::DelegateCheckpoint(addr.clone(), index), &delegate);
-    append_checkpoint_index(env, addr, index);
+    let key = DataKey::DelegateCheckpointIndices(addr.clone());
+    let mut indices: Vec<u32> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+    indices.push_back(index);
+    env.storage().persistent().set(&key, &indices);
 }
 
 pub fn resolve_delegate_at(env: &Env, addr: &Address, snapshot: u32) -> Address {
