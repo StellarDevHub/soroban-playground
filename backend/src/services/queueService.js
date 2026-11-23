@@ -12,6 +12,7 @@ import {
   getDlqQueueName,
   routeFailedJobToDlq,
   replayDlqJobs,
+  calculateExponentialBackoffDelay,
 } from './bullmqDlqService.js';
 import config from '../config/index.js';
 
@@ -93,6 +94,15 @@ export const backoffStrategies = {
     const delay = options?.delay || 1000;
     return attemptsMade * delay;
   },
+  exponentialWithJitter: (attemptsMade, err, options) => {
+    const baseDelayMs = options?.delay || 1000;
+    const jitter = options?.jitter ?? 0.2;
+    return calculateExponentialBackoffDelay({
+      attemptsMade,
+      baseDelayMs,
+      jitter,
+    });
+  },
 };
 
 /**
@@ -105,7 +115,7 @@ export function initializeQueues() {
     defaultJobOptions: {
       attempts: 3,
       backoff: {
-        type: 'exponential',
+        type: 'exponentialWithJitter',
         delay: 1000,
       },
     },
@@ -116,7 +126,7 @@ export function initializeQueues() {
     defaultJobOptions: {
       attempts: 3,
       backoff: {
-        type: 'exponential',
+        type: 'exponentialWithJitter',
         delay: 1000,
       },
     },
@@ -140,7 +150,7 @@ export function initializeQueues() {
       attempts: QUEUE_JOB_ATTEMPTS,
       priority: JOB_PRIORITY.NORMAL,
       backoff: {
-        type: 'exponential',
+        type: 'exponentialWithJitter',
         delay: QUEUE_RETRY_BACKOFF_MS,
       },
       removeOnComplete: 1000,
@@ -155,7 +165,7 @@ export function initializeQueues() {
       attempts: QUEUE_JOB_ATTEMPTS,
       priority: JOB_PRIORITY.NORMAL,
       backoff: {
-        type: 'exponential',
+        type: 'exponentialWithJitter',
         delay: QUEUE_RETRY_BACKOFF_MS,
       },
       removeOnComplete: 1000,
@@ -163,8 +173,17 @@ export function initializeQueues() {
     },
   });
 
-  // Dead-letter queues: exhausted jobs are routed here so failed compilations
-  // and deployments are never silently dropped. (issue #1333)
+  // Dead-letter queues: non-retryable and exhausted jobs are routed here so
+  // poison jobs never clog worker queues and failed tasks can be inspected/replayed.
+  queues.indexingDlq = new Queue(getDlqQueueName('indexing'), {
+    connection: createConnection('queue-indexing-dlq'),
+  });
+  queues.emailDlq = new Queue(getDlqQueueName('email'), {
+    connection: createConnection('queue-email-dlq'),
+  });
+  queues.cronDlq = new Queue(getDlqQueueName('cron'), {
+    connection: createConnection('queue-cron-dlq'),
+  });
   queues.compilationDlq = new Queue(getDlqQueueName('compilation'), {
     connection: createConnection('queue-compilation-dlq'),
   });
@@ -305,6 +324,9 @@ export function initializeQueues() {
       new BullMQAdapter(queues.cron),
       new BullMQAdapter(queues.compilation),
       new BullMQAdapter(queues.deployment),
+      new BullMQAdapter(queues.indexingDlq),
+      new BullMQAdapter(queues.emailDlq),
+      new BullMQAdapter(queues.cronDlq),
       new BullMQAdapter(queues.compilationDlq),
       new BullMQAdapter(queues.deploymentDlq),
     ],
@@ -393,6 +415,9 @@ export async function getDlqJobs(queueName, { start = 0, end = 49 } = {}) {
     originalQueue: job.data?.originalQueue ?? queueName,
     originalJobId: job.data?.originalJobId ?? null,
     failedReason: job.data?.failure?.failedReason ?? job.failedReason,
+    errorCode: job.data?.failure?.errorCode ?? null,
+    retryable: job.data?.failure?.retryable ?? null,
+    routedReason: job.data?.routedReason ?? null,
     attemptsMade: job.data?.failure?.attemptsMade ?? job.attemptsMade,
     failedAt: job.data?.failure?.failedAt ?? null,
     stacktrace: job.data?.failure?.stacktrace ?? [],

@@ -1,18 +1,12 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-class JobError extends Error {
-  constructor(
-    message,
-    { retryable = true, code = 'UNKNOWN', details = null } = {}
-  ) {
-    super(message);
-    this.name = 'JobError';
-    this.retryable = retryable;
-    this.code = code;
-    this.details = details;
-  }
-}
+import {
+  JobError,
+  NonRetryableJobError,
+  JOB_ERROR_CODES,
+  toBullMqError,
+} from './jobErrors.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_SUBJECT_LENGTH = 998;
@@ -76,11 +70,13 @@ export default async function emailProcessor(job) {
 
   const validation = validateEmailInput(data);
   if (!validation.valid) {
-    throw new JobError(`Validation failed: ${validation.errors.join('; ')}`, {
-      retryable: false,
-      code: 'VALIDATION_ERROR',
-      details: validation.errors,
-    });
+    throw new NonRetryableJobError(
+      `Validation failed: ${validation.errors.join('; ')}`,
+      {
+        code: JOB_ERROR_CODES.VALIDATION_ERROR,
+        details: validation.errors,
+      }
+    );
   }
 
   const { to, subject, body, html, from } = data;
@@ -115,12 +111,13 @@ export default async function emailProcessor(job) {
     };
   } catch (err) {
     const durationMs = Date.now() - startTime;
+    const classifiedError = toBullMqError(err);
     console.error(
-      `[Email Worker] Job ${job.id} failed after ${durationMs}ms:`,
-      err.message
+      `[Email Worker] Job ${job.id} failed after ${durationMs}ms (${classifiedError.code}, retryable=${classifiedError.retryable}):`,
+      classifiedError.message
     );
-    throw err;
+    throw classifiedError;
   }
 }
 
-export { JobError };
+export { JobError, NonRetryableJobError };

@@ -134,6 +134,9 @@ describe('queueService', () => {
     expect(queueService.queues.cron).toBeDefined();
     expect(queueService.queues.compilation).toBeDefined();
     expect(queueService.queues.deployment).toBeDefined();
+    expect(queueService.queues.indexingDlq).toBeDefined();
+    expect(queueService.queues.emailDlq).toBeDefined();
+    expect(queueService.queues.cronDlq).toBeDefined();
     expect(queueService.queues.compilationDlq).toBeDefined();
     expect(queueService.queues.deploymentDlq).toBeDefined();
 
@@ -173,6 +176,16 @@ describe('queueService', () => {
     expect(linearBackoff(1, null, { delay: 1000 })).toBe(1000);
     expect(linearBackoff(3, null, { delay: 1000 })).toBe(3000);
     expect(linearBackoff(2, null, null)).toBe(2000); // defaults to 1000
+  });
+
+  it('correctly executes the exponentialWithJitter backoff strategy', () => {
+    const expJitter = queueService.backoffStrategies.exponentialWithJitter;
+    const delay1 = expJitter(1, null, { delay: 1000, jitter: 0.2 });
+    const delay3 = expJitter(3, null, { delay: 1000, jitter: 0.2 });
+    expect(delay1).toBeGreaterThanOrEqual(800);
+    expect(delay1).toBeLessThanOrEqual(1000);
+    expect(delay3).toBeGreaterThanOrEqual(3200);
+    expect(delay3).toBeLessThanOrEqual(4000);
   });
 
   it('addJob delegates to the correct queue and forwards arguments', async () => {
@@ -227,7 +240,7 @@ describe('queueService', () => {
     await queueService.shutdownQueues();
 
     expect(mockWorkerClose).toHaveBeenCalledTimes(5);
-    expect(mockQueueClose).toHaveBeenCalledTimes(7);
+    expect(mockQueueClose).toHaveBeenCalledTimes(10);
     expect(mockFlowProducerClose).toHaveBeenCalledTimes(1);
     const { mockQuit } = require('ioredis');
     expect(mockQuit).toHaveBeenCalled();

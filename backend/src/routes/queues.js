@@ -23,7 +23,13 @@ import { requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
-const SUPPORTED_QUEUES = ['compilation', 'deployment'];
+const SUPPORTED_QUEUES = [
+  'compilation',
+  'deployment',
+  'email',
+  'indexing',
+  'cron',
+];
 
 function validateQueueName(name) {
   if (!SUPPORTED_QUEUES.includes(name)) {
@@ -70,6 +76,27 @@ router.get(
       count: jobs.length,
       jobs,
     });
+  })
+);
+
+/**
+ * GET /api/queues/:queueName/dlq/:jobId
+ * Inspect a single job in the dead-letter queue.
+ */
+router.get(
+  '/:queueName/dlq/:jobId',
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    validateQueueName(req.params.queueName);
+    const jobs = await getDlqJobs(req.params.queueName, { start: 0, end: 999 });
+    const job = jobs.find((item) => String(item.id) === req.params.jobId);
+    if (!job) {
+      throw createHttpError(
+        404,
+        `DLQ job "${req.params.jobId}" not found in queue "${req.params.queueName}"`
+      );
+    }
+    return res.json({ success: true, queue: req.params.queueName, job });
   })
 );
 
