@@ -249,6 +249,8 @@ impl DaoTreasury {
 
         if tx.approvals >= get_threshold(&env) {
             tx.status = TxStatus::Queued;
+            // Start the full timelock when the transaction becomes executable.
+            tx.execute_after = now + TIMELOCK_SECS;
             env.events()
                 .publish((soroban_sdk::symbol_short!("queued"),), tx_id);
         }
