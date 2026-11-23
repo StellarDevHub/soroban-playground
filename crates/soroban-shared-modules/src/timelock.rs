@@ -1,11 +1,7 @@
 //! Timelock proposal & execution module
 //! Epic #1551: Standardized Timelock Upgradeability & Multi-Sig Proxy
-//! CONTRACT-183: enforces minimum 48h execution delay and guardian veto window.
 
 use soroban_sdk::{Address, Env};
-
-/// Minimum timelock delay for governance proposals (48 hours).
-pub const MIN_GOVERNANCE_DELAY_SECONDS: u64 = 48 * 60 * 60;
 
 /// Timelock proposal state
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,13 +33,11 @@ pub enum TimelockError {
     NotReadyForExecution = 3,
     AlreadyExecuted = 4,
     InvalidDelay = 5,
-    DelayTooShort = 6,
-    NotCancellable = 7,
 }
 
 pub mod proposals {
     use soroban_sdk::Env;
-    use super::{Proposal, ProposalState, TimelockError, MIN_GOVERNANCE_DELAY_SECONDS};
+    use super::{Proposal, ProposalState, TimelockError};
 
     /// Get proposal by ID
     pub fn get_proposal(env: &Env, id: u64) -> Result<Proposal, TimelockError> {
@@ -60,33 +54,11 @@ pub mod proposals {
         env.storage().persistent().set(&key, proposal);
     }
 
-    /// Validate that a delay meets the governance minimum.
-    pub fn validate_delay(delay_seconds: u64) -> Result<(), TimelockError> {
-        if delay_seconds < MIN_GOVERNANCE_DELAY_SECONDS {
-            return Err(TimelockError::DelayTooShort);
-        }
-        Ok(())
-    }
-
     /// Check if proposal is ready to execute (time delay passed)
     pub fn is_ready(env: &Env, proposal: &Proposal) -> bool {
         let now = env.ledger().timestamp();
         let ready_time = proposal.proposed_at + proposal.delay_seconds;
         now >= ready_time && proposal.state == ProposalState::Pending
-    }
-
-    /// Execute-gate: require the timelock to have elapsed and the proposal to be pending.
-    pub fn assert_executable(env: &Env, id: u64) -> Result<Proposal, TimelockError> {
-        let proposal = get_proposal(env, id)?;
-        match proposal.state {
-            ProposalState::Executed => return Err(TimelockError::AlreadyExecuted),
-            ProposalState::Cancelled => return Err(TimelockError::NotCancellable),
-            _ => {}
-        }
-        if !is_ready(env, &proposal) {
-            return Err(TimelockError::NotReadyForExecution);
-        }
-        Ok(proposal)
     }
 
     /// Mark proposal as executed
@@ -102,15 +74,12 @@ pub mod proposals {
         Ok(())
     }
 
-    /// Cancel proposal (guardian veto / admin). Only pending proposals may be cancelled.
+    /// Cancel proposal (requires admin)
     pub fn cancel(env: &Env, id: u64) -> Result<(), TimelockError> {
         let mut proposal = get_proposal(env, id)?;
 
         if proposal.state == ProposalState::Executed {
             return Err(TimelockError::AlreadyExecuted);
-        }
-        if proposal.state != ProposalState::Pending {
-            return Err(TimelockError::NotCancellable);
         }
 
         proposal.state = ProposalState::Cancelled;
@@ -121,13 +90,10 @@ pub mod proposals {
 
 pub mod queue {
     use soroban_sdk::Env;
-    use super::{Proposal, TimelockError};
-    use super::proposals::validate_delay;
+    use super::Proposal;
 
-    /// Queue a new proposal. Enforces the minimum governance delay.
-    pub fn queue(env: &Env, proposal: Proposal) -> Result<u64, TimelockError> {
-        validate_delay(proposal.delay_seconds)?;
-
+    /// Queue a new proposal
+    pub fn queue(env: &Env, proposal: Proposal) {
         let counter_key = "proposal_counter";
         let next_id: u64 = env.storage()
             .persistent()
@@ -146,7 +112,6 @@ pub mod queue {
             (soroban_sdk::symbol_short!("queued"),),
             (next_id, proposal.proposer, proposal.operation),
         );
-        Ok(next_id)
     }
 }
 
@@ -169,12 +134,5 @@ mod tests {
 
         // Proposal ready at proposed_at + delay_seconds = 1000 + 86400 = 87400
         assert_eq!(proposal.proposed_at + proposal.delay_seconds, 87400);
-    }
-
-    #[test]
-    fn test_min_delay_is_48_hours() {
-        assert_eq!(MIN_GOVERNANCE_DELAY_SECONDS, 172_800);
-        assert!(proposals::validate_delay(86_400).is_err());
-        assert!(proposals::validate_delay(MIN_GOVERNANCE_DELAY_SECONDS).is_ok());
     }
 }
