@@ -280,6 +280,7 @@ fn lease_grant_is_persisted_and_rejects_access_after_expiry() {
     let license = client.purchase_access(&buyer, &id, &2_u32);
     assert_eq!(env.events().all().len(), events_before + 2);
     assert_eq!(client.get_lease_expiry(&id, &buyer), Some(license.expires_at));
+    assert_eq!(client.get_dataset_buyers(&id).len(), 1);
     assert!(client.has_valid_lease(&id, &buyer));
 
     env.ledger().with_mut(|ledger| ledger.timestamp = license.expires_at);
