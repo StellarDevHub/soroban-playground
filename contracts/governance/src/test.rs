@@ -494,7 +494,7 @@ fn test_execute_defeated_proposal_fails() {
     client.vote(&against, &id, &VoteChoice::Against);
     env.ledger().with_mut(|l| l.timestamp += 101);
     client.finalise(&id);
-    env.ledger().with_mut(|l| l.timestamp += 51);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
     let result = client.try_execute(&proposer, &id);
     assert_eq!(result, Err(Ok(Error::ProposalNotPassed)));
 }
@@ -506,7 +506,7 @@ fn test_execute_twice_fails() {
     client.vote(&proposer, &id, &VoteChoice::For);
     env.ledger().with_mut(|l| l.timestamp += 101);
     client.finalise(&id);
-    env.ledger().with_mut(|l| l.timestamp += 51);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
     client.execute(&proposer, &id);
     let result = client.try_execute(&proposer, &id);
     assert_eq!(result, Err(Ok(Error::ProposalNotPassed)));
@@ -729,7 +729,7 @@ fn test_full_proposal_lifecycle() {
     let status = client.finalise(&id);
     assert_eq!(status, ProposalStatus::Passed);
 
-    env.ledger().with_mut(|l| l.timestamp += 51);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
     client.execute(&proposer, &id);
     assert_eq!(client.get_proposal(&id).status, ProposalStatus::Executed);
 }
