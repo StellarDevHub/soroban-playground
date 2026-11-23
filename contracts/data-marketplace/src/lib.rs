@@ -36,6 +36,7 @@ pub enum DataKey {
     Dataset(u64),
     ProviderDatasets(Address),
     License(u64, Address), // (dataset_id, buyer)
+    Lease(u64, Address), // (dataset_id, buyer) -> expiration timestamp
     DatasetBuyers(u64),
     DatasetStats(u64),
     BuyerStats(Address),
@@ -65,6 +66,8 @@ pub enum Error {
     SelfQueryForbidden = 14,
     CommitmentAlreadyUsed = 15,
     InvalidParameter = 16,
+    LeaseNotFound = 17,
+    LeaseNotExpired = 18,
 }
 
 // ── Domain types ────────────────────────────────────────────────────────────
@@ -149,6 +152,9 @@ const TOPIC_DELIST: Symbol = symbol_short!("delist");
 const TOPIC_BUY: Symbol = symbol_short!("buy");
 const TOPIC_QUERY: Symbol = symbol_short!("query");
 const TOPIC_PAUSE: Symbol = symbol_short!("pause");
+const TOPIC_ACCESS: Symbol = symbol_short!("access");
+const TOPIC_GRANT: Symbol = symbol_short!("grant");
+const TOPIC_REVOKE: Symbol = symbol_short!("revoke");
 
 #[contract]
 pub struct DataMarketplaceContract;
@@ -442,6 +448,9 @@ impl DataMarketplaceContract {
             },
         };
         env.storage().persistent().set(&key, &license);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Lease(dataset_id, buyer.clone()), &license.expires_at);
 
         // Dataset stats
         let mut ds_stats = Self::load_dataset_stats(&env, dataset_id);
@@ -476,7 +485,13 @@ impl DataMarketplaceContract {
             .set(&DataKey::BuyerStats(buyer.clone()), &b_stats);
 
         env.events()
-            .publish((TOPIC_BUY, dataset.provider, dataset_id), (buyer, cost));
+            .publish((TOPIC_BUY, dataset.provider, dataset_id), (buyer.clone(), cost));
+        // Standardized off-chain key-release request: consumers receive the
+        // dataset, buyer, expiry, and encryption public key (never a secret key).
+        env.events().publish(
+            (TOPIC_ACCESS, TOPIC_GRANT, dataset_id),
+            (buyer, license.expires_at, dataset.encryption_pubkey),
+        );
         Ok(license)
     }
 
@@ -484,6 +499,144 @@ impl DataMarketplaceContract {
         env.storage()
             .persistent()
             .get(&DataKey::License(dataset_id, buyer))
+    }
+
+    /// Return the stored lease expiry for a dataset/buyer pair.
+    pub fn get_lease_expiry(env: Env, dataset_id: u64, buyer: Address) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Lease(dataset_id, buyer))
+    }
+
+    /// A lease is valid only while its expiry is strictly later than ledger time.
+    pub fn has_valid_lease(env: Env, dataset_id: u64, buyer: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, u64>(&DataKey::Lease(dataset_id, buyer))
+            .map(|expires_at| expires_at > env.ledger().timestamp())
+            .unwrap_or(false)
+    }
+
+    /// Extend an existing lease by a requested duration. The dataset flat fee
+    /// is prorated by duration; fractional units are rounded up to avoid free
+    /// extensions. Query quota is unchanged by a time-only extension.
+    pub fn extend_lease(
+        env: Env,
+        buyer: Address,
+        dataset_id: u64,
+        additional_seconds: u64,
+    ) -> Result<License, Error> {
+        Self::ensure_running(&env)?;
+        buyer.require_auth();
+        if additional_seconds == 0 {
+            return Err(Error::InvalidParameter);
+        }
+        let dataset = Self::load_dataset(&env, dataset_id)?;
+        if dataset.delisted {
+            return Err(Error::DatasetDelisted);
+        }
+        if buyer == dataset.provider {
+            return Err(Error::SelfPurchaseForbidden);
+        }
+
+        let key = DataKey::License(dataset_id, buyer.clone());
+        let mut license: License = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::LicenseNotFound)?;
+        let now = env.ledger().timestamp();
+        let base = if license.expires_at > now { license.expires_at } else { now };
+        let expires_at = base
+            .checked_add(additional_seconds)
+            .ok_or(Error::InvalidAmount)?;
+        let numerator = dataset
+            .flat_price
+            .checked_mul(additional_seconds as i128)
+            .ok_or(Error::InvalidAmount)?;
+        let duration = dataset.license_seconds as i128;
+        let prorated_cost = numerator
+            .checked_add(duration - 1)
+            .ok_or(Error::InvalidAmount)?
+            / duration;
+        license.expires_at = expires_at;
+        license.total_paid = license
+            .total_paid
+            .checked_add(prorated_cost)
+            .ok_or(Error::InvalidAmount)?;
+        env.storage().persistent().set(&key, &license);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Lease(dataset_id, buyer.clone()), &expires_at);
+
+        let mut dataset_stats = Self::load_dataset_stats(&env, dataset_id);
+        dataset_stats.revenue = dataset_stats.revenue.saturating_add(prorated_cost);
+        env.storage()
+            .persistent()
+            .set(&DataKey::DatasetStats(dataset_id), &dataset_stats);
+        let mut buyer_stats = Self::load_buyer_stats(&env, &buyer);
+        buyer_stats.total_spent = buyer_stats.total_spent.saturating_add(prorated_cost);
+        env.storage()
+            .persistent()
+            .set(&DataKey::BuyerStats(buyer.clone()), &buyer_stats);
+
+        env.events().publish(
+            (TOPIC_ACCESS, TOPIC_GRANT, dataset_id),
+            (buyer, expires_at, dataset.encryption_pubkey),
+        );
+        Ok(license)
+    }
+
+    /// Permissionless keeper hook: remove every expired lease for a dataset.
+    /// Soroban has no native cron, so an off-chain keeper can call this method;
+    /// access checks remain time-based even before cleanup is executed.
+    pub fn cleanup_expired_leases(env: Env, dataset_id: u64) -> Result<u32, Error> {
+        let buyers: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DatasetBuyers(dataset_id))
+            .unwrap_or_else(|| Vec::new(&env));
+        let now = env.ledger().timestamp();
+        let mut retained = Vec::new(&env);
+        let mut cleaned = 0u32;
+
+        for buyer in buyers.iter() {
+            let lease_key = DataKey::Lease(dataset_id, buyer.clone());
+            let license_key = DataKey::License(dataset_id, buyer.clone());
+            let expires_at = env
+                .storage()
+                .persistent()
+                .get::<_, u64>(&lease_key)
+                .or_else(|| {
+                    env.storage()
+                        .persistent()
+                        .get::<_, License>(&license_key)
+                        .map(|license| license.expires_at)
+                });
+            if let Some(expiry) = expires_at {
+                if expiry <= now {
+                    env.storage().persistent().remove(&lease_key);
+                    env.storage().persistent().remove(&license_key);
+                    cleaned = cleaned.saturating_add(1);
+                    env.events().publish(
+                        (TOPIC_ACCESS, TOPIC_REVOKE, dataset_id),
+                        buyer,
+                    );
+                } else {
+                    retained.push_back(buyer);
+                }
+            }
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::DatasetBuyers(dataset_id), &retained);
+        let mut stats = Self::load_dataset_stats(&env, dataset_id);
+        stats.active_buyers = retained.len();
+        env.storage()
+            .persistent()
+            .set(&DataKey::DatasetStats(dataset_id), &stats);
+        Ok(cleaned)
     }
 
     // ── Privacy-preserving query ───────────────────────────────────────────
@@ -514,7 +667,12 @@ impl DataMarketplaceContract {
             .ok_or(Error::LicenseNotFound)?;
 
         let now = env.ledger().timestamp();
-        if license.expires_at <= now {
+        let lease_expiry = env
+            .storage()
+            .persistent()
+            .get::<_, u64>(&DataKey::Lease(dataset_id, buyer.clone()))
+            .unwrap_or(license.expires_at);
+        if lease_expiry <= now {
             return Err(Error::LicenseExpired);
         }
         if license.queries_used >= license.queries_total {
