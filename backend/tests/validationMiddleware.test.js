@@ -9,6 +9,7 @@ import {
   templateCreateSchema,
   projectCreateSchema,
   querySchema,
+  workspaceSyncSchema,
 } from '../src/schemas/validationSchemas.js';
 
 function makeRes() {
@@ -185,5 +186,46 @@ describe('schemaValidator v.object strict mode', () => {
     const { value, errors } = schema.validate({ a: 'hello', b: 'extra' });
     expect(errors.some((e) => e.path === 'b')).toBe(true);
     expect(value.b).toBeUndefined();
+  });
+});
+
+describe('schemaValidator v.array', () => {
+  it('validates array item schemas and preserves validated values', () => {
+    const schema = v.object({ items: v.array(v.number().coerce()).required() });
+    const { value, errors } = schema.validate({ items: ['1', '2'] });
+
+    expect(value.items).toEqual([1, 2]);
+    expect(errors).toHaveLength(0);
+
+    const invalid = schema.validate({ items: ['1', 'invalid'] });
+    expect(invalid.errors).toEqual([
+      { path: 'items[1]', message: 'items[1] cannot be coerced to number' },
+    ]);
+  });
+
+  it('enforces required and length constraints', () => {
+    const schema = v.object({ items: v.array().required().min(1).max(2) });
+
+    expect(schema.validate({}).errors[0].path).toBe('items');
+    expect(schema.validate({ items: [] }).errors[0].message).toBe(
+      'items must contain at least 1 item'
+    );
+    expect(schema.validate({ items: [1, 2, 3] }).errors[0].message).toBe(
+      'items must contain at most 2 items'
+    );
+  });
+
+  it('accepts optional arrays in the workspace sync schema', () => {
+    expect(
+      workspaceSyncSchema.validate({ favorites: ['contract-id'] }).errors
+    ).toHaveLength(0);
+    expect(workspaceSyncSchema.validate({}).errors).toHaveLength(0);
+  });
+
+  it('preserves free-form workspace objects', () => {
+    const workspace = { files: { 'lib.rs': 'contract code' } };
+    expect(workspaceSyncSchema.validate({ workspace }).value.workspace).toEqual(
+      workspace
+    );
   });
 });

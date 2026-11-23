@@ -205,10 +205,119 @@ class BooleanField extends SchemaField {
   }
 }
 
-class ObjectSchema {
+class ArrayField extends SchemaField {
+  constructor(itemSchema) {
+    super();
+    this._type = 'array';
+    this._itemSchema = itemSchema;
+  }
+
+  min(n, msg) {
+    return this._addRule((v, path) =>
+      v.length < n
+        ? {
+            path,
+            message:
+              msg ||
+              `${path} must contain at least ${n} item${n === 1 ? '' : 's'}`,
+          }
+        : null
+    );
+  }
+
+  max(n, msg) {
+    return this._addRule((v, path) =>
+      v.length > n
+        ? {
+            path,
+            message:
+              msg ||
+              `${path} must contain at most ${n} item${n === 1 ? '' : 's'}`,
+          }
+        : null
+    );
+  }
+
+  _validate(value, path) {
+    const result = super._validate(value, path);
+    if (!Array.isArray(result.value) || !this._itemSchema) return result;
+
+    const errors = [...result.errors];
+    const items = result.value.map((item, index) => {
+      const itemPath = `${path}[${index}]`;
+      if (typeof this._itemSchema._validate === 'function') {
+        const validated = this._itemSchema._validate(item, itemPath);
+        errors.push(...validated.errors);
+        return validated.value;
+      }
+
+      const validated = this._itemSchema.validate(item);
+      errors.push(
+        ...validated.errors.map((error) => ({
+          ...error,
+          path: error.path === 'body' ? itemPath : `${itemPath}.${error.path}`,
+        }))
+      );
+      return validated.value;
+    });
+
+    return { value: items, errors };
+  }
+}
+
+class ObjectSchema extends SchemaField {
   constructor(shape, options = {}) {
-    this._shape = shape;
-    this._strict = options.strict !== false;
+    super();
+    this._type = 'object';
+    this._shape = shape || {};
+    this._strict = shape === undefined ? false : options.strict !== false;
+    this._passthrough = shape === undefined;
+  }
+
+  _validate(data, path) {
+    const result = super._validate(data, path);
+    if (
+      result.errors.length ||
+      result.value === undefined ||
+      result.value === null ||
+      this._passthrough
+    ) {
+      return result;
+    }
+
+    return this._validateShape(result.value, path);
+  }
+
+  _validateShape(data, path) {
+    const errors = [];
+    const output = {};
+
+    if (this._strict) {
+      const declared = new Set(Object.keys(this._shape));
+      for (const key of Object.keys(data)) {
+        if (!declared.has(key)) {
+          errors.push({
+            path: path ? `${path}.${key}` : key,
+            message: `Unknown field: ${key}`,
+          });
+        }
+      }
+    }
+
+    for (const [key, field] of Object.entries(this._shape)) {
+      const fieldPath = path ? `${path}.${key}` : key;
+      const { value, errors: fieldErrors } = field._validate(
+        data[key],
+        fieldPath
+      );
+      if (fieldErrors.length) {
+        errors.push(...fieldErrors);
+      } else if (value !== undefined) {
+        output[key] = value;
+      }
+    }
+
+    return { value: this._passthrough ? data : output, errors };
   }
 
   /**
@@ -224,28 +333,7 @@ class ObjectSchema {
       };
     }
 
-    const errors = [];
-    const output = {};
-
-    if (this._strict) {
-      const declared = new Set(Object.keys(this._shape));
-      for (const key of Object.keys(data)) {
-        if (!declared.has(key)) {
-          errors.push({ path: key, message: `Unknown field: ${key}` });
-        }
-      }
-    }
-
-    for (const [key, field] of Object.entries(this._shape)) {
-      const { value, errors: fieldErrors } = field._validate(data[key], key);
-      if (fieldErrors.length) {
-        errors.push(...fieldErrors);
-      } else if (value !== undefined) {
-        output[key] = value;
-      }
-    }
-
-    return { value: output, errors };
+    return this._validateShape(data, '');
   }
 
   /**
@@ -264,6 +352,7 @@ export const v = {
   string: () => new StringField(),
   number: () => new NumberField(),
   boolean: () => new BooleanField(),
+  array: (itemSchema) => new ArrayField(itemSchema),
   object: (shape, options) => new ObjectSchema(shape, options),
 };
 
