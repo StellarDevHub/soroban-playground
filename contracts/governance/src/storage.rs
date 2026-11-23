@@ -76,7 +76,7 @@ fn append_checkpoint_index(env: &Env, addr: &Address, index: u32) {
     env.storage().persistent().set(&key, &indices);
 }
 
-pub fn record_balance_checkpoint(env: &Env, addr: &Address, balance: i128, supply: i128) {
+pub fn record_balance_checkpoint(env: &Env, addr: &Address, balance: i128) {
     let index = next_checkpoint(env);
     env.storage()
         .persistent()
