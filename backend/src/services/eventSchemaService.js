@@ -307,6 +307,70 @@ function analyzeEvolution(previousSchema, nextSchema) {
   };
 }
 
+function validationErrorDetails(errors) {
+  return errors.map((message) => {
+    const match = /^(payload\.[^\s]+)\s+(.*)$/.exec(message);
+    return {
+      path: match ? match[1] : 'event',
+      message,
+    };
+  });
+}
+
+function applyMigration(payload, migration = {}) {
+  const result = { ...payload };
+  const transform = migration.transform || {};
+  const renames =
+    migration.rename || migration.renames || transform.rename || {};
+  const removals =
+    migration.remove || migration.removeFields || transform.remove || [];
+  const defaults =
+    migration.defaults || migration.defaultValues || transform.defaults || {};
+  const values = migration.set || migration.setFields || transform.set || {};
+
+  for (const [source, destination] of Object.entries(renames)) {
+    if (Object.hasOwn(result, source)) {
+      result[destination] = result[source];
+      delete result[source];
+    }
+  }
+
+  for (const field of Array.isArray(removals) ? removals : [removals]) {
+    delete result[field];
+  }
+
+  for (const [field, value] of Object.entries(defaults)) {
+    if (!Object.hasOwn(result, field)) result[field] = clone(value);
+  }
+
+  for (const [field, value] of Object.entries(values)) {
+    result[field] = clone(value);
+  }
+
+  const operations = Array.isArray(migration.transform)
+    ? migration.transform
+    : Array.isArray(migration.operations)
+      ? migration.operations
+      : [];
+  for (const operation of operations) {
+    if (operation.op === 'rename' && Object.hasOwn(result, operation.from)) {
+      result[operation.to] = result[operation.from];
+      delete result[operation.from];
+    } else if (operation.op === 'remove') {
+      delete result[operation.field];
+    } else if (
+      operation.op === 'default' &&
+      !Object.hasOwn(result, operation.field)
+    ) {
+      result[operation.field] = clone(operation.value);
+    } else if (operation.op === 'set') {
+      result[operation.field] = clone(operation.value);
+    }
+  }
+
+  return result;
+}
+
 function normalizeEventEnvelope(input) {
   const source =
     input?.event && typeof input.event === 'object' ? input.event : input;
@@ -426,16 +490,31 @@ function createDefaultSchemas() {
 
   return [
     normalizeSchema({
-      eventType: 'payment_created',
+      eventType: 'pifp.payment',
       version: '1.0.0',
       description: 'Legacy payment creation event',
       fields: legacyFields,
     }),
     normalizeSchema({
-      eventType: 'payment_created',
+      eventType: 'pifp.payment',
       version: '2.0.0',
       description: 'Payment creation event with explicit account fields',
-      fields: latestFields,
+      fields: {
+        ...latestFields,
+        network: { type: 'string', required: true },
+      },
+      migrations: [
+        {
+          fromVersion: '1.0.0',
+          toVersion: '2.0.0',
+          rename: {
+            payer: 'sourceAccount',
+            payee: 'destinationAccount',
+          },
+          remove: ['payer', 'payee'],
+          defaults: { network: 'testnet' },
+        },
+      ],
     }),
   ];
 }
@@ -458,26 +537,41 @@ class EventSchemaService {
     }
   }
 
-  registerSchema(input, registeredBy = 'system') {
+  registerSchema(input, options = 'system') {
+    const settings = options && typeof options === 'object' ? options : {};
+    const registeredBy =
+      typeof options === 'string' ? options : settings.registeredBy || 'system';
+    const allowBreaking = settings.allowBreaking === true;
     const schema = normalizeSchema(input, registeredBy);
     const errors = validateSchemaDefinition(schema);
     if (errors.length > 0) {
-      const error = new Error(`Invalid schema: ${errors.join('; ')}`);
-      error.details = errors;
-      throw error;
+      return { registered: false, statusCode: 400, errors };
     }
 
-    const key = versionKey(schema.eventType, schema.version);
     const previous = this.getLatestSchema(schema.eventType);
     const evolution = analyzeEvolution(previous, schema);
-
-    this.schemas.set(key, schema);
-    eventSchemaVersionEventsTotal.inc();
-    if (!evolution.compatible) {
-      eventSchemaBreakingChangesTotal.inc(evolution.breakingChanges.length);
+    if (!evolution.compatible && !allowBreaking) {
+      return {
+        registered: false,
+        statusCode: 409,
+        errors: evolution.breakingChanges,
+        evolution,
+      };
     }
 
-    return { schema, evolution };
+    this.schemas.set(versionKey(schema.eventType, schema.version), schema);
+    eventSchemaVersionEventsTotal.inc({
+      event_type: schema.eventType,
+      schema_version: schema.version,
+    });
+    if (!evolution.compatible) {
+      eventSchemaBreakingChangesTotal.inc(
+        { event_type: schema.eventType },
+        evolution.breakingChanges.length
+      );
+    }
+
+    return { registered: true, schema, evolution };
   }
 
   getSchema(eventType, version) {
@@ -595,7 +689,12 @@ class EventSchemaService {
       this.quarantineEvent(envelope, errors);
     }
 
-    eventValidationTotal.inc({ status: valid ? 'valid' : 'invalid' });
+    eventValidationTotal.inc({
+      event_type: eventType || 'unknown',
+      schema_version:
+        envelope.schemaVersion || (schema && schema.version) || 'unknown',
+      outcome: valid ? 'valid' : 'invalid',
+    });
 
     return {
       valid,
@@ -606,16 +705,218 @@ class EventSchemaService {
     };
   }
 
+  ingestEvent(input, options = {}) {
+    const validation = this.validateEvent(input);
+    const errors = validationErrorDetails(validation.errors);
+    const quarantineItem =
+      !validation.valid && options.quarantineInvalid !== false
+        ? this.quarantineEvent(validation.envelope, errors)
+        : null;
+
+    return {
+      accepted: validation.valid,
+      quarantined: Boolean(quarantineItem),
+      event: validation.envelope,
+      validation: { ...validation, errors },
+      quarantineItem,
+    };
+  }
+
+  detectSchemaChanges(input) {
+    const envelope = normalizeEventEnvelope(input);
+    const schema = envelope.eventType
+      ? envelope.schemaVersion
+        ? this.getSchema(envelope.eventType, envelope.schemaVersion)
+        : this.getLatestSchema(envelope.eventType)
+      : null;
+    const payload = envelope.payload || {};
+    const typeChanges = [];
+    const missingFields = [];
+    const addedFields = [];
+    const deprecatedFields = [];
+
+    if (schema) {
+      for (const [fieldName, field] of Object.entries(schema.fields)) {
+        if (!Object.hasOwn(payload, fieldName)) {
+          if (field.required && field.default === undefined) {
+            missingFields.push(fieldName);
+          }
+          continue;
+        }
+
+        const value = payload[fieldName];
+        if (!validateType(value, field)) {
+          typeChanges.push({
+            field: fieldName,
+            expected: field.type,
+            detected: fieldTypeForValue(value),
+          });
+        }
+        if (field.deprecated) deprecatedFields.push(fieldName);
+      }
+
+      for (const fieldName of Object.keys(payload)) {
+        if (!Object.hasOwn(schema.fields, fieldName))
+          addedFields.push(fieldName);
+      }
+    } else {
+      addedFields.push(...Object.keys(payload));
+    }
+
+    const compatible =
+      Boolean(schema) &&
+      typeChanges.length === 0 &&
+      missingFields.length === 0 &&
+      (schema.additionalProperties || addedFields.length === 0);
+    const changes = {
+      typeChanges,
+      missingFields,
+      addedFields,
+      deprecatedFields,
+    };
+    const hasChanges =
+      !schema ||
+      typeChanges.length > 0 ||
+      missingFields.length > 0 ||
+      addedFields.length > 0;
+    const alert = hasChanges
+      ? this.recordSchemaAlert({
+          type: 'schema_drift',
+          eventType: envelope.eventType,
+          severity: compatible ? 'warning' : 'error',
+          message: schema
+            ? 'Observed event differs from its registered schema'
+            : `No schema registered for ${envelope.eventType || 'unknown event'}`,
+          details: changes,
+        })
+      : null;
+
+    return {
+      compatible,
+      eventType: envelope.eventType,
+      schemaVersion: schema?.version || envelope.schemaVersion,
+      schema,
+      changes,
+      alert,
+    };
+  }
+
+  migrateEvent(input, targetVersion) {
+    const envelope = normalizeEventEnvelope(input);
+    const eventType = envelope.eventType;
+    const schemas = this.listSchemas(eventType).sort((a, b) =>
+      compareVersions(a.version, b.version)
+    );
+    const target = targetVersion
+      ? String(targetVersion)
+      : this.getLatestSchema(eventType)?.version;
+    const source =
+      envelope.schemaVersion ||
+      this.getLatestSchema(eventType)?.version ||
+      undefined;
+    const sourceIndex = schemas.findIndex(
+      (schema) => schema.version === source
+    );
+    const targetIndex = schemas.findIndex(
+      (schema) => schema.version === target
+    );
+
+    if (sourceIndex === -1 || targetIndex === -1) {
+      return {
+        migrated: false,
+        event: null,
+        migrationPath: [],
+        errors: [
+          `No registered schema path for ${eventType || 'unknown event'} from ${source || 'unknown'} to ${target || 'unknown'}`,
+        ],
+      };
+    }
+
+    if (targetIndex < sourceIndex) {
+      return {
+        migrated: false,
+        event: null,
+        migrationPath: [],
+        errors: ['Downgrade migrations are not supported'],
+      };
+    }
+
+    const migrationPath = schemas
+      .slice(sourceIndex, targetIndex + 1)
+      .map((schema) => schema.version);
+    let payload = { ...(envelope.payload || {}) };
+
+    for (let index = sourceIndex + 1; index <= targetIndex; index += 1) {
+      const previousVersion = schemas[index - 1].version;
+      const nextSchema = schemas[index];
+      const migration = nextSchema.migrations.find((step) => {
+        if (!step || typeof step !== 'object') return false;
+        const from = step.fromVersion || step.from || step.sourceVersion;
+        const to = step.toVersion || step.to || step.targetVersion;
+        return (
+          String(from || '') === previousVersion &&
+          (!to || String(to) === nextSchema.version)
+        );
+      });
+      if (migration) payload = applyMigration(payload, migration);
+    }
+
+    const event = {
+      ...envelope.raw,
+      eventType,
+      schemaVersion: target,
+      payload,
+    };
+    const validation = this.validateEvent(event);
+    if (!validation.valid) {
+      return {
+        migrated: false,
+        event,
+        migrationPath,
+        errors: validationErrorDetails(validation.errors),
+      };
+    }
+
+    return { migrated: true, event, migrationPath, errors: [] };
+  }
+
+  readEvents({ eventType, targetVersion } = {}) {
+    return this.acceptedEvents
+      .filter((entry) => !eventType || entry.envelope.eventType === eventType)
+      .map((entry) => {
+        const original = {
+          ...entry.envelope.raw,
+          eventType: entry.envelope.eventType,
+          schemaVersion: entry.envelope.schemaVersion,
+          payload: entry.envelope.payload,
+        };
+        const migrated = targetVersion
+          ? this.migrateEvent(original, targetVersion)
+          : null;
+        if (migrated && !migrated.migrated) return null;
+
+        const event = migrated ? migrated.event : original;
+        return {
+          ...event,
+          data: event.payload,
+          timestamp: event.emittedAt || event.emitted_at || entry.validatedAt,
+        };
+      })
+      .filter(Boolean)
+      .map((event) => clone(event));
+  }
+
   quarantineEvent(envelope, errors) {
     const item = {
       id:
         envelope.id ||
-        `quarantine-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       eventType: envelope.eventType,
       schemaVersion: envelope.schemaVersion,
-      errors,
+      errors: clone(errors),
       payload: envelope.payload,
       quarantinedAt: nowIso(),
+      status: 'pending',
     };
 
     this.quarantine.unshift(item);
@@ -628,8 +929,11 @@ class EventSchemaService {
     return item;
   }
 
-  listQuarantine() {
-    return this.quarantine.map((item) => clone(item));
+  listQuarantine(status) {
+    const items = status
+      ? this.quarantine.filter((item) => item.status === status)
+      : this.quarantine;
+    return items.map((item) => clone(item));
   }
 
   releaseQuarantine(id) {
@@ -640,6 +944,50 @@ class EventSchemaService {
     const [item] = this.quarantine.splice(index, 1);
     eventQuarantineSize.set(this.quarantine.length);
     return item;
+  }
+
+  updateQuarantineItem(id, updates = {}) {
+    const item = this.quarantine.find((entry) => entry.id === id);
+    if (!item) return null;
+
+    for (const key of ['status', 'notes', 'reviewedBy', 'resolution']) {
+      if (updates[key] !== undefined) item[key] = updates[key];
+    }
+    item.updatedAt = nowIso();
+    return clone(item);
+  }
+
+  reprocessQuarantinedEvent(id, input) {
+    const item = this.quarantine.find((entry) => entry.id === id);
+    if (!item) return null;
+
+    const event = input || {
+      id: item.id,
+      eventType: item.eventType,
+      schemaVersion: item.schemaVersion,
+      payload: item.payload,
+    };
+    const validation = this.validateEvent(event);
+    if (validation.valid) {
+      this.releaseQuarantine(id);
+    } else {
+      item.errors = validationErrorDetails(validation.errors);
+      item.lastReprocessedAt = nowIso();
+    }
+
+    return {
+      item: this.quarantine.find((entry) => entry.id === id)
+        ? clone(item)
+        : item,
+      result: {
+        accepted: validation.valid,
+        quarantined: !validation.valid,
+        validation: {
+          ...validation,
+          errors: validationErrorDetails(validation.errors),
+        },
+      },
+    };
   }
 
   recordSchemaAlert(alert) {
@@ -661,7 +1009,7 @@ class EventSchemaService {
     }
 
     eventSchemaDetectionAlertsTotal.inc({
-      type: entry.type,
+      event_type: entry.eventType || 'unknown',
       severity: entry.severity,
     });
     return entry;
@@ -669,6 +1017,24 @@ class EventSchemaService {
 
   listAlerts() {
     return this.alerts.map((alert) => clone(alert));
+  }
+
+  listSchemaAlerts() {
+    return this.listAlerts();
+  }
+
+  getQualityMetrics() {
+    const { total, valid, invalid, quarantined } = this.validationStats;
+    return {
+      schemaCount: this.schemas.size,
+      quarantineSize: this.quarantine.length,
+      alertCount: this.alerts.length,
+      acceptedEventCount: this.acceptedEvents.length,
+      validationStats: { ...this.validationStats },
+      validationRate: total === 0 ? 0 : valid / total,
+      invalidRate: total === 0 ? 0 : invalid / total,
+      quarantineRate: total === 0 ? 0 : quarantined / total,
+    };
   }
 
   getStats() {
@@ -683,6 +1049,31 @@ class EventSchemaService {
 
   getAcceptedEvents() {
     return this.acceptedEvents.map((entry) => clone(entry));
+  }
+
+  resetForTests() {
+    this.schemas.clear();
+    for (const schema of createDefaultSchemas()) {
+      this.schemas.set(versionKey(schema.eventType, schema.version), schema);
+    }
+    this.quarantine = [];
+    this.alerts = [];
+    this.acceptedEvents = [];
+    this.validationStats = {
+      total: 0,
+      valid: 0,
+      invalid: 0,
+      quarantined: 0,
+    };
+    eventQuarantineSize.set(0);
+    for (const metric of [
+      eventSchemaBreakingChangesTotal,
+      eventSchemaDetectionAlertsTotal,
+      eventSchemaVersionEventsTotal,
+      eventValidationTotal,
+    ]) {
+      metric.reset();
+    }
   }
 }
 
