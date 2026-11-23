@@ -53,6 +53,8 @@ inst!(get_deposit, set_deposit, Deposit, i128, 0);
 
 // ── Proposals ─────────────────────────────────────────────────────────────────
 
+// NOTE: requires `InstanceKey::TimelockMin`, `InstanceKey::Guardian` in types.rs.
+
 pub fn set_proposal(env: &Env, p: &Proposal) {
     env.storage().persistent().set(&DataKey::Proposal(p.id), p);
 }

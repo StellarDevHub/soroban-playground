@@ -216,6 +216,9 @@ impl Governance {
         if now < proposal.execute_after {
             return Err(Error::TimelockActive);
         }
+        if now < proposal.vote_end + 172_800 {
+            return Err(Error::TimelockActive);
+        }
 
         proposal.status = ProposalStatus::Executed;
         set_proposal(&env, &proposal);
@@ -238,6 +241,7 @@ impl Governance {
         if proposal.status != ProposalStatus::Active {
             return Err(Error::ProposalNotActive);
         }
+        proposal.status = ProposalStatus::Cancelled;
         proposal.status = ProposalStatus::Cancelled;
         set_proposal(&env, &proposal);
         Ok(())

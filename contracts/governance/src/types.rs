@@ -63,6 +63,8 @@ pub struct Proposal {
     pub execute_after: u64,
     /// Deposit in stroops (refundable if passed).
     pub deposit: i128,
+    /// Ledger timestamp until which the guardian may veto (cancel) the proposal.
+    pub veto_deadline: u64,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -83,6 +85,10 @@ pub enum InstanceKey {
     Deposit,
     /// Pending upgrade (set by schedule_upgrade, cleared by execute_upgrade).
     PendingUpgrade,
+    /// Guardian address authorised to veto proposals during the timelock window.
+    Guardian,
+    /// Minimum execution timelock in seconds (enforced floor, 48 hours).
+    MinTimelock,
 }
 
 #[contracttype]
@@ -94,6 +100,10 @@ pub enum DataKey {
     Delegate(Address),
     /// Whether `voter` has voted on proposal `id`: (proposal_id, voter).
     Voted(u32, Address),
+    /// Historical checkpointed voting balance for `addr` at a snapshot ledger timestamp.
+    BalanceCheckpoint(Address, u64),
+    /// Total supply checkpoint at a snapshot ledger timestamp.
+    TotalSupplyCheckpoint(u64),
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────
@@ -125,4 +135,12 @@ pub enum Error {
     UpgradeHashMismatch = 18,
     /// The requested delay is below the mandatory 48-hour minimum.
     UpgradeDelayTooShort = 19,
+    /// Caller is not the configured guardian.
+    NotGuardian = 20,
+    /// The guardian veto window has closed; execution may proceed.
+    VetoWindowClosed = 21,
+    /// Proposal was vetoed/cancelled and cannot be executed.
+    ProposalCancelled = 22,
+    /// Execution delay is below the mandatory 48-hour minimum.
+    ExecDelayTooShort = 23,
 }

@@ -30,7 +30,7 @@ use crate::storage::{
 use crate::types::{Error, Role, Signer, Transaction, TxStatus};
 
 /// 24-hour timelock in seconds.
-const TIMELOCK_SECS: u64 = 86_400;
+const TIMELOCK_SECS: u64 = 172_800;
 /// Proposal expiry: 7 days.
 const EXPIRY_SECS: u64 = 604_800;
 
@@ -284,6 +284,11 @@ impl DaoTreasury {
             tx.status = TxStatus::Expired;
             set_tx(&env, &tx);
             return Err(Error::TransactionExpired);
+        }
+
+        // Guardian veto window: a cancelled transaction cannot be executed.
+        if tx.status == TxStatus::Cancelled {
+            return Err(Error::TransactionNotQueued);
         }
 
         // Perform the token transfer when a recipient and token are provided.
