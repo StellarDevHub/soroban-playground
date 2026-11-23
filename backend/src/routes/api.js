@@ -4,6 +4,9 @@ import workspaceRoutes from './workspace.js';
 import searchRoutes from './search.js';
 import projectsRoutes from './projects.js';
 import express from 'express';
+import { z } from 'zod';
+import { validateZod } from '../middleware/validationMiddleware.js';
+import notaryRoutes from './notary.js';
 import v1Compile from './v1/compile.js';
 import v1Deploy from './v1/deploy.js';
 import v1Invoke from './v1/invoke.js';
@@ -80,6 +83,7 @@ v1Router.use('/invoke', v1Invoke);
 v1Router.use('/identity', v1Identity);
 v1Router.use('/simulate', v1Simulate);
 v1Router.use('/lottery', v2Lottery);
+v1Router.use('/notary', notaryRoutes);
 
 // v2 Routes
 const v2Router = express.Router();
@@ -200,6 +204,7 @@ router.use('/warranty', warrantyRoutes);
 router.use('/favorites', favoritesRoutes);
 router.use('/workspace', workspaceRoutes);
 router.use('/projects', projectsRoutes);
+router.use('/notary', notaryRoutes);
 
 import sorobanRpcManager from '../services/sorobanRpcManager.js';
 
@@ -210,13 +215,19 @@ router.get('/rpc/status', (_req, res) => {
   });
 });
 
-router.post('/rpc/reset', (_req, res) => {
-  sorobanRpcManager.reset();
-  res.json({
-    success: true,
-    message: 'Soroban RPC circuit breaker reset cleanly',
-    data: sorobanRpcManager.getStatus(),
-  });
-});
+const rpcResetBodySchema = z.object({}).strict();
+
+router.post(
+  '/rpc/reset',
+  validateZod({ body: rpcResetBodySchema }),
+  (_req, res) => {
+    sorobanRpcManager.reset();
+    res.json({
+      success: true,
+      message: 'Soroban RPC circuit breaker reset cleanly',
+      data: sorobanRpcManager.getStatus(),
+    });
+  }
+);
 
 export default router;
