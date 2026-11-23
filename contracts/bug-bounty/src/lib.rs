@@ -92,9 +92,47 @@ impl BugBountyContract {
         Ok(())
     }
 
+    /// Cancel a bounty with a 30-day notice timelock if active submissions exist.
+    pub fn cancel_bounty(env: Env, admin: Address, bounty_id: u64) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        let count = get_report_count(&env);
+        let mut has_active = false;
+        let mut i = 1;
+        while i <= count {
+            if let Ok(report) = get_report(&env, i) {
+                if report.status == ReportStatus::Pending || report.status == ReportStatus::UnderReview {
+                    has_active = true;
+                    break;
+                }
+            }
+            i += 1;
+        }
+
+        let now = env.ledger().timestamp();
+        let thirty_days = 30 * 24 * 60 * 60;
+        if has_active {
+            // Require 30-day notice timelock check or store cancellation notice state.
+            // For rigorous compliance, we check if cancellation was requested 30 days ago,
+            // or initiate the timelock. Here we enforce the 30-day notice requirement.
+            let cancel_notice_key = (symbol_short!("cn_time"), bounty_id);
+            if let Some(requested_at) = env.storage().instance().get::<_, u64>(&cancel_notice_key) {
+                if now < requested_at + thirty_days {
+                    return Err(Error::InvalidStatus);
+                }
+            } else {
+                env.storage().instance().set(&cancel_notice_key, &now);
+                env.events().publish((symbol_short!("cancel_req"), bounty_id), now);
+                return Err(Error::InvalidStatus);
+            }
+        }
+
+        env.events().publish((symbol_short!("cancelled"), bounty_id), ());
+        Ok(())
+    }
+
     // ── Reporter actions ──────────────────────────────────────────────────────
 
-    /// Submit a new vulnerability report.
+    /// Submit a new vulnerability report with encrypted vulnerability hash.
     pub fn submit_report(
         env: Env,
         reporter: Address,
@@ -129,7 +167,7 @@ impl BugBountyContract {
             id,
             reporter: reporter.clone(),
             title,
-            description_hash,
+            description_hash: description_hash.clone(),
             severity,
             status: ReportStatus::Pending,
             reward_amount: 0,
@@ -140,6 +178,10 @@ impl BugBountyContract {
         set_report(&env, &report);
         set_report_count(&env, id);
         set_open_report_flag(&env, &reporter);
+
+        // Store encrypted vulnerability hash on-chain as immutable proof-of-prior-art
+        let proof_key = (symbol_short!("proof"), id);
+        env.storage().instance().set(&proof_key, &description_hash);
 
         env.events()
             .publish((symbol_short!("submitted"), reporter), id);
@@ -169,7 +211,7 @@ impl BugBountyContract {
         Ok(())
     }
 
-    // ── Admin review ──────────────────────────────────────────────────────────
+    // ── Admin review & Arbitration ─────────────────────────────────────────────
 
     /// Move a report to UnderReview (admin only).
     pub fn start_review(env: Env, admin: Address, report_id: u32) -> Result<(), Error> {
@@ -186,6 +228,43 @@ impl BugBountyContract {
 
         env.events()
             .publish((symbol_short!("review"), report_id), ());
+        Ok(())
+    }
+
+    /// Support third-party security triager arbitration for disputed vulnerability severity ratings.
+    pub fn arbitrate_report(
+        env: Env,
+        triager: Address,
+        report_id: u32,
+        new_severity: Severity,
+    ) -> Result<(), Error> {
+        Self::assert_initialized_guard(&env)?;
+        triager.require_auth();
+
+        let triager_key = symbol_short!("triager");
+        let authorized_triager: Address = env.storage().instance().get(&triager_key).ok_or(Error::Unauthorized)?;
+        if triager != authorized_triager {
+            return Err(Error::Unauthorized);
+        }
+
+        let mut report = get_report(&env, report_id)?;
+        if report.status != ReportStatus::UnderReview && report.status != ReportStatus::Pending {
+            return Err(Error::InvalidStatus);
+        }
+
+        report.severity = new_severity;
+        report.updated_at = env.ledger().timestamp();
+        set_report(&env, &report);
+
+        env.events()
+            .publish((symbol_short!("arbitrate"), report_id), new_severity);
+        Ok(())
+    }
+
+    /// Set third-party security triager address (admin only).
+    pub fn set_triager(env: Env, admin: Address, triager: Address) -> Result<(), Error> {
+        Self::assert_admin(&env, &admin)?;
+        env.storage().instance().set(&symbol_short!("triager"), &triager);
         Ok(())
     }
 
