@@ -874,3 +874,20 @@ fn test_delegation_change_after_snapshot_does_not_redirect_vote() {
     client.vote(&delegator, &id, &VoteChoice::For);
     assert_eq!(client.get_proposal(&id).votes_for, 200);
 }
+
+
+#[test]
+fn test_guardian_cannot_veto_after_window_closes() {
+    let (env, admin, client) = setup();
+    let guardian = Address::generate(&env);
+    let (proposer, id) = mint_and_propose(&env, &admin, &client);
+    client.set_guardian(&admin, &Some(guardian.clone()));
+    client.vote(&proposer, &id, &VoteChoice::For);
+    env.ledger().with_mut(|l| l.timestamp += 101);
+    client.finalise(&id);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
+    assert_eq!(
+        client.try_guardian_veto(&guardian, &id),
+        Err(Ok(Error::VetoWindowClosed))
+    );
+}
