@@ -51,4 +51,5 @@ pub enum Error {
     InvalidExpirationLedger = 11,
     TokenCurrentlyLeased = 12,
     InsufficientPayment = 13,
+    ActiveEscrow = 14,
 }
