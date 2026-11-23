@@ -75,7 +75,7 @@ impl Governance {
         set_balance(&env, &recipient, new_bal);
         let new_supply = get_total_supply(&env) + amount;
         set_total_supply(&env, new_supply);
-        record_balance_checkpoint(&env, &recipient, new_bal, new_supply);
+        record_balance_checkpoint(&env, &recipient, new_bal);
         Ok(())
     }
 
