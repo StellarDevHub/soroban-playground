@@ -344,3 +344,26 @@ fn test_get_nonexistent_tx_fails() {
     let result = client.try_get_transaction(&999);
     assert_eq!(result, Err(Ok(Error::TransactionNotFound)));
 }
+
+
+#[test]
+fn test_treasury_timelock_starts_when_transaction_is_queued() {
+    let (env, owner, admin, operator, client) = setup();
+    let tx_id = client.propose(&operator, &desc(&env, "Delayed approval"), &0, &None);
+
+    // Approval happens one day after proposal creation.
+    advance(&env, 86_400);
+    client.approve(&owner, &tx_id);
+
+    // One day after queuing is still too early.
+    advance(&env, 86_400);
+    assert_eq!(
+        client.try_execute(&admin, &tx_id, &None),
+        Err(Ok(Error::TimelockActive))
+    );
+
+    // The full 48 hours after queuing have now elapsed.
+    advance(&env, 86_401);
+    client.execute(&admin, &tx_id, &None);
+    assert_eq!(client.get_transaction(&tx_id).status, TxStatus::Executed);
+}
