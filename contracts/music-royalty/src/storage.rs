@@ -12,6 +12,7 @@ pub enum DataKey {
     RevenueShare(String),         // song_id
     MusicMetadata(String),
     RightsAgreement(String, Address),
+    SongPaymentToken(String),
 }
 
 pub fn is_initialized(env: &Env) -> bool {

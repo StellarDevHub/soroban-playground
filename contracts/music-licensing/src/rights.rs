@@ -26,6 +26,7 @@ pub enum RightsError {
     Paused = 115,
     NotInitialized = 116,
     InvalidSongId = 117,
+    PaymentTokenMismatch = 118,
 }
 
 #[contracttype]

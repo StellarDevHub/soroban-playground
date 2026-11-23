@@ -405,6 +405,16 @@ impl MusicRoyalty {
         let expires_at = now
             .checked_add(terms.duration_seconds)
             .ok_or(RightsError::Overflow)?;
+        // Revenue totals are keyed by song, so every offer must use the same
+        // asset. Pin it on the first valid issuance, before any payment.
+        let token_key = storage::DataKey::SongPaymentToken(song_id.clone());
+        if let Some(token) = Self::get_song_payment_token(env.clone(), song_id.clone()) {
+            if token != payment_token {
+                return Err(RightsError::PaymentTokenMismatch);
+            }
+        } else {
+            env.storage().persistent().set(&token_key, &payment_token);
+        }
         let license_type = match &terms.kind {
             LicenseKind::Sync => String::from_str(&env, "sync"),
             LicenseKind::CommercialPerformance => {
@@ -440,6 +450,13 @@ impl MusicRoyalty {
         Ok(())
     }
 
+    /// Currency of the song's paid revenue; absent until the first valid offer.
+    pub fn get_song_payment_token(env: Env, song_id: String) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&storage::DataKey::SongPaymentToken(song_id))
+    }
+
     pub fn get_rights_agreement(
         env: Env,
         song_id: String,
@@ -464,6 +481,11 @@ impl MusicRoyalty {
         }
         if env.ledger().timestamp() >= agreement.expires_at {
             return Err(RightsError::LicenseExpired);
+        }
+        if Self::get_song_payment_token(env.clone(), song_id.clone())
+            != Some(agreement.payment_token.clone())
+        {
+            return Err(RightsError::PaymentTokenMismatch);
         }
         let mut song = get_song(&env, song_id.clone()).ok_or(RightsError::MetadataNotFound)?;
         let payments = allocate(&env, &agreement.metadata.publisher_splits, agreement.price)?;

@@ -33,6 +33,105 @@ fn terms(env: &Env, kind: LicenseKind) -> LicenseTerms {
 }
 
 #[test]
+fn song_revenue_uses_one_asset_and_rejects_mixed_asset_offers_without_side_effects() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, MusicRoyalty);
+    let client = MusicRoyaltyClient::new(&env, &id);
+    client.initialize();
+    let artist = Address::generate(&env);
+    let publisher = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let other_buyer = Address::generate(&env);
+    let song = String::from_str(&env, "single-asset-song");
+    let other_song = String::from_str(&env, "other-song");
+    let m = metadata(&env, &artist, &publisher);
+    let t = terms(&env, LicenseKind::Sync);
+    let first_asset = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let second_asset = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    client.register_song_with_metadata(&artist, &song, &String::from_str(&env, "Title"), &m);
+    assert_eq!(client.get_song_payment_token(&song), None);
+    assert_eq!(
+        client.try_issue_rights_license(&artist, &song, &buyer, &t, &second_asset, &0),
+        Err(Ok(RightsError::InvalidAmount))
+    );
+    assert_eq!(client.get_song_payment_token(&song), None);
+    token::StellarAssetClient::new(&env, &first_asset).mint(&buyer, &101);
+    token::StellarAssetClient::new(&env, &second_asset).mint(&other_buyer, &202);
+    client.issue_rights_license(&artist, &song, &buyer, &t, &first_asset, &101);
+    assert_eq!(
+        client.get_song_payment_token(&song),
+        Some(first_asset.clone())
+    );
+    // Reject a competing currency even before the first offer is purchased.
+    assert_eq!(
+        client.try_issue_rights_license(&artist, &song, &other_buyer, &t, &second_asset, &202),
+        Err(Ok(RightsError::PaymentTokenMismatch))
+    );
+    assert_eq!(
+        client.try_get_rights_agreement(&song, &other_buyer),
+        Err(Ok(RightsError::LicenseNotFound))
+    );
+    assert!(client.try_get_license_info(&song, &other_buyer).is_err());
+    assert_eq!(client.get_song_info(&song).total_royalty_earned, 0);
+    client.purchase_rights_license(&song, &buyer);
+    assert_eq!(client.get_revenue_info(&song).total_revenue, 101);
+    // The same currency remains supported for a later buyer and price.
+    token::StellarAssetClient::new(&env, &first_asset).mint(&other_buyer, &202);
+    client.issue_rights_license(&artist, &song, &other_buyer, &t, &first_asset, &202);
+    client.purchase_rights_license(&song, &other_buyer);
+    let revenue = client.get_revenue_info(&song);
+    assert_eq!(revenue.total_revenue, 303);
+    assert_eq!(revenue.distributed_revenue, 303);
+    assert_eq!(revenue.pending_distribution, 0);
+    assert_eq!(client.get_song_info(&song).total_royalty_earned, 303);
+    assert_eq!(
+        token::TokenClient::new(&env, &first_asset).balance(&artist),
+        181
+    );
+    assert_eq!(
+        token::TokenClient::new(&env, &first_asset).balance(&publisher),
+        122
+    );
+    assert_eq!(
+        token::TokenClient::new(&env, &second_asset).balance(&other_buyer),
+        202
+    );
+    assert_eq!(
+        token::TokenClient::new(&env, &second_asset).balance(&artist),
+        0
+    );
+    // A separate song may still use a different currency.
+    client.register_song_with_metadata(&artist, &other_song, &String::from_str(&env, "Title"), &m);
+    client.issue_rights_license(&artist, &other_song, &other_buyer, &t, &second_asset, &202);
+    client.purchase_rights_license(&other_song, &other_buyer);
+    assert_eq!(
+        client.get_song_payment_token(&other_song),
+        Some(second_asset.clone())
+    );
+    assert_eq!(client.get_revenue_info(&other_song).total_revenue, 202);
+    // Expiration never permits a currency change on the original song.
+    env.ledger()
+        .with_mut(|ledger| ledger.timestamp += t.duration_seconds);
+    assert_eq!(
+        client.try_issue_rights_license(
+            &artist,
+            &song,
+            &Address::generate(&env),
+            &t,
+            &second_asset,
+            &202
+        ),
+        Err(Ok(RightsError::PaymentTokenMismatch))
+    );
+    assert_eq!(client.get_song_payment_token(&song), Some(first_asset));
+}
+
+#[test]
 fn music_royalty_purchase_activates_license_and_routes_multi_creator_payment() {
     for kind in [LicenseKind::Sync, LicenseKind::CommercialPerformance] {
         let env = Env::default();

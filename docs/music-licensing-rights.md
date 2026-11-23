@@ -53,11 +53,18 @@ For `music-royalty`:
 2. Call `register_song_with_metadata(artist, song_id, title, metadata)`.
 3. The registered artist authorizes `issue_rights_license(artist, song_id,
    licensee, terms, payment_token, price)`. It records an inactive offer, with
-   expiration measured from issuance.
+   expiration measured from issuance. The first valid offer permanently pins
+   the song's payment token; later offers for that song must use the same token.
 4. The licensee authorizes `purchase_rights_license(song_id, licensee)` before
    expiration. Payment activates the license and increases the song's verified
    paid royalty total. `get_rights_agreement` returns the immutable terms and
    purchase status. At the exact expiration timestamp, purchase is rejected.
+
+`get_song_payment_token(song_id)` returns that token, or `None` before the first
+valid offer. Read revenue counters in this token's atomic units. Different songs
+may use different tokens, but a song cannot combine currencies in its total.
+The purchase path also checks the pinned token before changing revenue or making
+transfers. Failed issuance cannot pin a token, and expiration does not reset it.
 
 Each track/buyer or song/licensee pair can purchase once. An unsuccessful payment
 leaves the license unpurchased and may be retried after correcting funding.
@@ -109,6 +116,7 @@ the following `RightsError` codes; messages never echo supplied identifiers or U
 | 115 | `Paused` | Wait for the licensing contract administrator to unpause. |
 | 116 | `NotInitialized` | Initialize the contract first. |
 | 117 | `InvalidSongId` | Supply a nonempty song ID of at most 100 bytes. |
+| 118 | `PaymentTokenMismatch` | Use the song's pinned payment token. |
 
 Legacy accounting/issuance calls on metadata-backed songs return existing
 `Unauthorized` (5). Missing Soroban account authorization is a host authorization
@@ -123,12 +131,14 @@ cargo build --locked -p music-licensing -p music-royalty --target wasm32v1-none 
 ```
 
 Tests use generated addresses and local Stellar Asset Contracts only. They cover
-both agreement kinds, invalid identifiers/check digits, invalid publisher tables,
+both agreement kinds, single-asset revenue and rejected mixed-asset offers,
+invalid identifiers/check digits, invalid publisher tables,
 failed payment rollback, repeat purchases, authorization and expiry boundaries,
 and one-unit/maximum-integer allocation alongside existing music contract tests.
 
-Use `wasm32v1-none` with current Rust for these SDK 21 crates. Their SDK build
-script rejects Rust 1.82+ on `wasm32-unknown-unknown`, while current locked
-dependencies require a newer compiler than Rust 1.81. The existing workspace
+Use `wasm32v1-none` with current Rust for these SDK 21 crates. Locally, artifacts
+built with Rust 1.98.1 for `wasm32-unknown-unknown` compiled but failed SDK 21 host
+registration because their reference-types encoding is unsupported. The same
+contracts built for `wasm32v1-none` registered successfully. The existing workspace
 CI command still selects `wasm32-unknown-unknown`; this change does not modify
 repository-wide toolchains or workflows.
