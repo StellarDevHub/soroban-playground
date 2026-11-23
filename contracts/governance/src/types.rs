@@ -104,10 +104,8 @@ pub enum DataKey {
     Delegate(Address),
     /// Whether `voter` has voted on proposal `id`: (proposal_id, voter).
     Voted(u32, Address),
-    /// Historical checkpointed voting balance for `addr` at a snapshot ledger timestamp.
+    /// Historical checkpointed voting balance for `addr` at a snapshot index.
     BalanceCheckpoint(Address, u32),
-    /// Total supply checkpoint at a monotonic snapshot index.
-    TotalSupplyCheckpoint(u32),
     /// Checkpoint indexes belonging to an account's balance history.
     CheckpointIndices(Address),
     /// Historical delegate at a checkpoint index; None means self-delegated.
