@@ -56,7 +56,7 @@ pub struct Proposal {
     /// Snapshot of total supply at proposal creation (for quorum calc).
     pub total_supply_snapshot: i128,
     /// Monotonic checkpoint index captured when the proposal is created.
-    pub snapshot_id: u32,\n    /// Monotonic checkpoint index captured when this proposal is created.\n    pub snapshot_id: u32,
+    pub snapshot_id: u32,
     /// Ledger timestamp when voting opens.
     pub vote_start: u64,
     /// Ledger timestamp when voting closes.
