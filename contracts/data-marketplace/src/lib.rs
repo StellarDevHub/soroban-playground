@@ -588,18 +588,8 @@ impl DataMarketplaceContract {
             .persistent()
             .set(&DataKey::Lease(dataset_id, buyer.clone()), &expires_at);
 
-        let mut roster: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DatasetBuyers(dataset_id))
-            .unwrap_or_else(|| Vec::new(&env));
-        let was_listed = roster.contains(&buyer);
-        if !was_listed {
-            roster.push_back(buyer.clone());
-            env.storage()
-                .persistent()
-                .set(&DataKey::DatasetBuyers(dataset_id), &roster);
-        }
+        // Keep renewals on the same indexed roster used by bounded cleanup.
+        let was_listed = Self::add_dataset_buyer(&env, dataset_id, &buyer)?;
 
         let mut dataset_stats = Self::load_dataset_stats(&env, dataset_id);
         dataset_stats.revenue = dataset_stats.revenue.saturating_add(prorated_cost);
