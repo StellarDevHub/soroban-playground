@@ -71,6 +71,17 @@ function validateEntry(entry) {
 async function applySyncEntry(db, entry) {
   const { table, record_id, operation, payload, client_timestamp } = entry;
 
+  if (table === 'yjs_document_updates' && payload?.project_id && payload?.document_id && payload?.update_data) {
+    const { applyYjsUpdate } = await import('./yjsDocumentService.js');
+    await applyYjsUpdate(payload.project_id, payload.document_id, payload.update_data);
+    await db.run(
+      `INSERT INTO sync_logs (table_name, record_id, operation, payload, client_timestamp, status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [table, record_id, operation, JSON.stringify(payload), client_timestamp, SYNC_STATUS.APPLIED]
+    );
+    return 'applied';
+  }
+
   // Check for an existing sync log for this record to apply last-write-wins
   const existing = await db.get(
     'SELECT client_timestamp FROM sync_logs WHERE table_name = ? AND record_id = ? AND status = ?',
@@ -119,7 +130,7 @@ async function applySyncEntry(db, entry) {
 }
 
 // Allowlist of tables that can be mutated via sync to prevent arbitrary table writes.
-const SYNCABLE_TABLES = new Set(['favorites', 'feature_flags', 'sync_logs']);
+const SYNCABLE_TABLES = new Set(['favorites', 'feature_flags', 'sync_logs', 'yjs_document_updates']);
 
 function assertSyncable(table) {
   if (!SYNCABLE_TABLES.has(table)) {
