@@ -19,13 +19,13 @@ mod types;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, BytesN, Env, String};
 
 use crate::storage::{
-    clear_pending_upgrade, get_balance, get_deposit, get_exec_delay,
-    get_pending_upgrade as storage_get_pending_upgrade, get_proposal, get_proposal_count,
-    get_quorum_bps, get_total_supply, get_voting_period, has_voted, is_initialized, record_vote,
-    remove_delegate, resolve_delegate, resolve_delegate_at, balance_at, checkpoint_count,
-    record_balance_checkpoint, record_delegate_checkpoint, set_admin, set_balance, set_delegate, set_deposit,
-    set_exec_delay, set_pending_upgrade, set_proposal, set_proposal_count, set_quorum_bps,
-    set_total_supply, set_voting_period,
+    balance_at, checkpoint_count, clear_pending_upgrade, get_balance, get_deposit,
+    get_exec_delay, get_pending_upgrade as storage_get_pending_upgrade, get_proposal,
+    get_proposal_count, get_quorum_bps, get_total_supply, get_voting_period, has_voted,
+    is_initialized, record_balance_checkpoint, record_delegate_checkpoint, record_vote,
+    remove_delegate, resolve_delegate, resolve_delegate_at, set_admin, set_balance,
+    set_delegate, set_deposit, set_exec_delay, set_pending_upgrade, set_proposal,
+    set_proposal_count, set_quorum_bps, set_total_supply, set_voting_period,
 };
 use crate::types::{Error, InstanceKey, Proposal, ProposalStatus, UpgradePending, VoteChoice};
 
@@ -266,7 +266,11 @@ impl Governance {
     pub fn guardian_veto(env: Env, guardian: Address, proposal_id: u32) -> Result<(), Error> {
         ensure_initialized(&env)?;
         guardian.require_auth();
-        let configured: Option<Address> = env.storage().instance().get(&InstanceKey::Guardian).unwrap_or(None);
+        let configured: Option<Address> = env
+            .storage()
+            .instance()
+            .get(&InstanceKey::Guardian)
+            .unwrap_or(None);
         if configured != Some(guardian) {
             return Err(Error::NotGuardian);
         }
@@ -277,7 +281,7 @@ impl Governance {
         if proposal.status != ProposalStatus::Passed {
             return Err(Error::ProposalNotPassed);
         }
-        if env.ledger().timestamp() > proposal.veto_deadline {
+        if env.ledger().timestamp() >= proposal.veto_deadline {
             return Err(Error::VetoWindowClosed);
         }
         proposal.status = ProposalStatus::Cancelled;
