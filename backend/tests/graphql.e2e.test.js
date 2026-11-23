@@ -58,6 +58,8 @@ jest.mock('../src/services/redisService.js', () => ({
 }));
 
 const { setupGraphQL } = require('../src/graphql/index.js');
+const { hashQuery } = require('../src/graphql/persistedQueries.js');
+const redisService = require('../src/services/redisService.js').default;
 const {
   getCompileStats,
   getCompileSnapshot,
@@ -377,6 +379,18 @@ describe('GraphQL E2E — Error handling', () => {
     );
   });
 
+  it('rejects deeply nested recursive queries before resolver execution', async () => {
+    const res = await gql(
+      app,
+      '{ projects { files { project { files { project { id } } } } } }'
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toBeUndefined();
+    expect(res.body.errors[0].extensions.code).toBe('QUERY_DEPTH_EXCEEDED');
+    expect(res.body.errors[0].extensions.depth).toEqual({ depth: 6, max: 5 });
+  });
+
   it('rejects query exceeding complexity limit', async () => {
     // compileBatch has complexity 20, nesting many of these should trip the limit
     const heavyQuery = Array.from(
@@ -407,6 +421,88 @@ describe('GraphQL E2E — Authorization', () => {
     app = express();
     app.use(express.json());
     await setupGraphQL(app);
+  });
+
+  describe('GraphQL E2E — Production persisted-query allowlist', () => {
+    let app;
+    const previousNodeEnv = process.env.NODE_ENV;
+
+    beforeAll(async () => {
+      process.env.NODE_ENV = 'production';
+      app = express();
+      app.use(express.json());
+      await setupGraphQL(app);
+    });
+
+    afterAll(() => {
+      process.env.NODE_ENV = previousNodeEnv;
+    });
+
+    beforeEach(() => {
+      redisService.get.mockReset().mockResolvedValue(null);
+    });
+
+    it('rejects ad-hoc query strings without a persisted hash', async () => {
+      const res = await gql(app, '{ health }');
+
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].extensions.code).toBe(
+        'PERSISTED_QUERY_REQUIRED'
+      );
+    });
+
+    it('rejects a query string that differs from its registered hash', async () => {
+      const registeredQuery = '{ health }';
+      redisService.get.mockResolvedValue(registeredQuery);
+
+      const res = await request(app)
+        .post('/graphql')
+        .send({
+          query: '{ __typename }',
+          extensions: {
+            persistedQuery: {
+              version: 1,
+              sha256Hash: hashQuery(registeredQuery),
+            },
+          },
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].extensions.code).toBe(
+        'PERSISTED_QUERY_MISMATCH'
+      );
+    });
+
+    it('executes a registered query by hash', async () => {
+      const query = '{ health }';
+      redisService.get.mockResolvedValue(query);
+
+      const res = await request(app)
+        .post('/graphql')
+        .send({
+          extensions: {
+            persistedQuery: { version: 1, sha256Hash: hashQuery(query) },
+          },
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.health).toBe('ok');
+    });
+
+    it('requires a secret for persisted-query registration in production', async () => {
+      const previousSecret = process.env.PERSISTED_QUERY_SECRET;
+      delete process.env.PERSISTED_QUERY_SECRET;
+
+      const res = await request(app)
+        .post('/graphql/persisted-queries')
+        .send({ query: '{ health }', hash: hashQuery('{ health }') });
+
+      if (previousSecret !== undefined) {
+        process.env.PERSISTED_QUERY_SECRET = previousSecret;
+      }
+
+      expect(res.status).toBe(503);
+    });
   });
 
   beforeEach(() => {

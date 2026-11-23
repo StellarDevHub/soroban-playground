@@ -24,7 +24,15 @@ function normalizeHash(value) {
 }
 
 function getPersistedQueryHash(body = {}) {
-  const extensionHash = body.extensions?.persistedQuery?.sha256Hash;
+  let extensions = body.extensions;
+  if (typeof extensions === 'string') {
+    try {
+      extensions = JSON.parse(extensions);
+    } catch {
+      extensions = null;
+    }
+  }
+  const extensionHash = extensions?.persistedQuery?.sha256Hash;
   return normalizeHash(body.sha256Hash ?? body.hash ?? extensionHash);
 }
 
@@ -41,7 +49,9 @@ export function signPersistedQuery(
 }
 
 function validateRegistrationSignature(query, signature) {
-  if (!process.env.PERSISTED_QUERY_SECRET) return true;
+  if (!process.env.PERSISTED_QUERY_SECRET) {
+    return process.env.NODE_ENV !== 'production';
+  }
   if (!signature) return false;
 
   const expected = signPersistedQuery(query);
@@ -86,31 +96,71 @@ export async function loadPersistedQuery(hash) {
   return redisService.get(getPersistedQueryKey(normalized));
 }
 
-export function createPersistedQueryMiddleware() {
+function persistedQueryError(res, status, message, code, hash) {
+  return res.status(status).json({
+    errors: [
+      {
+        message,
+        extensions: { code, ...(hash ? { hash } : {}) },
+      },
+    ],
+  });
+}
+
+export function createPersistedQueryMiddleware({
+  requirePersistedQueries = process.env.NODE_ENV === 'production',
+} = {}) {
   return async function persistedQueryMiddleware(req, res, next) {
-    if (req.method !== 'POST') return next();
+    if (req.method !== 'POST' && req.method !== 'GET') return next();
 
-    const hash = getPersistedQueryHash(req.body);
-    if (!hash) return next();
-
-    if (req.body?.query) {
-      return next();
+    const requestBody = req.method === 'GET' ? req.query : req.body;
+    const hash = getPersistedQueryHash(requestBody);
+    if (!hash) {
+      if (!requirePersistedQueries) return next();
+      return persistedQueryError(
+        res,
+        400,
+        'A registered persisted query hash is required.',
+        'PERSISTED_QUERY_REQUIRED'
+      );
     }
+
+    const suppliedQuery = requestBody?.query;
+    if (!requirePersistedQueries && suppliedQuery) return next();
 
     try {
       const query = await loadPersistedQuery(hash);
       if (!query) {
-        return res.status(200).json({
-          errors: [
-            {
-              message: 'PersistedQueryNotFound',
-              extensions: { code: 'PERSISTED_QUERY_NOT_FOUND', hash },
-            },
-          ],
-        });
+        return persistedQueryError(
+          res,
+          200,
+          'PersistedQueryNotFound',
+          'PERSISTED_QUERY_NOT_FOUND',
+          hash
+        );
       }
 
-      req.body = { ...req.body, query };
+      if (
+        requirePersistedQueries &&
+        suppliedQuery !== undefined &&
+        suppliedQuery !== query
+      ) {
+        return persistedQueryError(
+          res,
+          400,
+          'The supplied query does not match the registered persisted query.',
+          'PERSISTED_QUERY_MISMATCH',
+          hash
+        );
+      }
+
+      if (req.method === 'GET') {
+        const url = new URL(req.originalUrl, 'http://localhost');
+        url.searchParams.set('query', query);
+        req.url = `${url.pathname}${url.search}`;
+      } else {
+        req.body = { ...req.body, query };
+      }
       return next();
     } catch (error) {
       return next(error);
@@ -124,6 +174,15 @@ export function createPersistedQueryRouter() {
   router.post('/persisted-queries', async (req, res, next) => {
     try {
       const { query, hash, signature } = req.body ?? {};
+      if (
+        process.env.NODE_ENV === 'production' &&
+        !process.env.PERSISTED_QUERY_SECRET
+      ) {
+        return res.status(503).json({
+          success: false,
+          error: 'persisted query registration is unavailable',
+        });
+      }
       if (!validateRegistrationSignature(query, signature)) {
         return res.status(401).json({
           success: false,

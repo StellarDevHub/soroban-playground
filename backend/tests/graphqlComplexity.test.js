@@ -215,6 +215,21 @@ describe('GraphQL server — complexity enforcement', () => {
     expect(res.body.extensions.complexity).toEqual({ score: 122, max: 500 });
     expect(getCompileSnapshot).toHaveBeenCalled();
   });
+
+  it('caps even privileged queries at 500 complexity points', async () => {
+    const res = await gqlRequest(
+      app,
+      '{ deployHistory(first: 126) { totalCount } }',
+      'admin'
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toBeUndefined();
+    expect(res.body.errors[0].extensions).toMatchObject({
+      code: 'QUERY_COMPLEXITY_EXCEEDED',
+      complexity: { score: 504, max: 500, role: 'admin' },
+    });
+  });
 });
 
 describe('GraphQL server — complexity breakdown survives production maskedErrors', () => {

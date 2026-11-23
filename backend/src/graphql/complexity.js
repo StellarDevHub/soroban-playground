@@ -16,6 +16,8 @@ export const ROLE_LIMITS = {
   admin: 1000,
 };
 
+export const MAX_QUERY_COMPLEXITY = 500;
+
 export const DEFAULT_ROLE = 'guest';
 
 // Backwards-compatible alias for the guest/default ceiling.

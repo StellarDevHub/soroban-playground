@@ -10,7 +10,11 @@ import { typeDefs } from './schema.js';
 import { resolvers } from './resolvers.js';
 import { buildGraphQLSchema } from './authorization.js';
 import { createLoaders } from './dataloaders.js';
-import { computeComplexity, getMaxComplexityForRole } from './complexity.js';
+import {
+  computeComplexity,
+  getMaxComplexityForRole,
+  MAX_QUERY_COMPLEXITY,
+} from './complexity.js';
 import { computeDepth, MAX_DEPTH } from './depth.js';
 import {
   createPersistedQueryMiddleware,
@@ -88,7 +92,10 @@ query Health {
 
           const userRole = args.contextValue?.user?.role || 'guest';
           const roles = args.contextValue?.user?.roles || [userRole];
-          const max = getMaxComplexityForRole(roles);
+          const max = Math.min(
+            getMaxComplexityForRole(roles),
+            MAX_QUERY_COMPLEXITY
+          );
           const score = computeComplexity(
             args.schema,
             args.document,
