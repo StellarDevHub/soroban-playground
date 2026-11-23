@@ -37,6 +37,7 @@ pub enum DataKey {
     ProviderDatasets(Address),
     License(u64, Address), // (dataset_id, buyer)
     Lease(u64, Address), // (dataset_id, buyer) -> expiration timestamp
+    CleanupCursor(u64), // next buyer index to inspect during bounded cleanup
     DatasetBuyers(u64),
     DatasetStats(u64),
     BuyerStats(Address),
@@ -153,6 +154,7 @@ const TOPIC_PAUSE: Symbol = symbol_short!("pause");
 const TOPIC_ACCESS: Symbol = symbol_short!("access");
 const TOPIC_GRANT: Symbol = symbol_short!("grant");
 const TOPIC_REVOKE: Symbol = symbol_short!("revoke");
+const MAX_CLEANUP_BATCH: u32 = 50;
 
 #[contract]
 pub struct DataMarketplaceContract;
@@ -421,25 +423,37 @@ impl DataMarketplaceContract {
 
         let now = env.ledger().timestamp();
         let key = DataKey::License(dataset_id, buyer.clone());
-        let was_active = env
-            .storage()
-            .persistent()
-            .get::<_, License>(&key)
-            .map(|l| l.expires_at > now && l.queries_used < l.queries_total)
+        // A buyer remains active until the timestamp expires, even when their
+        // query quota is exhausted. Quota and lease validity are independent.
+        let existing = env.storage().persistent().get::<_, License>(&key);
+        let was_active = existing
+            .as_ref()
+            .map(|license| license.expires_at > now)
             .unwrap_or(false);
 
-        let license = match env.storage().persistent().get::<_, License>(&key) {
+        let license = match existing {
             Some(existing) if existing.expires_at > now => License {
-                expires_at: existing.expires_at.saturating_add(dataset.license_seconds),
-                queries_total: existing.queries_total.saturating_add(max_queries),
-                total_paid: existing.total_paid.saturating_add(cost),
+                expires_at: existing
+                    .expires_at
+                    .checked_add(dataset.license_seconds)
+                    .ok_or(Error::InvalidAmount)?,
+                queries_total: existing
+                    .queries_total
+                    .checked_add(max_queries)
+                    .ok_or(Error::InvalidAmount)?,
+                total_paid: existing
+                    .total_paid
+                    .checked_add(cost)
+                    .ok_or(Error::InvalidAmount)?,
                 ..existing
             },
             _ => License {
                 dataset_id,
                 buyer: buyer.clone(),
                 purchased_at: now,
-                expires_at: now.saturating_add(dataset.license_seconds),
+                expires_at: now
+                    .checked_add(dataset.license_seconds)
+                    .ok_or(Error::InvalidAmount)?,
                 queries_total: max_queries,
                 queries_used: 0,
                 total_paid: cost,
@@ -450,23 +464,29 @@ impl DataMarketplaceContract {
             .persistent()
             .set(&DataKey::Lease(dataset_id, buyer.clone()), &license.expires_at);
 
+        // Keep the roster unique. An expired buyer may still be present until
+        // a keeper cleans it up; in that case reactivation must not double-count.
+        let mut roster: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DatasetBuyers(dataset_id))
+            .unwrap_or_else(|| Vec::new(&env));
+        let was_listed = roster.contains(&buyer);
+        if !was_listed {
+            roster.push_back(buyer.clone());
+            env.storage()
+                .persistent()
+                .set(&DataKey::DatasetBuyers(dataset_id), &roster);
+        }
+
         // Dataset stats
         let mut ds_stats = Self::load_dataset_stats(&env, dataset_id);
         ds_stats.revenue = ds_stats.revenue.saturating_add(cost);
         if !was_active {
             ds_stats.license_count = ds_stats.license_count.saturating_add(1);
-            ds_stats.active_buyers = ds_stats.active_buyers.saturating_add(1);
-            let mut roster: Vec<Address> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::DatasetBuyers(dataset_id))
-                .unwrap_or_else(|| Vec::new(&env));
-            if !roster.contains(&buyer) {
-                roster.push_back(buyer.clone());
+            if !was_listed {
+                ds_stats.active_buyers = ds_stats.active_buyers.saturating_add(1);
             }
-            env.storage()
-                .persistent()
-                .set(&DataKey::DatasetBuyers(dataset_id), &roster);
         }
         env.storage()
             .persistent()
@@ -552,7 +572,8 @@ impl DataMarketplaceContract {
             .get(&key)
             .ok_or(Error::LicenseNotFound)?;
         let now = env.ledger().timestamp();
-        let base = if license.expires_at > now { license.expires_at } else { now };
+        let was_active = license.expires_at > now;
+        let base = if was_active { license.expires_at } else { now };
         let expires_at = base
             .checked_add(additional_seconds)
             .ok_or(Error::InvalidAmount)?;
@@ -575,13 +596,35 @@ impl DataMarketplaceContract {
             .persistent()
             .set(&DataKey::Lease(dataset_id, buyer.clone()), &expires_at);
 
+        let mut roster: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DatasetBuyers(dataset_id))
+            .unwrap_or_else(|| Vec::new(&env));
+        let was_listed = roster.contains(&buyer);
+        if !was_listed {
+            roster.push_back(buyer.clone());
+            env.storage()
+                .persistent()
+                .set(&DataKey::DatasetBuyers(dataset_id), &roster);
+        }
+
         let mut dataset_stats = Self::load_dataset_stats(&env, dataset_id);
         dataset_stats.revenue = dataset_stats.revenue.saturating_add(prorated_cost);
+        if !was_active {
+            dataset_stats.license_count = dataset_stats.license_count.saturating_add(1);
+            if !was_listed {
+                dataset_stats.active_buyers = dataset_stats.active_buyers.saturating_add(1);
+            }
+        }
         env.storage()
             .persistent()
             .set(&DataKey::DatasetStats(dataset_id), &dataset_stats);
         let mut buyer_stats = Self::load_buyer_stats(&env, &buyer);
         buyer_stats.total_spent = buyer_stats.total_spent.saturating_add(prorated_cost);
+        if !was_active {
+            buyer_stats.licenses_purchased = buyer_stats.licenses_purchased.saturating_add(1);
+        }
         env.storage()
             .persistent()
             .set(&DataKey::BuyerStats(buyer.clone()), &buyer_stats);
@@ -593,20 +636,33 @@ impl DataMarketplaceContract {
         Ok(license)
     }
 
-    /// Permissionless keeper hook: remove every expired lease for a dataset.
-    /// Soroban has no native cron, so an off-chain keeper can call this method;
-    /// access checks remain time-based even before cleanup is executed.
-    pub fn cleanup_expired_leases(env: Env, dataset_id: u64) -> Result<u32, Error> {
-        let buyers: Vec<Address> = env
+    /// Permissionless keeper hook that examines at most `max_items` buyers.
+    /// Returns (leases_removed, buyers_examined, complete). Call repeatedly
+    /// until complete is true. The persisted cursor makes progress across calls.
+    pub fn cleanup_expired_leases(
+        env: Env,
+        dataset_id: u64,
+        max_items: u32,
+    ) -> Result<(u32, u32, bool), Error> {
+        if max_items == 0 || max_items > MAX_CLEANUP_BATCH {
+            return Err(Error::InvalidParameter);
+        }
+        let mut buyers: Vec<Address> = env
             .storage()
             .persistent()
             .get(&DataKey::DatasetBuyers(dataset_id))
             .unwrap_or_else(|| Vec::new(&env));
+        let mut cursor: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CleanupCursor(dataset_id))
+            .unwrap_or(0);
         let now = env.ledger().timestamp();
-        let mut retained = Vec::new(&env);
         let mut cleaned = 0u32;
+        let mut examined = 0u32;
 
-        for buyer in buyers.iter() {
+        while cursor < buyers.len() && examined < max_items {
+            let buyer = buyers.get(cursor).ok_or(Error::InvalidParameter)?;
             let lease_key = DataKey::Lease(dataset_id, buyer.clone());
             let license_key = DataKey::License(dataset_id, buyer.clone());
             let expires_at = env
@@ -619,30 +675,46 @@ impl DataMarketplaceContract {
                         .get::<_, License>(&license_key)
                         .map(|license| license.expires_at)
                 });
-            if let Some(expiry) = expires_at {
-                if expiry <= now {
+
+            examined = examined.saturating_add(1);
+            match expires_at {
+                Some(expiry) if expiry > now => cursor += 1,
+                Some(expiry) => {
                     env.storage().persistent().remove(&lease_key);
                     env.storage().persistent().remove(&license_key);
+                    buyers.remove(cursor);
                     cleaned = cleaned.saturating_add(1);
                     env.events().publish(
                         (TOPIC_ACCESS, TOPIC_REVOKE, dataset_id),
-                        buyer,
+                        (buyer, expiry),
                     );
-                } else {
-                    retained.push_back(buyer);
+                }
+                None => {
+                    // Remove orphaned roster entries so they cannot block
+                    // future cleanup runs indefinitely.
+                    buyers.remove(cursor);
+                    cleaned = cleaned.saturating_add(1);
                 }
             }
         }
 
+        let complete = cursor >= buyers.len();
+        if complete {
+            cursor = 0;
+        }
         env.storage()
             .persistent()
-            .set(&DataKey::DatasetBuyers(dataset_id), &retained);
+            .set(&DataKey::DatasetBuyers(dataset_id), &buyers);
+        env.storage()
+            .persistent()
+            .set(&DataKey::CleanupCursor(dataset_id), &cursor);
+
         let mut stats = Self::load_dataset_stats(&env, dataset_id);
-        stats.active_buyers = retained.len();
+        stats.active_buyers = stats.active_buyers.saturating_sub(cleaned);
         env.storage()
             .persistent()
             .set(&DataKey::DatasetStats(dataset_id), &stats);
-        Ok(cleaned)
+        Ok((cleaned, examined, complete))
     }
 
     // ── Privacy-preserving query ───────────────────────────────────────────
