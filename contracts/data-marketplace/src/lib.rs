@@ -66,8 +66,6 @@ pub enum Error {
     SelfQueryForbidden = 14,
     CommitmentAlreadyUsed = 15,
     InvalidParameter = 16,
-    LeaseNotFound = 17,
-    LeaseNotExpired = 18,
 }
 
 // ── Domain types ────────────────────────────────────────────────────────────
@@ -510,9 +508,17 @@ impl DataMarketplaceContract {
 
     /// A lease is valid only while its expiry is strictly later than ledger time.
     pub fn has_valid_lease(env: Env, dataset_id: u64, buyer: Address) -> bool {
-        env.storage()
+        let expiry = env
+            .storage()
             .persistent()
-            .get::<_, u64>(&DataKey::Lease(dataset_id, buyer))
+            .get::<_, u64>(&DataKey::Lease(dataset_id, buyer.clone()))
+            .or_else(|| {
+                env.storage()
+                    .persistent()
+                    .get::<_, License>(&DataKey::License(dataset_id, buyer))
+                    .map(|license| license.expires_at)
+            });
+        expiry
             .map(|expires_at| expires_at > env.ledger().timestamp())
             .unwrap_or(false)
     }
