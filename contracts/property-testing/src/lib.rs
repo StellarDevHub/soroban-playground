@@ -5,6 +5,9 @@ use alloc::boxed::Box;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, IntoVal, String, TryFromVal, Val, Vec};
 
+pub mod invariants;
+pub use invariants::{check_token_conservation, ConservationError};
+
 /// Result for property test execution
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PropertyTestResult {
@@ -243,6 +246,7 @@ impl<'a> FuzzGenerator<'a> {
         self.gen_u64() % 2 == 0
     }
 
+    #[cfg(any(test, feature = "testutils"))]
     pub fn gen_address(&mut self) -> Address {
         Address::generate(self.env)
     }

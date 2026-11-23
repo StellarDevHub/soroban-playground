@@ -951,6 +951,9 @@ impl SyntheticAssets {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+mod proptest;
+
+#[cfg(test)]
 mod test {
     use super::*;
     use soroban_sdk::{

@@ -188,7 +188,7 @@ jobs:
       - name: Clippy Check
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run Rust Tests
+      - name: Run Rust Tests (release artifact gate)
         run: cargo test --all-targets --all-features
 
       # Contracts on SDK 20-22 need std and only build for wasm32-unknown-unknown.
