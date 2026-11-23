@@ -126,7 +126,7 @@ impl Governance {
             vote_end,
             execute_after: vote_end + ed,
             deposit,
-            veto_deadline: vote_end + 172_800,
+            veto_deadline: vote_end + ed,
         };
         set_proposal(&env, &proposal);
         set_proposal_count(&env, id + 1);
