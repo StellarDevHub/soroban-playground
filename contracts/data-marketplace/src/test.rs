@@ -344,7 +344,9 @@ fn cleanup_processes_buyers_in_bounded_batches() {
     let active = client.purchase_access(&active_buyer, &id, &1_u32);
     env.ledger().with_mut(|ledger| ledger.timestamp = expired.expires_at + 1);
 
+    let events_before_cleanup = env.events().all().len();
     assert_eq!(client.cleanup_expired_leases(&id, &1), (1, 1, false));
+    assert_eq!(env.events().all().len(), events_before_cleanup + 1);
     assert_eq!(client.get_license(&id, &expired_buyer), None);
     assert!(client.get_license(&id, &active_buyer).is_some());
     assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 1);
