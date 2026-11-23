@@ -66,12 +66,20 @@ pub struct Loan {
     pub repaid: i128,
     pub total_claimed: i128,
     pub created_at: u64,
+    /// Asset locked by the borrower as collateral (set by `post_collateral`).
     pub collateral_asset: Option<Address>,
+    /// Collateral amount still held by the contract.
     pub collateral_held: i128,
+    /// Fixed price (in the loan asset) at which all collateral can be bought
+    /// by a liquidator after default.
     pub liquidation_price: i128,
+    /// Sum of principal of senior positions that have claimed.
     pub senior_claimed_principal: i128,
+    /// Sum of principal of junior positions that have claimed.
     pub junior_claimed_principal: i128,
+    /// Total paid out to senior lenders so far.
     pub senior_paid: i128,
+    /// Total paid out to junior lenders so far.
     pub junior_paid: i128,
 }
 
