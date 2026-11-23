@@ -5,7 +5,12 @@ import {
   resolveRateLimitIdentity,
   TIER_MULTIPLIERS,
 } from '../src/middleware/rateLimiter.js';
+import { Keypair } from '@stellar/stellar-sdk';
 
+jest.mock('../src/middleware/challengeAuth.js', () => ({
+  __esModule: true,
+  verifyAccessToken: jest.fn(),
+}));
 jest.mock('../src/utils/tracing.js', () => ({
   __esModule: true,
   createSpan: jest.fn(() => ({ end: jest.fn() })),
@@ -77,6 +82,7 @@ function makeReqRes(overrides = {}) {
 beforeEach(() => {
   clearApiKeyCache();
   strategy().check.mockReset();
+  require('../src/middleware/challengeAuth.js').verifyAccessToken.mockReset();
   require('../src/services/redisService.js').default.logAnalytics.mockResolvedValue(
     undefined
   );
@@ -97,6 +103,7 @@ describe('rateLimiter middleware', () => {
     expect(next).toHaveBeenCalledWith();
     expect(res._headers['X-RateLimit-Limit']).toBe(100);
     expect(res._headers['X-RateLimit-Remaining']).toBe(99);
+    expect(res._headers['Retry-After']).toBe('0');
   });
 
   it('calls next(error) with 429 when limit exceeded', async () => {
@@ -124,6 +131,9 @@ describe('rateLimiter middleware', () => {
     await rateLimiter()(req, res, next);
 
     expect(next).toHaveBeenCalledWith();
+    expect(res._headers['X-RateLimit-Limit']).toBe(100);
+    expect(res._headers['X-RateLimit-Remaining']).toBe(100);
+    expect(res._headers['Retry-After']).toBe('0');
   });
 
   it('uses x-forwarded-for when req.ip is absent', async () => {
@@ -261,6 +271,58 @@ function allowAll() {
 }
 
 describe('rate limit identity & spoofing defence (#1574)', () => {
+  it('keys authenticated Stellar JWTs by their verified public key', async () => {
+    allowAll();
+    const publicKey = Keypair.random().publicKey();
+    require('../src/middleware/challengeAuth.js').verifyAccessToken.mockResolvedValue(
+      { sub: publicKey }
+    );
+    const { req, res } = makeReqRes({
+      headers: { authorization: 'Bearer valid-access-token' },
+    });
+
+    await rateLimiter()(req, res, jest.fn());
+
+    expect(strategy().check.mock.calls[0][1]).toContain(`stellar:${publicKey}`);
+  });
+
+  it('bypasses Redis limits only for whitelisted authenticated Stellar accounts', async () => {
+    const publicKey = Keypair.random().publicKey();
+    const { req, res } = makeReqRes({
+      user: { publicKey },
+    });
+    const next = jest.fn();
+
+    await rateLimiter({
+      limit: 10,
+      internalServiceAccounts: [publicKey],
+    })(req, res, next);
+
+    expect(strategy().check).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith();
+    expect(req.rateLimit).toMatchObject({ bypassed: true, remaining: 10 });
+    expect(res._headers).toMatchObject({
+      'X-RateLimit-Limit': 10,
+      'X-RateLimit-Remaining': 10,
+      'Retry-After': '0',
+    });
+  });
+
+  it('does not apply the internal account bypass to an unauthenticated caller', async () => {
+    allowAll();
+    const publicKey = Keypair.random().publicKey();
+    const { req, res } = makeReqRes({
+      headers: { 'x-stellar-public-key': publicKey },
+    });
+
+    await rateLimiter({
+      internalServiceAccounts: [publicKey],
+    })(req, res, jest.fn());
+
+    expect(strategy().check).toHaveBeenCalledTimes(1);
+    expect(strategy().check.mock.calls[0][1]).toContain('ip:127.0.0.1');
+  });
+
   it('ignores spoofed X-Forwarded-For from an untrusted peer', async () => {
     allowAll();
     const { req, res } = makeReqRes({

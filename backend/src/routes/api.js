@@ -33,7 +33,7 @@ import priceAggregatorRoutes from './priceAggregator.js';
 import tokenizedReitRoutes from './tokenizedReit.js';
 import readinessRulesRoutes from './readinessRules.routes.js';
 import { stellarIdValidation } from '../middleware/stellarIdValidation.js';
-import { rateLimit } from 'express-rate-limit';
+import { rateLimiter } from '../middleware/rateLimiter.js';
 import {
   versionTransformer,
   requestTransformerV2,
@@ -50,15 +50,11 @@ import {
 const router = express.Router();
 
 // Rate limit for state-mutating newly mounted gateways (#1491).
-const mutatingRouteLimiter = rateLimit({
+const mutatingRouteLimiter = rateLimiter({
+  scope: 'mutating',
   windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: 'Too many requests, please try again later',
-  },
+  limit: 100,
+  applyTierMultiplier: false,
 });
 
 // Version discovery endpoint
