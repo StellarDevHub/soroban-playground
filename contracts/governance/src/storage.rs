@@ -67,49 +67,55 @@ fn next_checkpoint(env: &Env) -> u32 {
 
 fn append_checkpoint_index(env: &Env, addr: &Address, index: u32) {
     let key = DataKey::CheckpointIndices(addr.clone());
-    let mut indices: Vec<u32> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+    let mut indices: Vec<u32> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env));
     indices.push_back(index);
     env.storage().persistent().set(&key, &indices);
 }
 
 pub fn record_balance_checkpoint(env: &Env, addr: &Address, balance: i128, supply: i128) {
     let index = next_checkpoint(env);
-    env.storage().persistent().set(&DataKey::BalanceCheckpoint(addr.clone(), index), &balance);
+    env.storage()
+        .persistent()
+        .set(&DataKey::BalanceCheckpoint(addr.clone(), index), &balance);
     append_checkpoint_index(env, addr, index);
-    env.storage().persistent().set(&DataKey::TotalSupplyCheckpoint(index), &supply);
 }
 
 pub fn balance_at(env: &Env, addr: &Address, snapshot: u32) -> i128 {
-    let indices: Vec<u32> = env.storage().persistent()
-        .get(&DataKey::CheckpointIndices(addr.clone())).unwrap_or(Vec::new(env));
+    let indices: Vec<u32> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::CheckpointIndices(addr.clone()))
+        .unwrap_or(Vec::new(env));
     let mut i = indices.len();
     while i > 0 {
         i -= 1;
         let index = indices.get(i).unwrap_or(0);
         if index <= snapshot {
-            return env.storage().persistent()
-                .get(&DataKey::BalanceCheckpoint(addr.clone(), index)).unwrap_or(0);
+            return env
+                .storage()
+                .persistent()
+                .get(&DataKey::BalanceCheckpoint(addr.clone(), index))
+                .unwrap_or(0);
         }
-    }
-    0
-}
-
-pub fn total_supply_at(env: &Env, snapshot: u32) -> i128 {
-    let mut i = snapshot;
-    while i > 0 {
-        if let Some(value) = env.storage().persistent().get::<_, i128>(&DataKey::TotalSupplyCheckpoint(i)) {
-            return value;
-        }
-        i -= 1;
     }
     0
 }
 
 pub fn record_delegate_checkpoint(env: &Env, addr: &Address, delegate: Option<Address>) {
     let index = next_checkpoint(env);
-    env.storage().persistent().set(&DataKey::DelegateCheckpoint(addr.clone(), index), &delegate);
+    env.storage()
+        .persistent()
+        .set(&DataKey::DelegateCheckpoint(addr.clone(), index), &delegate);
     let key = DataKey::DelegateCheckpointIndices(addr.clone());
-    let mut indices: Vec<u32> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+    let mut indices: Vec<u32> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env));
     indices.push_back(index);
     env.storage().persistent().set(&key, &indices);
 }
@@ -117,16 +123,22 @@ pub fn record_delegate_checkpoint(env: &Env, addr: &Address, delegate: Option<Ad
 pub fn resolve_delegate_at(env: &Env, addr: &Address, snapshot: u32) -> Address {
     let mut current = addr.clone();
     for _ in 0..8 {
-        let indices: Vec<u32> = env.storage().persistent()
-            .get(&DataKey::DelegateCheckpointIndices(current.clone())).unwrap_or(Vec::new(env));
+        let indices: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DelegateCheckpointIndices(current.clone()))
+            .unwrap_or(Vec::new(env));
         let mut i = indices.len();
         let mut delegate: Option<Address> = None;
         while i > 0 {
             i -= 1;
             let index = indices.get(i).unwrap_or(0);
             if index <= snapshot {
-                delegate = env.storage().persistent()
-                    .get(&DataKey::DelegateCheckpoint(current.clone(), index)).unwrap_or(None);
+                delegate = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::DelegateCheckpoint(current.clone(), index))
+                    .unwrap_or(None);
                 break;
             }
         }
@@ -139,8 +151,6 @@ pub fn resolve_delegate_at(env: &Env, addr: &Address, snapshot: u32) -> Address 
 }
 
 // ── Proposals ─────────────────────────────────────────────────────────────────
-
-// NOTE: requires `InstanceKey::TimelockMin`, `InstanceKey::Guardian` in types.rs.
 
 pub fn set_proposal(env: &Env, p: &Proposal) {
     env.storage().persistent().set(&DataKey::Proposal(p.id), p);
