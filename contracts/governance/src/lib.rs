@@ -410,64 +410,15 @@ impl Governance {
                     return Err(Error::SelfDelegation);
                 }
                 set_delegate(&env, &from, &target);
-                record_delegate_checkpoint(&env, &from, Some(target));\n                record_delegate_checkpoint(&env, &from, Some(target));
+                record_delegate_checkpoint(&env, &from, Some(target));
             }
-            None => {\n                remove_delegate(&env, &from);\n                record_delegate_checkpoint(&env, &from, None);\n            },
+            None => {
+                remove_delegate(&env, &from);
+                record_delegate_checkpoint(&env, &from, None);
+            }
         }
         env.events().publish((symbol_short!("delegated"),), from);
         Ok(())
     }
 
-    // ── Read-only ─────────────────────────────────────────────────────────────
 
-    pub fn get_proposal(env: Env, id: u32) -> Result<Proposal, Error> {
-        ensure_initialized(&env)?;
-        get_proposal(&env, id)
-    }
-
-    pub fn get_proposal_count(env: Env) -> Result<u32, Error> {
-        ensure_initialized(&env)?;
-        Ok(get_proposal_count(&env))
-    }
-
-    pub fn get_voting_power(env: Env, addr: Address) -> Result<i128, Error> {
-        ensure_initialized(&env)?;
-        Ok(voting_power(&env, &addr))
-    }
-
-    pub fn get_balance(env: Env, addr: Address) -> Result<i128, Error> {
-        ensure_initialized(&env)?;
-        Ok(get_balance(&env, &addr))
-    }
-
-    pub fn get_delegate(env: Env, addr: Address) -> Result<Address, Error> {
-        ensure_initialized(&env)?;
-        Ok(resolve_delegate(&env, &addr))
-    }
-
-    pub fn get_total_supply(env: Env) -> Result<i128, Error> {
-        ensure_initialized(&env)?;
-        Ok(get_total_supply(&env))
-    }
-}
-
-// ── Private helpers ───────────────────────────────────────────────────────────
-
-fn ensure_initialized(env: &Env) -> Result<(), Error> {
-    if !is_initialized(env) {
-        return Err(Error::NotInitialized);
-    }
-    Ok(())
-}
-
-fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
-    if storage::get_admin(env)? != *caller {
-        return Err(Error::Unauthorized);
-    }
-    Ok(())
-}
-
-/// Effective voting power = own balance (delegation is resolved at vote time).
-fn voting_power(env: &Env, addr: &Address) -> i128 {
-    get_balance(env, addr)
-}
