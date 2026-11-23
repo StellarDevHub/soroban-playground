@@ -259,6 +259,7 @@ mod mock_oracle_tests {
 
 mod mock_token_tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn setup() -> (Env, MockTokenClient<'static>) {
         let env = Env::default();
@@ -275,6 +276,51 @@ mod mock_token_tests {
         let token = MockTokenClient::new(&env, &contract_id);
         let alice = Address::generate(&env);
         (env, alice, token)
+    }
+
+    proptest! {
+        #![proptest_config(proptest::test_runner::Config {
+            cases: 64,
+            ..proptest::test_runner::Config::default()
+        })]
+
+        #[test]
+        fn transfers_preserve_token_supply(
+            operations in prop::collection::vec(
+                (0usize..4, 0usize..4, 0i128..10_000),
+                1..40
+            )
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+            let contract_id = env.register_contract(None, MockToken);
+            let token = MockTokenClient::new(&env, &contract_id);
+            let users = [
+                Address::generate(&env),
+                Address::generate(&env),
+                Address::generate(&env),
+                Address::generate(&env),
+            ];
+            let supply = 100_000i128;
+            token.mint(&users[0], &supply);
+
+            for (from, to, requested) in operations {
+                let available = token.balance(&users[from]);
+                let amount = requested.min(available);
+                token.transfer(&users[from], &users[to], &amount);
+
+                let balances = [
+                    token.balance(&users[0]),
+                    token.balance(&users[1]),
+                    token.balance(&users[2]),
+                    token.balance(&users[3]),
+                ];
+                prop_assert_eq!(
+                    crate::check_token_conservation(supply, &balances, &[]),
+                    Ok(())
+                );
+            }
+        }
     }
 
     #[test]

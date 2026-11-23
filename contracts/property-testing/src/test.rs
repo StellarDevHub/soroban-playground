@@ -1,6 +1,50 @@
 #![cfg(test)]
+
+use proptest::prelude::*;
 use crate::*;
 use soroban_sdk::{Env, String, Vec};
+
+proptest! {
+    #[test]
+    fn token_conservation_holds_for_partitioned_balances(
+        supply in 0i128..i128::MAX / 3,
+        user_share in 0i128..i128::MAX / 3,
+        pool_share in 0i128..i128::MAX / 3,
+    ) {
+        let user = user_share.min(supply);
+        let remaining = supply - user;
+        let pool = pool_share.min(remaining);
+        let other_user = remaining - pool;
+
+        prop_assert_eq!(
+            check_token_conservation(supply, &[user, other_user], &[pool]),
+            Ok(())
+        );
+    }
+}
+
+#[test]
+fn token_conservation_rejects_mismatches_and_invalid_balances() {
+    assert_eq!(
+        check_token_conservation(10, &[4, 5], &[0]),
+        Err(ConservationError::SupplyMismatch {
+            expected: 10,
+            actual: 9,
+        })
+    );
+    assert_eq!(
+        check_token_conservation(10, &[11], &[-1]),
+        Err(ConservationError::NegativeBalance)
+    );
+    assert_eq!(
+        check_token_conservation(i128::MAX, &[i128::MAX], &[1]),
+        Err(ConservationError::ArithmeticOverflow)
+    );
+    assert_eq!(
+        check_token_conservation(-1, &[], &[]),
+        Err(ConservationError::NegativeSupply)
+    );
+}
 
 #[test]
 fn test_property_tester_passes_all() {

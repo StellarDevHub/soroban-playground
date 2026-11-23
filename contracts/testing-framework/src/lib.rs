@@ -15,6 +15,7 @@
 //! | [`mock_oracle`] | Deployable mock oracle contract with stale-data simulation |
 //! | [`mock_token`]  | Deployable SEP-41 compatible mock token contract |
 //! | [`assertions`]  | Enhanced test assertions (`assert_near`, `assert_event`, etc.) |
+//! | [`check_token_conservation`] | Verify user and pool balances sum to token supply |
 //! | [`FuzzTester`]  | Property-based fuzzing strategies for Soroban types |
 //!
 //! ## Feature flags
@@ -47,6 +48,9 @@ pub mod mock_token;
 /// Enhanced test assertion helpers.
 pub mod assertions;
 pub use assertions::{assert_auth_required, assert_event_emitted, assert_near, assert_panics};
+
+/// Checks conservation of token balances across users and protocol pools.
+pub use property_testing::{check_token_conservation, ConservationError};
 
 /// Property-based fuzzing strategies for Soroban types.
 ///

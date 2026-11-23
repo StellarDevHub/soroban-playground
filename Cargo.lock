@@ -3238,6 +3238,7 @@ checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 name = "options-protocol"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "soroban-sdk 21.7.7",
 ]
 
@@ -3578,6 +3579,7 @@ dependencies = [
 name = "property-testing"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "soroban-sdk 21.7.7",
 ]
 
@@ -5795,6 +5797,7 @@ dependencies = [
 name = "synthetic-assets"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "soroban-sdk 21.7.7",
 ]
 
@@ -5816,6 +5819,7 @@ name = "testing-framework"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "property-testing",
  "soroban-sdk 21.7.7",
 ]
 

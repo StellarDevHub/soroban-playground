@@ -10,6 +10,8 @@
 
 mod math;
 mod storage;
+#[cfg(test)]
+mod proptest;
 mod test;
 mod types;
 
