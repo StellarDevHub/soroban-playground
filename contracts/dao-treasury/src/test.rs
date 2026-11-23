@@ -246,8 +246,8 @@ fn test_execute_after_timelock() {
     let tx_id = client.propose(&operator, &desc(&env, "Execute"), &0, &None);
     client.approve(&owner, &tx_id);
 
-    // Advance past the 24-hour timelock.
-    advance(&env, 86_401);
+    // Advance past the mandatory 48-hour timelock.
+    advance(&env, 172_801);
     client.execute(&admin, &tx_id, &None);
     assert_eq!(client.get_transaction(&tx_id).status, TxStatus::Executed);
 }
@@ -281,7 +281,7 @@ fn test_execute_not_queued_fails() {
     let (env, _owner, admin, operator, client) = setup();
     let tx_id = client.propose(&operator, &desc(&env, "Not queued"), &0, &None);
     // No approval → still Pending.
-    advance(&env, 86_401);
+    advance(&env, 172_801);
     let result = client.try_execute(&admin, &tx_id, &None);
     assert_eq!(result, Err(Ok(Error::TransactionNotQueued)));
 }
@@ -310,7 +310,7 @@ fn test_cancel_executed_tx_fails() {
     let (env, owner, admin, operator, client) = setup();
     let tx_id = client.propose(&operator, &desc(&env, "Already done"), &0, &None);
     client.approve(&owner, &tx_id);
-    advance(&env, 86_401);
+    advance(&env, 172_801);
     client.execute(&admin, &tx_id, &None);
 
     let result = client.try_cancel(&admin, &tx_id);
