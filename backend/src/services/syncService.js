@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { getDatabase } from '../database/connection.js';
+import { assertSafeIdentifier } from '../database/safeQuery.js';
 
 export const SYNC_STATUS = {
   PENDING: 'pending',
@@ -137,6 +138,7 @@ async function applyOperation(db, table, record_id, operation, payload) {
 
   const columns = Object.keys(payload);
   if (!columns.length) throw new Error('Payload has no fields');
+  columns.forEach((column) => assertSafeIdentifier(column, 'column name'));
 
   if (operation === 'insert') {
     const placeholders = columns.map(() => '?').join(', ');
