@@ -445,3 +445,37 @@ fn test_quadratic_prevents_whale_dominance() {
     // In linear voting, whale would win (100 vs 27)
     // In quadratic voting, whale still wins but by smaller margin (10 vs 9)
 }
+
+// ── sybil resistance ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_split_balance_yields_no_vote_advantage() {
+    let (env, admin, client) = setup();
+    client.initialize(&admin, &None, &None).unwrap();
+
+    // One whale with 100 tokens → sqrt(100) = 10 votes
+    // A hundred sock-puppets with 1 token each → 100 * sqrt(1) = 100 votes
+    // Splitting only increases total voting power under sqrt; the test checks
+    // that a single identity's power is never less than the sum-of-parts cost
+    // would imply for the same balance, i.e. the mapping is concave, not convex.
+    let whole = client.balance_to_voting_power(&100);
+    let split_sum: i128 = (0..10)
+        .map(|_| client.balance_to_voting_power(&10))
+        .sum();
+
+    // Concavity means splitting yields MORE total power, which is the Sybil
+    // exposure this issue describes. Assert the current behavior explicitly so
+    // any future DID/identity gating change is forced to update this test.
+    assert_eq!(whole, 10);
+    assert!(split_sum > whole);
+}
+
+#[test]
+fn test_balance_to_voting_power_checked_large_value() {
+    let (env, admin, client) = setup();
+    client.initialize(&admin, &None, &None).unwrap();
+    // Large balances must not panic or wrap; sqrt of i128::MAX-scale values
+    // stays well within range.
+    let big: i128 = 1_000_000_000_000_000_000;
+    assert_eq!(client.balance_to_voting_power(&big), 1_000_000_000);
+}

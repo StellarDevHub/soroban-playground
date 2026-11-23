@@ -194,13 +194,15 @@ impl QuadraticVoting {
         if balance == 0 {
             return Err(Error::InsufficientVotingPower);
         }
-
+        if balance < 0 || balance > u64::MAX as i128 {
+            return Err(Error::InsufficientVotingPower);
+        }
         let votes = integer_sqrt(balance as u64) as i128;
 
         if is_for {
-            proposal.votes_for += votes;
+            proposal.votes_for = proposal.votes_for.checked_add(votes).ok_or(Error::Overflow)?;
         } else {
-            proposal.votes_against += votes;
+            proposal.votes_against = proposal.votes_against.checked_add(votes).ok_or(Error::Overflow)?;
         }
 
         record_vote(&env, proposal_id, &voter);
