@@ -327,7 +327,7 @@ fn cleanup_removes_expired_lease_and_updates_active_buyers() {
     assert_eq!(client.get_lease_expiry(&id, &buyer), None);
     assert_eq!(client.get_license(&id, &buyer), None);
     assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 0);
-    assert_eq!(client.cleanup_expired_leases(&id, &10), (0, 0, true));
+    assert_eq!(client.cleanup_expired_leases(&id, &10), (0, 1, true));
 }
 
 
@@ -350,13 +350,16 @@ fn cleanup_processes_buyers_in_bounded_batches() {
     assert_eq!(client.get_license(&id, &expired_buyer), None);
     assert!(client.get_license(&id, &active_buyer).is_some());
     assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 1);
+    assert_eq!(client.get_dataset_buyers(&id).len(), 1);
 
     assert_eq!(client.cleanup_expired_leases(&id, &1), (0, 1, true));
     assert_eq!(client.get_lease_expiry(&id, &active_buyer), Some(active.expires_at));
 
     env.ledger().with_mut(|ledger| ledger.timestamp = active.expires_at + 1);
+    assert_eq!(client.cleanup_expired_leases(&id, &1), (0, 1, false));
     assert_eq!(client.cleanup_expired_leases(&id, &1), (1, 1, true));
     assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 0);
+    assert_eq!(client.get_dataset_buyers(&id).len(), 0);
 }
 
 #[test]
