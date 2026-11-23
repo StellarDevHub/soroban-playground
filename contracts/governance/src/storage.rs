@@ -115,7 +115,7 @@ pub fn resolve_delegate_at(env: &Env, addr: &Address, snapshot: u32) -> Address 
     let mut current = addr.clone();
     for _ in 0..8 {
         let indices: Vec<u32> = env.storage().persistent()
-            .get(&DataKey::CheckpointIndices(current.clone())).unwrap_or(Vec::new(env));
+            .get(&DataKey::DelegateCheckpointIndices(current.clone())).unwrap_or(Vec::new(env));
         let mut i = indices.len();
         let mut delegate: Option<Address> = None;
         while i > 0 {
