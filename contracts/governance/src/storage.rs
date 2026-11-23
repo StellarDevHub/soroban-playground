@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::types::{DataKey, Error, InstanceKey, Proposal, UpgradePending};
 
@@ -50,6 +50,90 @@ inst!(
 );
 inst!(get_exec_delay, set_exec_delay, ExecDelay, u64, 172_800);
 inst!(get_deposit, set_deposit, Deposit, i128, 0);
+
+// ── Historical checkpoints ────────────────────────────────────────────────────
+
+/// Monotonic mutation index. Unlike timestamps, this distinguishes multiple
+/// state changes made within the same ledger.
+pub fn checkpoint_count(env: &Env) -> u32 {
+    env.storage().instance().get(&InstanceKey::CheckpointCount).unwrap_or(0)
+}
+
+fn next_checkpoint(env: &Env) -> u32 {
+    let next = checkpoint_count(env).saturating_add(1);
+    env.storage().instance().set(&InstanceKey::CheckpointCount, &next);
+    next
+}
+
+fn append_checkpoint_index(env: &Env, addr: &Address, index: u32) {
+    let key = DataKey::CheckpointIndices(addr.clone());
+    let mut indices: Vec<u32> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+    indices.push_back(index);
+    env.storage().persistent().set(&key, &indices);
+}
+
+pub fn record_balance_checkpoint(env: &Env, addr: &Address, balance: i128, supply: i128) {
+    let index = next_checkpoint(env);
+    env.storage().persistent().set(&DataKey::BalanceCheckpoint(addr.clone(), index), &balance);
+    append_checkpoint_index(env, addr, index);
+    env.storage().persistent().set(&DataKey::TotalSupplyCheckpoint(index), &supply);
+}
+
+pub fn balance_at(env: &Env, addr: &Address, snapshot: u32) -> i128 {
+    let indices: Vec<u32> = env.storage().persistent()
+        .get(&DataKey::CheckpointIndices(addr.clone())).unwrap_or(Vec::new(env));
+    let mut i = indices.len();
+    while i > 0 {
+        i -= 1;
+        let index = indices.get(i).unwrap_or(0);
+        if index <= snapshot {
+            return env.storage().persistent()
+                .get(&DataKey::BalanceCheckpoint(addr.clone(), index)).unwrap_or(0);
+        }
+    }
+    0
+}
+
+pub fn total_supply_at(env: &Env, snapshot: u32) -> i128 {
+    let mut i = snapshot;
+    while i > 0 {
+        if let Some(value) = env.storage().persistent().get::<_, i128>(&DataKey::TotalSupplyCheckpoint(i)) {
+            return value;
+        }
+        i -= 1;
+    }
+    0
+}
+
+pub fn record_delegate_checkpoint(env: &Env, addr: &Address, delegate: Option<Address>) {
+    let index = next_checkpoint(env);
+    env.storage().persistent().set(&DataKey::DelegateCheckpoint(addr.clone(), index), &delegate);
+    append_checkpoint_index(env, addr, index);
+}
+
+pub fn resolve_delegate_at(env: &Env, addr: &Address, snapshot: u32) -> Address {
+    let mut current = addr.clone();
+    for _ in 0..8 {
+        let indices: Vec<u32> = env.storage().persistent()
+            .get(&DataKey::CheckpointIndices(current.clone())).unwrap_or(Vec::new(env));
+        let mut i = indices.len();
+        let mut delegate: Option<Address> = None;
+        while i > 0 {
+            i -= 1;
+            let index = indices.get(i).unwrap_or(0);
+            if index <= snapshot {
+                delegate = env.storage().persistent()
+                    .get(&DataKey::DelegateCheckpoint(current.clone(), index)).unwrap_or(None);
+                break;
+            }
+        }
+        match delegate {
+            Some(next) if next != current => current = next,
+            _ => break,
+        }
+    }
+    current
+}
 
 // ── Proposals ─────────────────────────────────────────────────────────────────
 
