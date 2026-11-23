@@ -20,6 +20,9 @@ pub enum Error {
     LoanNotMatured = 14,
     NothingToClaim = 15,
     ArithmeticOverflow = 16,
+    CollateralRequired = 17,
+    RecoveryPending = 18,
+    NothingToLiquidate = 19,
 }
 
 #[contracttype]
@@ -63,6 +66,13 @@ pub struct Loan {
     pub repaid: i128,
     pub total_claimed: i128,
     pub created_at: u64,
+    pub collateral_asset: Option<Address>,
+    pub collateral_held: i128,
+    pub liquidation_price: i128,
+    pub senior_claimed_principal: i128,
+    pub junior_claimed_principal: i128,
+    pub senior_paid: i128,
+    pub junior_paid: i128,
 }
 
 #[contracttype]
