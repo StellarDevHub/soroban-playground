@@ -427,3 +427,42 @@ fn lease_extension_rejects_zero_duration() {
         Error::InvalidParameter
     );
 }
+
+
+#[test]
+fn legacy_license_without_lease_key_remains_valid_and_migrates_on_extension() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, DataMarketplaceContract);
+    let client = DataMarketplaceContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+    let now = env.ledger().timestamp();
+    let legacy = License {
+        dataset_id: id,
+        buyer: buyer.clone(),
+        purchased_at: now,
+        expires_at: now + 10_000,
+        queries_total: 4,
+        queries_used: 1,
+        total_paid: 140,
+    };
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::License(id, buyer.clone()), &legacy);
+    });
+
+    assert_eq!(client.get_lease_expiry(&id, &buyer), None);
+    assert!(client.has_valid_lease(&id, &buyer));
+    client.submit_query(&buyer, &id, &b(&env, 0x73));
+    let migrated = client.extend_lease(&buyer, &id, &3_600_u64);
+    assert_eq!(migrated.queries_used, 2);
+    assert_eq!(client.get_lease_expiry(&id, &buyer), Some(migrated.expires_at));
+}
