@@ -54,7 +54,9 @@ pub struct Proposal {
     pub votes_against: i128,
     pub votes_abstain: i128,
     /// Snapshot of total supply at proposal creation (for quorum calc).
-    pub total_supply_snapshot: i128,\n    /// Monotonic checkpoint index captured when this proposal is created.\n    pub snapshot_id: u32,
+    pub total_supply_snapshot: i128,
+    /// Monotonic checkpoint index captured when the proposal is created.
+    pub snapshot_id: u32,\n    /// Monotonic checkpoint index captured when this proposal is created.\n    pub snapshot_id: u32,
     /// Ledger timestamp when voting opens.
     pub vote_start: u64,
     /// Ledger timestamp when voting closes.
@@ -88,7 +90,9 @@ pub enum InstanceKey {
     /// Guardian address authorised to veto proposals during the timelock window.
     Guardian,
     /// Minimum execution timelock in seconds (enforced floor, 48 hours).
-    MinTimelock,\n    /// Monotonic index for historical balance/delegation mutations.\n    CheckpointCount,
+    MinTimelock,
+    /// Monotonic index for historical balance/delegation mutations.
+    CheckpointCount,
 }
 
 #[contracttype]
@@ -101,9 +105,15 @@ pub enum DataKey {
     /// Whether `voter` has voted on proposal `id`: (proposal_id, voter).
     Voted(u32, Address),
     /// Historical checkpointed voting balance for `addr` at a snapshot ledger timestamp.
-    BalanceCheckpoint(Address, u64),
-    /// Total supply checkpoint at a snapshot ledger timestamp.
-    TotalSupplyCheckpoint(u64),
+    BalanceCheckpoint(Address, u32),
+    /// Total supply checkpoint at a monotonic snapshot index.
+    TotalSupplyCheckpoint(u32),
+    /// Checkpoint indexes belonging to an account's balance history.
+    CheckpointIndices(Address),
+    /// Historical delegate at a checkpoint index; None means self-delegated.
+    DelegateCheckpoint(Address, u32),
+    /// Checkpoint indexes belonging to an account's delegation history.
+    DelegateCheckpointIndices(Address),
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────
