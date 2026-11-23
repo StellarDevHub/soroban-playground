@@ -850,3 +850,27 @@ fn test_non_guardian_cannot_veto() {
     client.finalise(&id);
     assert_eq!(client.try_guardian_veto(&attacker, &id), Err(Ok(Error::NotGuardian)));
 }
+
+
+#[test]
+fn test_delegation_change_after_snapshot_does_not_redirect_vote() {
+    let (env, admin, client) = setup();
+    let delegator = Address::generate(&env);
+    let original_delegate = Address::generate(&env);
+    let later_delegate = Address::generate(&env);
+    client.mint(&admin, &delegator, &100);
+    client.mint(&admin, &original_delegate, &200);
+    client.mint(&admin, &later_delegate, &300);
+    client.delegate(&delegator, &Some(original_delegate.clone()));
+    let id = client.propose(
+        &delegator,
+        &String::from_str(&env, "Snapshot delegation"),
+        &String::from_str(&env, "desc"),
+        &0,
+    );
+
+    // Changing delegation after proposal creation must not change this vote.
+    client.delegate(&delegator, &Some(later_delegate));
+    client.vote(&delegator, &id, &VoteChoice::For);
+    assert_eq!(client.get_proposal(&id).votes_for, 200);
+}
