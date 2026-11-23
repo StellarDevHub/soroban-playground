@@ -130,12 +130,15 @@ impl WarrantyManagement {
         issuer.require_auth();
 
         let now = env.ledger().timestamp();
+        let expiry_ts = now
+            .checked_add(product.warranty_duration_secs)
+            .ok_or(Error::InvalidDuration)?;
         let id = get_warranty_count(&env) + 1;
         let warranty = Warranty {
             product_id,
             owner: owner.clone(),
             purchase_ts: now,
-            expiry_ts: now + product.warranty_duration_secs,
+            expiry_ts,
             is_active: true,
             serial_number: serial_number.clone(),
         };
@@ -152,6 +155,7 @@ impl WarrantyManagement {
     // ── Claim management ──────────────────────────────────────────────────────
 
     /// File a warranty claim. Returns the claim ID.
+    /// Enforces strict expiration check: `env.ledger().timestamp() <= warranty.expiry_ts`.
     pub fn file_claim(
         env: Env,
         claimant: Address,
@@ -177,9 +181,10 @@ impl WarrantyManagement {
             warranty_id,
             claimant: claimant.clone(),
             description: description.clone(),
-            status: ClaimStatus::Pending,
+            status: ClaimStatus::Filed,
             filed_ts: now,
             resolved_ts: 0,
+            reimbursed_ts: 0,
         };
         set_claim(&env, id, &claim);
         set_claim_count(&env, id);
@@ -189,7 +194,29 @@ impl WarrantyManagement {
         Ok(id)
     }
 
-    /// Resolve a claim (approve or reject). Admin or product manufacturer only.
+    /// Move a filed claim into review (`Filed -> InReview`). Admin or product manufacturer only.
+    pub fn review_claim(env: Env, reviewer: Address, claim_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        reviewer.require_auth();
+        let mut claim = get_claim(&env, claim_id)?;
+        if claim.status != ClaimStatus::Filed {
+            return Err(Error::InvalidClaimTransition);
+        }
+
+        let warranty = get_warranty(&env, claim.warranty_id)?;
+        let product = get_product(&env, warranty.product_id)?;
+        Self::assert_admin_or_manufacturer(&env, &reviewer, &product.manufacturer)?;
+
+        claim.status = ClaimStatus::InReview;
+        set_claim(&env, claim_id, &claim);
+
+        env.events()
+            .publish((symbol_short!("clm_rev"), claim_id), (reviewer,));
+        Ok(())
+    }
+
+    /// Resolve a claim in review (`InReview -> Approved | Rejected`).
+    /// Admin or product manufacturer only.
     pub fn resolve_claim(
         env: Env,
         resolver: Address,
@@ -199,17 +226,18 @@ impl WarrantyManagement {
         Self::assert_not_paused(&env)?;
         resolver.require_auth();
         let mut claim = get_claim(&env, claim_id)?;
-        if claim.status != ClaimStatus::Pending {
-            return Err(Error::ClaimAlreadyProcessed);
+        match claim.status {
+            ClaimStatus::InReview => {}
+            ClaimStatus::Filed => return Err(Error::InvalidClaimTransition),
+            ClaimStatus::Approved | ClaimStatus::Rejected | ClaimStatus::Reimbursed => {
+                return Err(Error::ClaimAlreadyProcessed);
+            }
         }
 
         // Verify resolver is admin or the product's manufacturer
         let warranty = get_warranty(&env, claim.warranty_id)?;
         let product = get_product(&env, warranty.product_id)?;
-        let admin = get_admin(&env)?;
-        if resolver != admin && resolver != product.manufacturer {
-            return Err(Error::Unauthorized);
-        }
+        Self::assert_admin_or_manufacturer(&env, &resolver, &product.manufacturer)?;
 
         claim.status = if approve {
             ClaimStatus::Approved
@@ -226,6 +254,46 @@ impl WarrantyManagement {
         };
         env.events()
             .publish((symbol_short!("clm_res"), claim_id), (status_sym,));
+        Ok(())
+    }
+
+    /// Settle/reimburse an approved claim (`Approved -> Reimbursed`).
+    /// If `full_replacement` is true, voids/burns the underlying warranty so no further claims
+    /// can be filed against it. Admin or product manufacturer only.
+    pub fn reimburse_claim(
+        env: Env,
+        settler: Address,
+        claim_id: u32,
+        full_replacement: bool,
+    ) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
+        settler.require_auth();
+        let mut claim = get_claim(&env, claim_id)?;
+        match claim.status {
+            ClaimStatus::Approved => {}
+            ClaimStatus::Reimbursed => return Err(Error::ClaimAlreadyProcessed),
+            ClaimStatus::Filed | ClaimStatus::InReview | ClaimStatus::Rejected => {
+                return Err(Error::InvalidClaimTransition);
+            }
+        }
+
+        let mut warranty = get_warranty(&env, claim.warranty_id)?;
+        let product = get_product(&env, warranty.product_id)?;
+        Self::assert_admin_or_manufacturer(&env, &settler, &product.manufacturer)?;
+
+        claim.status = ClaimStatus::Reimbursed;
+        claim.reimbursed_ts = env.ledger().timestamp();
+        set_claim(&env, claim_id, &claim);
+
+        if full_replacement {
+            warranty.is_active = false;
+            set_warranty(&env, claim.warranty_id, &warranty);
+            env.events()
+                .publish((symbol_short!("war_void"), claim.warranty_id), (claim_id,));
+        }
+
+        env.events()
+            .publish((symbol_short!("clm_reim"), claim_id), (full_replacement,));
         Ok(())
     }
 
@@ -267,6 +335,18 @@ impl WarrantyManagement {
             return Err(Error::Unauthorized);
         }
         caller.require_auth();
+        Ok(())
+    }
+
+    fn assert_admin_or_manufacturer(
+        env: &Env,
+        caller: &Address,
+        manufacturer: &Address,
+    ) -> Result<(), Error> {
+        let admin = get_admin(env)?;
+        if *caller != admin && *caller != *manufacturer {
+            return Err(Error::Unauthorized);
+        }
         Ok(())
     }
 
