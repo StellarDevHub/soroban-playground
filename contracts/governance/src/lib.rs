@@ -22,11 +22,12 @@ use crate::storage::{
     clear_pending_upgrade, get_balance, get_deposit, get_exec_delay,
     get_pending_upgrade as storage_get_pending_upgrade, get_proposal, get_proposal_count,
     get_quorum_bps, get_total_supply, get_voting_period, has_voted, is_initialized, record_vote,
-    remove_delegate, resolve_delegate, resolve_delegate_at, balance_at, checkpoint_count,\n    record_balance_checkpoint, record_delegate_checkpoint, set_admin, set_balance, set_delegate, set_deposit,
+    remove_delegate, resolve_delegate, resolve_delegate_at, balance_at, checkpoint_count,
+    record_balance_checkpoint, record_delegate_checkpoint, set_admin, set_balance, set_delegate, set_deposit,
     set_exec_delay, set_pending_upgrade, set_proposal, set_proposal_count, set_quorum_bps,
     set_total_supply, set_voting_period,
 };
-use crate::types::{DataKey, Error, InstanceKey, Proposal, ProposalStatus, UpgradePending, VoteChoice};
+use crate::types::{Error, InstanceKey, Proposal, ProposalStatus, UpgradePending, VoteChoice};
 
 #[contract]
 pub struct Governance;
@@ -72,7 +73,9 @@ impl Governance {
         require_admin(&env, &admin)?;
         let new_bal = get_balance(&env, &recipient) + amount;
         set_balance(&env, &recipient, new_bal);
-        set_total_supply(&env, get_total_supply(&env) + amount);
+        let new_supply = get_total_supply(&env) + amount;
+        set_total_supply(&env, new_supply);
+        record_balance_checkpoint(&env, &recipient, new_bal, new_supply);
         Ok(())
     }
 
@@ -103,8 +106,10 @@ impl Governance {
 
         let now = env.ledger().timestamp();
         let vp = get_voting_period(&env);
-        let ed = get_exec_delay(&env);
+        let ed = get_exec_delay(&env).max(172_800);
         let id = get_proposal_count(&env);
+        let snapshot_id = checkpoint_count(&env);
+        let vote_end = now + vp;
 
         let proposal = Proposal {
             id,
@@ -116,10 +121,12 @@ impl Governance {
             votes_against: 0,
             votes_abstain: 0,
             total_supply_snapshot: get_total_supply(&env),
+            snapshot_id,
             vote_start: now,
-            vote_end: now + vp,
-            execute_after: now + vp + ed,
+            vote_end,
+            execute_after: vote_end + ed,
             deposit,
+            veto_deadline: vote_end + 172_800,
         };
         set_proposal(&env, &proposal);
         set_proposal_count(&env, id + 1);
@@ -210,13 +217,13 @@ impl Governance {
         let mut proposal = get_proposal(&env, proposal_id)?;
         let now = env.ledger().timestamp();
 
+        if proposal.status == ProposalStatus::Cancelled {
+            return Err(Error::ProposalCancelled);
+        }
         if proposal.status != ProposalStatus::Passed {
             return Err(Error::ProposalNotPassed);
         }
-        if now < proposal.execute_after {
-            return Err(Error::TimelockActive);
-        }
-        if now < proposal.vote_end + 172_800 {
+        if now < proposal.execute_after || now < proposal.veto_deadline {
             return Err(Error::TimelockActive);
         }
 
@@ -241,7 +248,6 @@ impl Governance {
         if proposal.status != ProposalStatus::Active {
             return Err(Error::ProposalNotActive);
         }
-        proposal.status = ProposalStatus::Cancelled;
         proposal.status = ProposalStatus::Cancelled;
         set_proposal(&env, &proposal);
         Ok(())
@@ -403,7 +409,8 @@ impl Governance {
                 if target == from {
                     return Err(Error::SelfDelegation);
                 }
-                set_delegate(&env, &from, &target);\n                record_delegate_checkpoint(&env, &from, Some(target));
+                set_delegate(&env, &from, &target);
+                record_delegate_checkpoint(&env, &from, Some(target));\n                record_delegate_checkpoint(&env, &from, Some(target));
             }
             None => {\n                remove_delegate(&env, &from);\n                record_delegate_checkpoint(&env, &from, None);\n            },
         }
