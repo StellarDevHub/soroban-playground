@@ -52,8 +52,6 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Env
-.env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local
@@ -100,7 +98,6 @@ data/branch_list.txt
 
 # Editor and IDE files
 .idea/
-.vscode/settings.json
 *.code-workspace
 
 # OS generated files
@@ -158,3 +155,4 @@ test-results/
 # Cargo incremental build artifacts
 **/incremental/
 **/.cargo-lock
+config.bat

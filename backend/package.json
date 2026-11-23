@@ -8,13 +8,13 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "build": "npm run lint:check && npm run format:check && node --check src/server.js",
+    "build": "node init && npm run lint:check && npm run format:check && node --check src/server.js",
     "lint": "npx eslint . --ext .js,.cjs,.mjs,.ts --fix",
     "lint:check": "npx eslint . --ext .js,.cjs,.mjs,.ts",
     "format:check": "npx prettier --check . --ignore-path .prettierignore",
     "format:write": "npx prettier --write . --ignore-path .prettierignore",
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "start": "node init && node src/server.js",
+    "dev": "node init && nodemon src/server.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

@@ -4,9 +4,9 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build --webpack",
-    "start": "next start",
+    "dev": "node init && next dev",
+    "build": "node init && next build --webpack",
+    "start": "node init && next start",
     "lint": "eslint",
     "test": "node ../node_modules/jest/bin/jest.js --runInBand",
     "test:hooks": "jest src/__tests__/hooks --no-coverage",

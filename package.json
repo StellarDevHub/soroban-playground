@@ -25,9 +25,9 @@
     "backend"
   ],
   "scripts": {
-    "start": "npm run start --workspace=backend",
-    "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
+    "start": "node init && npm run start --workspace=backend",
+    "dev": "node init && npm run dev --workspaces --if-present",
+    "build": "node init && npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "lint:check": "npm run lint:check --workspaces --if-present"

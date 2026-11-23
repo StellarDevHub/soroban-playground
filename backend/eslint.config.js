@@ -2,6 +2,7 @@ import prettierPlugin from 'eslint-plugin-prettier';
 import prettierConfig from 'eslint-config-prettier';
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
+import importPlugin from 'eslint-plugin-import';
 import noUnsafeSqlLiteral from './eslint-rules/no-unsafe-sql-literal.js';
 
 export default [
@@ -11,6 +12,7 @@ export default [
     ignores: ['node_modules', 'dist', 'build', 'eslint-rules/**'],
     plugins: {
       prettier: prettierPlugin,
+      import: importPlugin,
       'sql-security': {
         rules: {
           'no-unsafe-sql-literal': noUnsafeSqlLiteral,
@@ -23,6 +25,8 @@ export default [
       'no-unused-vars': 'off',
       'no-console': 'off',
       'sql-security/no-unsafe-sql-literal': 'warn',
+      // Flag imports of packages/built-ins that cannot be resolved (e.g. typos like 'cypto')
+      'import/no-unresolved': ['error', { ignore: ['^node:'] }],
     },
     languageOptions: {
       ecmaVersion: 'latest',
@@ -39,6 +43,7 @@ export default [
     plugins: {
       prettier: prettierPlugin,
       '@typescript-eslint': tsPlugin,
+      import: importPlugin,
     },
     rules: {
       ...prettierConfig.rules,
@@ -48,6 +53,7 @@ export default [
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
+      'import/no-unresolved': ['error', { ignore: ['^node:'] }],
     },
     languageOptions: {
       ecmaVersion: 'latest',

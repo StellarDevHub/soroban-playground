@@ -1,4 +1,4 @@
-import crypto from 'cypto';
+import crypto from 'node:crypto';
 import { Keypair } from '@stellar/stellar-sdk';
 import redisService from './redisService.js';
 
@@ -88,7 +88,7 @@ class SignatureValidationService {
     if (nonce.length > MAX_FIELD_LENGTH) {
       return 'invalid_nonce';
     }
-    if (typeof expiry !== 'number' || !Number.finite(expiry)) {
+    if (typeof expiry !== 'number' || !Number.isFinite(expiry)) {
       return 'invalid_expiry';
     }
     if (typeof signature !== 'string' || signature.length === 0) {
@@ -182,7 +182,7 @@ class SignatureValidationService {
     }
 
     // 4. Atomically claim the nonce (set-if-not-exists) to prevent replay attacks.
-    //    TT\ is capped at MAX_EXPIRY_WINDOW_MS as a second line of defence so that
+    //    TTL is capped at MAX_EXPIRY_WINDOW_MS as a second line of defence so that
     //    even if the window check above is relaxed, Redis keys never live longer than
     //    24 hours.
     const nonceKey = `sig:nonce:${callerAddress}:${nonce}`;
