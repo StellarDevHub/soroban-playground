@@ -142,7 +142,7 @@ fn fp_exp_neg(x: i128) -> i128 {
     let term4 = x4 / 24;
     let term5 = x5 / 120;
 
-    SCALE - term1 + term2 - term3 + term4 - term5
+    (SCALE - term1 + term2 - term3 + term4 - term5).clamp(0, SCALE)
 }
 
 // ─── Storage key types ───────────────────────────────────────────────────────
@@ -248,15 +248,15 @@ impl TwammContract {
         env.storage().persistent().set(&DataKey::Pool, pool);
     }
 
-    fn next_order_id(env: &Env) -> u64 {
+    fn next_order_id(env: &Env) -> Result<u64, Error> {
         let seq: u64 = env
             .storage()
             .persistent()
             .get(&DataKey::OrderSeq)
             .unwrap_or(0u64);
-        let next = seq.checked_add(1).expect("order sequence overflow");
+        let next = seq.checked_add(1).ok_or(Error::Overflow)?;
         env.storage().persistent().set(&DataKey::OrderSeq, &next);
-        next
+        Ok(next)
     }
 
     fn load_order(env: &Env, id: u64) -> Result<TwammOrder, Error> {
@@ -536,7 +536,7 @@ impl TwammContract {
         if pool.paused {
             return Err(Error::Paused);
         }
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         pool.reserve_a += amount_a;
         pool.reserve_b += amount_b;
@@ -580,7 +580,7 @@ impl TwammContract {
         }
 
         // Settle pending virtual orders before registering the new rate.
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         let start_ledger = env.ledger().sequence();
         let end_ledger = start_ledger.checked_add(duration_ledgers).ok_or(Error::Overflow)?;
@@ -588,7 +588,7 @@ impl TwammContract {
         // Fixed-point rate per ledger.
         let rate_per_ledger = fp_div_checked(amount, duration_ledgers as i128)?;
 
-        let id = Self::next_order_id(&env);
+        let id = Self::next_order_id(&env)?;
         let order = TwammOrder {
             id,
             owner: owner.clone(),
@@ -643,7 +643,7 @@ impl TwammContract {
         let mut pool = Self::load_pool(&env)?;
 
         // Settle pending virtual orders before cancellation.
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         let current_ledger = env.ledger().sequence();
         let duration = (order.end_ledger - order.start_ledger) as i128;
@@ -684,7 +684,7 @@ impl TwammContract {
     /// Anyone can call this to clean up stale orders and reclaim gas.
     pub fn settle_expired(env: Env) -> Result<u32, Error> {
         let mut pool = Self::load_pool(&env)?;
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         let current_ledger = env.ledger().sequence();
         let seq: u64 = env
@@ -710,7 +710,7 @@ impl TwammContract {
         }
 
         if settled > 0 {
-            Self::recompute_rates(&env, &mut pool);
+            Self::recompute_rates(&env, &mut pool)?;
             Self::save_pool(&env, &pool);
         }
 
@@ -791,7 +791,6 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
         let contract_id = env.register_contract(None, TwammContract);
-        let client = TwammContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         (env, admin, contract_id)
     }
@@ -811,7 +810,8 @@ mod test {
 
     #[test]
     fn test_initialize_twice_fails() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &2_000_000, &30)
             .unwrap();
@@ -823,7 +823,8 @@ mod test {
 
     #[test]
     fn test_spot_swap() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &1_000_000, &30)
             .unwrap();
@@ -850,7 +851,8 @@ mod test {
 
     #[test]
     fn test_submit_order() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -878,7 +880,8 @@ mod test {
 
     #[test]
     fn test_cancel_order_refund() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -899,7 +902,8 @@ mod test {
 
     #[test]
     fn test_cancel_completed_order_fails() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -916,7 +920,8 @@ mod test {
 
     #[test]
     fn test_pause_blocks_swap() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &1_000_000, &30)
             .unwrap();
@@ -930,7 +935,8 @@ mod test {
 
     #[test]
     fn test_settle_expired() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -945,7 +951,8 @@ mod test {
 
     #[test]
     fn test_lazy_virtual_order_affects_reserves() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -969,7 +976,8 @@ mod test {
 
     #[test]
     fn test_spot_price() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &2_000_000, &30)
             .unwrap();
@@ -980,7 +988,8 @@ mod test {
 
     #[test]
     fn test_order_count() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -992,7 +1001,8 @@ mod test {
 
     #[test]
     fn test_unauthorized_cancel() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
