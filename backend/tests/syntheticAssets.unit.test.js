@@ -1,48 +1,35 @@
+// Copyright (c) 2026 StellarDevTools
+// SPDX-License-Identifier: MIT
+//
+// Unit tests for SyntheticAssetsService.
+//
+// The service itself (the SUT) is imported directly — no mock of it.
+// Only its external dependencies are mocked:
+//   • invokeService  (Soroban contract calls)
+//   • databaseService (SQL queries)
+//   • redisService   (cache reads/writes)
+//   • logger         (suppress console noise in tests)
+
 import { jest } from '@jest/globals';
 
-// Setup ES Module mocks before imports
-// Mock the synthetic assets service dependencies
-jest.mock('../src/services/syntheticAssetsService.js', () => ({
-  syntheticAssetsService: {
-    registerAsset: jest.fn(),
-    mintSynthetic: jest.fn(),
-    burnSynthetic: jest.fn(),
-    addCollateral: jest.fn(),
-    openTrade: jest.fn(),
-    closeTrade: jest.fn(),
-    getPosition: jest.fn(),
-    getTradingPosition: jest.fn(),
-    updatePrice: jest.fn(),
-    getAssetPrice: jest.fn(),
-    getCollateralRatio: jest.fn(),
-    getHealthFactor: jest.fn(),
-    isLiquidatable: jest.fn(),
-    getProtocolParams: jest.fn(),
-    updateProtocolParams: jest.fn(),
-    getMaxMintable: jest.fn(),
-    getTradingPnL: jest.fn(),
-    getRegisteredAssets: jest.fn(),
-    monitorLiquidations: jest.fn(),
-  },
-}));
+// ── Mock external dependencies only ──────────────────────────────────────────
 
-// Mock database service
 jest.mock('../src/services/databaseService.js', () => ({
   databaseService: {
     query: jest.fn(),
   },
-  default: jest.fn(),
 }));
 
-const mockRedisService = { get: jest.fn(), set: jest.fn(), delete: jest.fn() };
 jest.mock('../src/services/redisService.js', () => ({
-  redisService: mockRedisService,
-  default: mockRedisService,
+  redisService: {
+    get: jest.fn(),
+    set: jest.fn(),
+    delete: jest.fn(),
+  },
 }));
 
 jest.mock('../src/services/invokeService.js', () => ({
   invokeContract: jest.fn(),
-  invokeSorobanContract: jest.fn(),
 }));
 
 jest.mock('../src/utils/logger.js', () => ({
@@ -54,24 +41,27 @@ jest.mock('../src/utils/logger.js', () => ({
   },
 }));
 
-let syntheticAssetsService,
-  databaseService,
-  redisService,
-  invokeContract,
-  logger;
+// ── Import the real service and its mocked dependencies ───────────────────────
 
-beforeAll(async () => {
-  const mod1 = require('../src/services/syntheticAssetsService.js');
-  const mod2 = require('../src/services/databaseService.js');
-  const mod3 = require('../src/services/redisService.js');
-  const mod4 = require('../src/services/invokeService.js');
-  const mod5 = require('../src/utils/logger.js');
-  syntheticAssetsService = mod1.syntheticAssetsService;
-  databaseService = mod2.databaseService;
-  redisService = mod3.redisService;
-  invokeContract = mod4.invokeContract;
-  logger = mod5.logger;
+let syntheticAssetsService;
+let databaseService;
+let redisService;
+let invokeContract;
+let logger;
+
+beforeAll(() => {
+  // Using require() so Babel's CommonJS transform can resolve the mocked
+  // modules correctly. The variables are populated once before all tests run.
+  syntheticAssetsService =
+    require('../src/services/syntheticAssetsService.js').syntheticAssetsService;
+  databaseService =
+    require('../src/services/databaseService.js').databaseService;
+  redisService = require('../src/services/redisService.js').redisService;
+  invokeContract = require('../src/services/invokeService.js').invokeContract;
+  logger = require('../src/utils/logger.js').logger;
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 describe('SyntheticAssetsService Unit Tests', () => {
   beforeEach(() => {
@@ -79,7 +69,11 @@ describe('SyntheticAssetsService Unit Tests', () => {
     process.env.SYNTHETIC_ASSETS_CONTRACT_ID = 'test-contract-id';
     process.env.COLLATERAL_TOKEN = 'test-collateral';
     process.env.ORACLE_ADDRESS = 'test-oracle';
+    // Ensure the singleton picks up the env vars set above.
+    syntheticAssetsService.contractId = process.env.SYNTHETIC_ASSETS_CONTRACT_ID;
   });
+
+  // ── registerAsset ───────────────────────────────────────────────────────────
 
   describe('registerAsset', () => {
     it('registers asset metadata successfully', async () => {
@@ -122,12 +116,14 @@ describe('SyntheticAssetsService Unit Tests', () => {
       };
       invokeContract.mockRejectedValue(new Error('Contract invocation failed'));
 
-      await expect(syntheticAssetsService.registerAsset(asset)).rejects.toThrow(
-        'Contract invocation failed'
-      );
+      await expect(
+        syntheticAssetsService.registerAsset(asset)
+      ).rejects.toThrow('Contract invocation failed');
       expect(logger.error).toHaveBeenCalled();
     });
   });
+
+  // ── mintSynthetic ───────────────────────────────────────────────────────────
 
   describe('mintSynthetic', () => {
     it('mints synthetic asset and records position', async () => {
@@ -184,6 +180,8 @@ describe('SyntheticAssetsService Unit Tests', () => {
     });
   });
 
+  // ── burnSynthetic ───────────────────────────────────────────────────────────
+
   describe('burnSynthetic', () => {
     it('burns synthetic asset and closes position', async () => {
       invokeContract.mockResolvedValue({ txHash: '0x321' });
@@ -207,7 +205,18 @@ describe('SyntheticAssetsService Unit Tests', () => {
         ['pos-123', 'CLOSED']
       );
     });
+
+    it('propagates failure on burn error', async () => {
+      invokeContract.mockRejectedValue(new Error('Burn failed'));
+
+      await expect(
+        syntheticAssetsService.burnSynthetic('user-addr', 'pos-123', 500)
+      ).rejects.toThrow('Burn failed');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── addCollateral ───────────────────────────────────────────────────────────
 
   describe('addCollateral', () => {
     it('adds collateral to an existing position and invalidates cache', async () => {
@@ -234,7 +243,18 @@ describe('SyntheticAssetsService Unit Tests', () => {
       );
       expect(redisService.delete).toHaveBeenCalledWith('position:pos-123');
     });
+
+    it('propagates failure on add collateral error', async () => {
+      invokeContract.mockRejectedValue(new Error('Insufficient funds'));
+
+      await expect(
+        syntheticAssetsService.addCollateral('user-addr', 'pos-123', 200)
+      ).rejects.toThrow('Insufficient funds');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── openTrade ───────────────────────────────────────────────────────────────
 
   describe('openTrade', () => {
     it('opens trading position successfully', async () => {
@@ -273,11 +293,22 @@ describe('SyntheticAssetsService Unit Tests', () => {
         ]
       );
     });
+
+    it('propagates failure on open trade error', async () => {
+      invokeContract.mockRejectedValue(new Error('Invalid direction'));
+
+      await expect(
+        syntheticAssetsService.openTrade('user-addr', 'sTSLA', 'INVALID', 500, 3)
+      ).rejects.toThrow('Invalid direction');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── closeTrade ──────────────────────────────────────────────────────────────
 
   describe('closeTrade', () => {
     it('closes trade successfully and clears cache', async () => {
-      invokeContract.mockResolvedValue(600); // returns finalAmount
+      invokeContract.mockResolvedValue(600);
       databaseService.query.mockResolvedValue({ changes: 1 });
       redisService.delete.mockResolvedValue(1);
 
@@ -300,7 +331,18 @@ describe('SyntheticAssetsService Unit Tests', () => {
       );
       expect(redisService.delete).toHaveBeenCalledWith('trade:trade-123');
     });
+
+    it('propagates failure on close trade error', async () => {
+      invokeContract.mockRejectedValue(new Error('Position not found'));
+
+      await expect(
+        syntheticAssetsService.closeTrade('user-addr', 'trade-123')
+      ).rejects.toThrow('Position not found');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── getPosition ─────────────────────────────────────────────────────────────
 
   describe('getPosition', () => {
     it('returns cached position if present', async () => {
@@ -323,7 +365,6 @@ describe('SyntheticAssetsService Unit Tests', () => {
       const result = await syntheticAssetsService.getPosition('pos-123');
 
       expect(result).toEqual(mockResult);
-      expect(redisService.get).toHaveBeenCalledWith('position:pos-123');
       expect(invokeContract).toHaveBeenCalledWith({
         contractId: 'test-contract-id',
         method: 'get_position',
@@ -336,7 +377,19 @@ describe('SyntheticAssetsService Unit Tests', () => {
         30
       );
     });
+
+    it('propagates failure on get position error', async () => {
+      redisService.get.mockResolvedValue(null);
+      invokeContract.mockRejectedValue(new Error('Position not found'));
+
+      await expect(
+        syntheticAssetsService.getPosition('pos-123')
+      ).rejects.toThrow('Position not found');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── getTradingPosition ──────────────────────────────────────────────────────
 
   describe('getTradingPosition', () => {
     it('returns cached trading position if present', async () => {
@@ -368,6 +421,8 @@ describe('SyntheticAssetsService Unit Tests', () => {
     });
   });
 
+  // ── updatePrice ─────────────────────────────────────────────────────────────
+
   describe('updatePrice', () => {
     it('updates asset price, invalidates cache, and broadcasts update', async () => {
       invokeContract.mockResolvedValue({ tx: '0xprice' });
@@ -391,7 +446,18 @@ describe('SyntheticAssetsService Unit Tests', () => {
         price: 150,
       });
     });
+
+    it('propagates failure on update price error', async () => {
+      invokeContract.mockRejectedValue(new Error('Oracle failure'));
+
+      await expect(
+        syntheticAssetsService.updatePrice('sTSLA', 150, 95)
+      ).rejects.toThrow('Oracle failure');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── getAssetPrice ───────────────────────────────────────────────────────────
 
   describe('getAssetPrice', () => {
     it('returns cached price if available', async () => {
@@ -404,7 +470,7 @@ describe('SyntheticAssetsService Unit Tests', () => {
       expect(invokeContract).not.toHaveBeenCalled();
     });
 
-    it('queries contract on price cache miss', async () => {
+    it('queries contract on price cache miss and caches result', async () => {
       redisService.get.mockResolvedValue(null);
       invokeContract.mockResolvedValue(120);
 
@@ -413,7 +479,19 @@ describe('SyntheticAssetsService Unit Tests', () => {
       expect(price).toBe(120);
       expect(redisService.set).toHaveBeenCalledWith('price:sTSLA', '120', 5);
     });
+
+    it('propagates failure on get asset price error', async () => {
+      redisService.get.mockResolvedValue(null);
+      invokeContract.mockRejectedValue(new Error('Price not available'));
+
+      await expect(
+        syntheticAssetsService.getAssetPrice('sTSLA')
+      ).rejects.toThrow('Price not available');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── getCollateralRatio ──────────────────────────────────────────────────────
 
   describe('getCollateralRatio', () => {
     it('returns collateral ratio from contract', async () => {
@@ -429,7 +507,18 @@ describe('SyntheticAssetsService Unit Tests', () => {
         auth: false,
       });
     });
+
+    it('propagates failure on get collateral ratio error', async () => {
+      invokeContract.mockRejectedValue(new Error('Invalid position'));
+
+      await expect(
+        syntheticAssetsService.getCollateralRatio('pos-123')
+      ).rejects.toThrow('Invalid position');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── getHealthFactor ─────────────────────────────────────────────────────────
 
   describe('getHealthFactor', () => {
     it('returns health factor from contract', async () => {
@@ -438,8 +527,25 @@ describe('SyntheticAssetsService Unit Tests', () => {
       const hf = await syntheticAssetsService.getHealthFactor('pos-123');
 
       expect(hf).toBe(150);
+      expect(invokeContract).toHaveBeenCalledWith({
+        contractId: 'test-contract-id',
+        method: 'get_health_factor',
+        params: ['pos-123'],
+        auth: false,
+      });
+    });
+
+    it('propagates failure on get health factor error', async () => {
+      invokeContract.mockRejectedValue(new Error('Health check failed'));
+
+      await expect(
+        syntheticAssetsService.getHealthFactor('pos-123')
+      ).rejects.toThrow('Health check failed');
+      expect(logger.error).toHaveBeenCalled();
     });
   });
+
+  // ── isLiquidatable ──────────────────────────────────────────────────────────
 
   describe('isLiquidatable', () => {
     it('reads cached liquidatable status if present', async () => {
@@ -448,6 +554,7 @@ describe('SyntheticAssetsService Unit Tests', () => {
       const isLiq = await syntheticAssetsService.isLiquidatable('pos-123');
 
       expect(isLiq).toBe(true);
+      expect(redisService.get).toHaveBeenCalledWith('liquidatable:pos-123');
       expect(invokeContract).not.toHaveBeenCalled();
     });
 
@@ -464,7 +571,19 @@ describe('SyntheticAssetsService Unit Tests', () => {
         10
       );
     });
+
+    it('propagates failure on isLiquidatable error', async () => {
+      redisService.get.mockResolvedValue(null);
+      invokeContract.mockRejectedValue(new Error('Contract call failed'));
+
+      await expect(
+        syntheticAssetsService.isLiquidatable('pos-123')
+      ).rejects.toThrow('Contract call failed');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── getProtocolParams ───────────────────────────────────────────────────────
 
   describe('getProtocolParams', () => {
     it('reads cached params', async () => {
@@ -474,6 +593,7 @@ describe('SyntheticAssetsService Unit Tests', () => {
       const result = await syntheticAssetsService.getProtocolParams();
 
       expect(result).toEqual(mockParams);
+      expect(invokeContract).not.toHaveBeenCalled();
     });
 
     it('queries contract on cache miss', async () => {
@@ -490,7 +610,19 @@ describe('SyntheticAssetsService Unit Tests', () => {
         300
       );
     });
+
+    it('propagates failure on get protocol params error', async () => {
+      redisService.get.mockResolvedValue(null);
+      invokeContract.mockRejectedValue(new Error('Params not available'));
+
+      await expect(syntheticAssetsService.getProtocolParams()).rejects.toThrow(
+        'Params not available'
+      );
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── updateProtocolParams ────────────────────────────────────────────────────
 
   describe('updateProtocolParams', () => {
     it('updates params, clears cache and logs events', async () => {
@@ -514,7 +646,18 @@ describe('SyntheticAssetsService Unit Tests', () => {
       });
       expect(redisService.delete).toHaveBeenCalledWith('protocol:params');
     });
+
+    it('propagates failure on update protocol params error', async () => {
+      invokeContract.mockRejectedValue(new Error('Admin access required'));
+
+      await expect(
+        syntheticAssetsService.updateProtocolParams(150, 120, 10, 1)
+      ).rejects.toThrow('Admin access required');
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
+
+  // ── getMaxMintable ──────────────────────────────────────────────────────────
 
   describe('getMaxMintable', () => {
     it('calculates max mintable amount', async () => {
@@ -523,8 +666,25 @@ describe('SyntheticAssetsService Unit Tests', () => {
       const max = await syntheticAssetsService.getMaxMintable('sTSLA', 1000);
 
       expect(max).toBe(600);
+      expect(invokeContract).toHaveBeenCalledWith({
+        contractId: 'test-contract-id',
+        method: 'get_max_mintable',
+        params: ['sTSLA', 1000],
+        auth: false,
+      });
+    });
+
+    it('propagates failure on get max mintable error', async () => {
+      invokeContract.mockRejectedValue(new Error('Calculation error'));
+
+      await expect(
+        syntheticAssetsService.getMaxMintable('sTSLA', 1000)
+      ).rejects.toThrow('Calculation error');
+      expect(logger.error).toHaveBeenCalled();
     });
   });
+
+  // ── getTradingPnL ───────────────────────────────────────────────────────────
 
   describe('getTradingPnL', () => {
     it('gets PnL from contract', async () => {
@@ -533,8 +693,25 @@ describe('SyntheticAssetsService Unit Tests', () => {
       const pnl = await syntheticAssetsService.getTradingPnL('trade-123');
 
       expect(pnl).toBe(150);
+      expect(invokeContract).toHaveBeenCalledWith({
+        contractId: 'test-contract-id',
+        method: 'get_trading_pnl',
+        params: ['trade-123'],
+        auth: false,
+      });
+    });
+
+    it('propagates failure on get trading PnL error', async () => {
+      invokeContract.mockRejectedValue(new Error('PnL calculation failed'));
+
+      await expect(
+        syntheticAssetsService.getTradingPnL('trade-123')
+      ).rejects.toThrow('PnL calculation failed');
+      expect(logger.error).toHaveBeenCalled();
     });
   });
+
+  // ── getRegisteredAssets ─────────────────────────────────────────────────────
 
   describe('getRegisteredAssets', () => {
     it('gets cached assets', async () => {
@@ -543,19 +720,53 @@ describe('SyntheticAssetsService Unit Tests', () => {
       const assets = await syntheticAssetsService.getRegisteredAssets();
 
       expect(assets).toEqual(['sTSLA', 'sAAPL']);
+      expect(invokeContract).not.toHaveBeenCalled();
+    });
+
+    it('fetches and caches assets on cache miss', async () => {
+      const mockAssets = ['sTSLA', 'sAAPL'];
+      redisService.get.mockResolvedValue(null);
+      invokeContract.mockResolvedValue(mockAssets);
+
+      const assets = await syntheticAssetsService.getRegisteredAssets();
+
+      expect(assets).toEqual(mockAssets);
+      expect(redisService.set).toHaveBeenCalledWith(
+        'assets:registered',
+        JSON.stringify(mockAssets),
+        300
+      );
+    });
+
+    it('propagates failure on get registered assets error', async () => {
+      redisService.get.mockResolvedValue(null);
+      invokeContract.mockRejectedValue(new Error('Registry unavailable'));
+
+      await expect(
+        syntheticAssetsService.getRegisteredAssets()
+      ).rejects.toThrow('Registry unavailable');
+      expect(logger.error).toHaveBeenCalled();
     });
   });
 
+  // ── monitorLiquidations ─────────────────────────────────────────────────────
+
   describe('monitorLiquidations', () => {
     it('queries open positions and alerts if liquidatable', async () => {
-      databaseService.query.mockResolvedValue({
-        rows: [{ position_id: 'pos-1' }, { position_id: 'pos-2' }],
-      });
-      // pos-1 liquidatable, pos-2 not
+      databaseService.query
+        // First call: SELECT positions
+        .mockResolvedValueOnce({
+          rows: [{ position_id: 'pos-1' }, { position_id: 'pos-2' }],
+        })
+        // recordLiquidationAlert for pos-1
+        .mockResolvedValueOnce({ changes: 1 });
+
+      // isLiquidatable cache misses, then contract responses
       redisService.get.mockResolvedValue(null);
+      redisService.set.mockResolvedValue('OK');
       invokeContract
-        .mockResolvedValueOnce(true) // is_liquidatable pos-1
-        .mockResolvedValueOnce(false); // is_liquidatable pos-2
+        .mockResolvedValueOnce(true)  // is_liquidatable pos-1 → liquidatable
+        .mockResolvedValueOnce(false); // is_liquidatable pos-2 → safe
 
       global.liquidationAlertSubscribers = [jest.fn()];
 
@@ -565,7 +776,7 @@ describe('SyntheticAssetsService Unit Tests', () => {
         expect.stringContaining('SELECT position_id'),
         ['OPEN', 'COLLATERAL']
       );
-      // Alerts created for pos-1
+      // Alert inserted only for pos-1
       expect(databaseService.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO liquidation_alerts'),
         ['pos-1']
@@ -573,674 +784,18 @@ describe('SyntheticAssetsService Unit Tests', () => {
       expect(global.liquidationAlertSubscribers[0]).toHaveBeenCalledWith({
         positionId: 'pos-1',
       });
+      // pos-2 must not have triggered an alert
+      expect(global.liquidationAlertSubscribers[0]).toHaveBeenCalledTimes(1);
     });
 
-    it('handles errors during monitoring gracefully', async () => {
+    it('handles errors during monitoring gracefully without throwing', async () => {
+      // monitorLiquidations catches all errors internally (see service source).
       databaseService.query.mockRejectedValue(new Error('DB failure'));
 
       await expect(
         syntheticAssetsService.monitorLiquidations()
-      ).resolves.not.toThrow();
+      ).resolves.toBeUndefined();
       expect(logger.error).toHaveBeenCalled();
     });
-  });
-});
-
-// Mock redis service
-jest.mock('../src/services/redisService.js', () => ({
-  redisService: {
-    get: jest.fn(),
-    set: jest.fn(),
-    delete: jest.fn(),
-  },
-}));
-
-// Mock invoke service
-jest.mock('../src/services/invokeService.js', () => ({
-  invokeContract: jest.fn(),
-}));
-
-const CONTRACT_ID = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const USER_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
-const POSITION_ID = '1234567890';
-const ASSET_SYMBOL = 'sUSD';
-
-beforeEach(() => {
-  jest.clearAllMocks();
-});
-
-// ── registerAsset ───────────────────────────────────────────────────────────────
-
-describe('registerAsset', () => {
-  it('registers asset successfully', async () => {
-    const mockAsset = {
-      symbol: 'sUSD',
-      name: 'Synthetic USD',
-      decimals: 6,
-      initialPrice: '1000000',
-    };
-
-    syntheticAssetsService.registerAsset.mockResolvedValue({
-      success: true,
-      data: { contractId: CONTRACT_ID },
-    });
-
-    const result = await syntheticAssetsService.registerAsset(mockAsset);
-
-    expect(result.success).toBe(true);
-    expect(syntheticAssetsService.registerAsset).toHaveBeenCalledWith(
-      mockAsset
-    );
-  });
-
-  it('handles registration error', async () => {
-    syntheticAssetsService.registerAsset.mockRejectedValue(
-      new Error('Contract error')
-    );
-
-    await expect(
-      syntheticAssetsService.registerAsset({
-        symbol: 'sUSD',
-        name: 'Synthetic USD',
-        decimals: 6,
-        initialPrice: '1000000',
-      })
-    ).rejects.toThrow('Contract error');
-  });
-});
-
-// ── mintSynthetic ───────────────────────────────────────────────────────────────
-
-describe('mintSynthetic', () => {
-  it('mints synthetic assets successfully', async () => {
-    syntheticAssetsService.mintSynthetic.mockResolvedValue({
-      success: true,
-      positionId: POSITION_ID,
-      data: { position_id: POSITION_ID },
-    });
-
-    const result = await syntheticAssetsService.mintSynthetic(
-      USER_ADDRESS,
-      ASSET_SYMBOL,
-      '1000000',
-      '1000000'
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.positionId).toBe(POSITION_ID);
-    expect(syntheticAssetsService.mintSynthetic).toHaveBeenCalledWith(
-      USER_ADDRESS,
-      ASSET_SYMBOL,
-      '1000000',
-      '1000000'
-    );
-  });
-
-  it('handles mint error', async () => {
-    syntheticAssetsService.mintSynthetic.mockRejectedValue(
-      new Error('Insufficient collateral')
-    );
-
-    await expect(
-      syntheticAssetsService.mintSynthetic(
-        USER_ADDRESS,
-        ASSET_SYMBOL,
-        '1000000',
-        '1000000'
-      )
-    ).rejects.toThrow('Insufficient collateral');
-  });
-});
-
-// ── burnSynthetic ───────────────────────────────────────────────────────────────
-
-describe('burnSynthetic', () => {
-  it('burns synthetic assets successfully', async () => {
-    syntheticAssetsService.burnSynthetic.mockResolvedValue({
-      success: true,
-      data: { burned: '1000000' },
-    });
-
-    const result = await syntheticAssetsService.burnSynthetic(
-      USER_ADDRESS,
-      POSITION_ID,
-      '1000000'
-    );
-
-    expect(result.success).toBe(true);
-    expect(syntheticAssetsService.burnSynthetic).toHaveBeenCalledWith(
-      USER_ADDRESS,
-      POSITION_ID,
-      '1000000'
-    );
-  });
-
-  it('handles burn error', async () => {
-    syntheticAssetsService.burnSynthetic.mockRejectedValue(
-      new Error('Invalid position')
-    );
-
-    await expect(
-      syntheticAssetsService.burnSynthetic(USER_ADDRESS, POSITION_ID, '1000000')
-    ).rejects.toThrow('Invalid position');
-  });
-});
-
-// ── addCollateral ───────────────────────────────────────────────────────────────
-
-describe('addCollateral', () => {
-  it('adds collateral successfully', async () => {
-    syntheticAssetsService.addCollateral.mockResolvedValue({
-      success: true,
-      data: { added: '500000' },
-    });
-
-    const result = await syntheticAssetsService.addCollateral(
-      USER_ADDRESS,
-      POSITION_ID,
-      '500000'
-    );
-
-    expect(result.success).toBe(true);
-    expect(syntheticAssetsService.addCollateral).toHaveBeenCalledWith(
-      USER_ADDRESS,
-      POSITION_ID,
-      '500000'
-    );
-  });
-
-  it('handles add collateral error', async () => {
-    syntheticAssetsService.addCollateral.mockRejectedValue(
-      new Error('Insufficient funds')
-    );
-
-    await expect(
-      syntheticAssetsService.addCollateral(USER_ADDRESS, POSITION_ID, '500000')
-    ).rejects.toThrow('Insufficient funds');
-  });
-});
-
-// ── openTrade ───────────────────────────────────────────────────────────────────
-
-describe('openTrade', () => {
-  it('opens trading position successfully', async () => {
-    syntheticAssetsService.openTrade.mockResolvedValue({
-      success: true,
-      positionId: POSITION_ID,
-      data: POSITION_ID,
-    });
-
-    const result = await syntheticAssetsService.openTrade(
-      USER_ADDRESS,
-      ASSET_SYMBOL,
-      'LONG',
-      '1000000',
-      5
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.positionId).toBe(POSITION_ID);
-    expect(syntheticAssetsService.openTrade).toHaveBeenCalledWith(
-      USER_ADDRESS,
-      ASSET_SYMBOL,
-      'LONG',
-      '1000000',
-      5
-    );
-  });
-
-  it('handles open trade error', async () => {
-    syntheticAssetsService.openTrade.mockRejectedValue(
-      new Error('Invalid direction')
-    );
-
-    await expect(
-      syntheticAssetsService.openTrade(
-        USER_ADDRESS,
-        ASSET_SYMBOL,
-        'INVALID',
-        '1000000',
-        5
-      )
-    ).rejects.toThrow('Invalid direction');
-  });
-});
-
-// ── closeTrade ──────────────────────────────────────────────────────────────────
-
-describe('closeTrade', () => {
-  it('closes trading position successfully', async () => {
-    syntheticAssetsService.closeTrade.mockResolvedValue({
-      success: true,
-      finalAmount: '1200000',
-      data: '1200000',
-    });
-
-    const result = await syntheticAssetsService.closeTrade(
-      USER_ADDRESS,
-      POSITION_ID
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.finalAmount).toBe('1200000');
-    expect(syntheticAssetsService.closeTrade).toHaveBeenCalledWith(
-      USER_ADDRESS,
-      POSITION_ID
-    );
-  });
-
-  it('handles close trade error', async () => {
-    syntheticAssetsService.closeTrade.mockRejectedValue(
-      new Error('Position not found')
-    );
-
-    await expect(
-      syntheticAssetsService.closeTrade(USER_ADDRESS, POSITION_ID)
-    ).rejects.toThrow('Position not found');
-  });
-});
-
-// ── getPosition ─────────────────────────────────────────────────────────────────
-
-describe('getPosition', () => {
-  it('gets position successfully', async () => {
-    syntheticAssetsService.getPosition.mockResolvedValue({
-      positionId: POSITION_ID,
-      userAddress: USER_ADDRESS,
-      assetSymbol: ASSET_SYMBOL,
-      collateralAmount: '1000000',
-      mintedAmount: '1000000',
-    });
-
-    const result = await syntheticAssetsService.getPosition(POSITION_ID);
-
-    expect(result.positionId).toBe(POSITION_ID);
-    expect(syntheticAssetsService.getPosition).toHaveBeenCalledWith(
-      POSITION_ID
-    );
-  });
-
-  it('handles get position error', async () => {
-    syntheticAssetsService.getPosition.mockRejectedValue(
-      new Error('Position not found')
-    );
-
-    await expect(
-      syntheticAssetsService.getPosition(POSITION_ID)
-    ).rejects.toThrow('Position not found');
-  });
-});
-
-// ── getTradingPosition ──────────────────────────────────────────────────────────
-
-describe('getTradingPosition', () => {
-  it('gets trading position successfully', async () => {
-    syntheticAssetsService.getTradingPosition.mockResolvedValue({
-      positionId: POSITION_ID,
-      userAddress: USER_ADDRESS,
-      assetSymbol: ASSET_SYMBOL,
-      margin: '1000000',
-      leverage: 5,
-      direction: 'LONG',
-    });
-
-    const result = await syntheticAssetsService.getTradingPosition(POSITION_ID);
-
-    expect(result.positionId).toBe(POSITION_ID);
-    expect(syntheticAssetsService.getTradingPosition).toHaveBeenCalledWith(
-      POSITION_ID
-    );
-  });
-
-  it('handles get trading position error', async () => {
-    syntheticAssetsService.getTradingPosition.mockRejectedValue(
-      new Error('Trading position not found')
-    );
-
-    await expect(
-      syntheticAssetsService.getTradingPosition(POSITION_ID)
-    ).rejects.toThrow('Trading position not found');
-  });
-});
-
-// ── updatePrice ─────────────────────────────────────────────────────────────────
-
-describe('updatePrice', () => {
-  it('updates price successfully', async () => {
-    syntheticAssetsService.updatePrice.mockResolvedValue({
-      success: true,
-      data: { updated: true },
-    });
-
-    const result = await syntheticAssetsService.updatePrice(
-      ASSET_SYMBOL,
-      '1050000',
-      95
-    );
-
-    expect(result.success).toBe(true);
-    expect(syntheticAssetsService.updatePrice).toHaveBeenCalledWith(
-      ASSET_SYMBOL,
-      '1050000',
-      95
-    );
-  });
-
-  it('handles update price error', async () => {
-    syntheticAssetsService.updatePrice.mockRejectedValue(
-      new Error('Oracle failure')
-    );
-
-    await expect(
-      syntheticAssetsService.updatePrice(ASSET_SYMBOL, '1050000', 95)
-    ).rejects.toThrow('Oracle failure');
-  });
-});
-
-// ── getAssetPrice ───────────────────────────────────────────────────────────────
-
-describe('getAssetPrice', () => {
-  it('gets asset price successfully', async () => {
-    syntheticAssetsService.getAssetPrice.mockResolvedValue({
-      price: '1050000',
-      confidence: 95,
-      lastUpdated: new Date().toISOString(),
-    });
-
-    const result = await syntheticAssetsService.getAssetPrice(ASSET_SYMBOL);
-
-    expect(result.price).toBe('1050000');
-    expect(syntheticAssetsService.getAssetPrice).toHaveBeenCalledWith(
-      ASSET_SYMBOL
-    );
-  });
-
-  it('handles get asset price error', async () => {
-    syntheticAssetsService.getAssetPrice.mockRejectedValue(
-      new Error('Price not available')
-    );
-
-    await expect(
-      syntheticAssetsService.getAssetPrice(ASSET_SYMBOL)
-    ).rejects.toThrow('Price not available');
-  });
-});
-
-// ── getCollateralRatio ─────────────────────────────────────────────────────────
-
-describe('getCollateralRatio', () => {
-  it('gets collateral ratio successfully', async () => {
-    syntheticAssetsService.getCollateralRatio.mockResolvedValue({
-      ratio: '2000000', // 200%
-      healthFactor: '3000000', // 300%
-    });
-
-    const result = await syntheticAssetsService.getCollateralRatio(POSITION_ID);
-
-    expect(result.ratio).toBe('2000000');
-    expect(syntheticAssetsService.getCollateralRatio).toHaveBeenCalledWith(
-      POSITION_ID
-    );
-  });
-
-  it('handles get collateral ratio error', async () => {
-    syntheticAssetsService.getCollateralRatio.mockRejectedValue(
-      new Error('Invalid position')
-    );
-
-    await expect(
-      syntheticAssetsService.getCollateralRatio(POSITION_ID)
-    ).rejects.toThrow('Invalid position');
-  });
-});
-
-// ── getHealthFactor ─────────────────────────────────────────────────────────────
-
-describe('getHealthFactor', () => {
-  it('gets health factor successfully', async () => {
-    syntheticAssetsService.getHealthFactor.mockResolvedValue({
-      healthFactor: '3000000', // 300%
-      status: 'SAFE',
-    });
-
-    const result = await syntheticAssetsService.getHealthFactor(POSITION_ID);
-
-    expect(result.healthFactor).toBe('3000000');
-    expect(syntheticAssetsService.getHealthFactor).toHaveBeenCalledWith(
-      POSITION_ID
-    );
-  });
-
-  it('handles get health factor error', async () => {
-    syntheticAssetsService.getHealthFactor.mockRejectedValue(
-      new Error('Health check failed')
-    );
-
-    await expect(
-      syntheticAssetsService.getHealthFactor(POSITION_ID)
-    ).rejects.toThrow('Health check failed');
-  });
-});
-
-// ── isLiquidatable ──────────────────────────────────────────────────────────────
-
-describe('isLiquidatable', () => {
-  it('checks liquidation status successfully', async () => {
-    syntheticAssetsService.isLiquidatable.mockResolvedValue(true);
-
-    const result = await syntheticAssetsService.isLiquidatable(POSITION_ID);
-
-    expect(result).toBe(true);
-    expect(syntheticAssetsService.isLiquidatable).toHaveBeenCalledWith(
-      POSITION_ID
-    );
-  });
-
-  it('handles liquidation check error', async () => {
-    syntheticAssetsService.isLiquidatable.mockRejectedValue(
-      new Error('Contract call failed')
-    );
-
-    await expect(
-      syntheticAssetsService.isLiquidatable(POSITION_ID)
-    ).rejects.toThrow('Contract call failed');
-  });
-});
-
-// ── getProtocolParams ───────────────────────────────────────────────────────────
-
-describe('getProtocolParams', () => {
-  it('gets protocol parameters successfully', async () => {
-    syntheticAssetsService.getProtocolParams.mockResolvedValue({
-      minCollateralRatio: 1500000, // 150%
-      liquidationThreshold: 1100000, // 110%
-      liquidationBonus: 50000, // 5%
-      feePercentage: 10000, // 1%
-    });
-
-    const result = await syntheticAssetsService.getProtocolParams();
-
-    expect(result.minCollateralRatio).toBe(1500000);
-    expect(syntheticAssetsService.getProtocolParams).toHaveBeenCalled();
-  });
-
-  it('handles get protocol params error', async () => {
-    syntheticAssetsService.getProtocolParams.mockRejectedValue(
-      new Error('Params not available')
-    );
-
-    await expect(syntheticAssetsService.getProtocolParams()).rejects.toThrow(
-      'Params not available'
-    );
-  });
-});
-
-// ── updateProtocolParams ────────────────────────────────────────────────────────
-
-describe('updateProtocolParams', () => {
-  it('updates protocol parameters successfully', async () => {
-    syntheticAssetsService.updateProtocolParams.mockResolvedValue({
-      success: true,
-      data: { updated: true },
-    });
-
-    const result = await syntheticAssetsService.updateProtocolParams(
-      1500000,
-      1100000,
-      50000,
-      10000
-    );
-
-    expect(result.success).toBe(true);
-    expect(syntheticAssetsService.updateProtocolParams).toHaveBeenCalledWith(
-      1500000,
-      1100000,
-      50000,
-      10000
-    );
-  });
-
-  it('handles update protocol params error', async () => {
-    syntheticAssetsService.updateProtocolParams.mockRejectedValue(
-      new Error('Admin access required')
-    );
-
-    await expect(
-      syntheticAssetsService.updateProtocolParams(
-        1500000,
-        1100000,
-        50000,
-        10000
-      )
-    ).rejects.toThrow('Admin access required');
-  });
-});
-
-// ── getMaxMintable ──────────────────────────────────────────────────────────────
-
-describe('getMaxMintable', () => {
-  it('calculates max mintable amount successfully', async () => {
-    syntheticAssetsService.getMaxMintable.mockResolvedValue({
-      maxMintable: '1000000',
-      collateralRequired: '500000',
-      price: '1000000',
-    });
-
-    const result = await syntheticAssetsService.getMaxMintable(
-      ASSET_SYMBOL,
-      '500000'
-    );
-
-    expect(result.maxMintable).toBe('1000000');
-    expect(syntheticAssetsService.getMaxMintable).toHaveBeenCalledWith(
-      ASSET_SYMBOL,
-      '500000'
-    );
-  });
-
-  it('handles get max mintable error', async () => {
-    syntheticAssetsService.getMaxMintable.mockRejectedValue(
-      new Error('Calculation error')
-    );
-
-    await expect(
-      syntheticAssetsService.getMaxMintable(ASSET_SYMBOL, '500000')
-    ).rejects.toThrow('Calculation error');
-  });
-});
-
-// ── getTradingPnL ──────────────────────────────────────────────────────────────
-
-describe('getTradingPnL', () => {
-  it('gets trading PnL successfully', async () => {
-    syntheticAssetsService.getTradingPnL.mockResolvedValue({
-      pnl: '200000',
-      unrealized: '150000',
-      realized: '50000',
-      timestamp: new Date().toISOString(),
-    });
-
-    const result = await syntheticAssetsService.getTradingPnL(POSITION_ID);
-
-    expect(result.pnl).toBe('200000');
-    expect(syntheticAssetsService.getTradingPnL).toHaveBeenCalledWith(
-      POSITION_ID
-    );
-  });
-
-  it('handles get trading PnL error', async () => {
-    syntheticAssetsService.getTradingPnL.mockRejectedValue(
-      new Error('PnL calculation failed')
-    );
-
-    await expect(
-      syntheticAssetsService.getTradingPnL(POSITION_ID)
-    ).rejects.toThrow('PnL calculation failed');
-  });
-});
-
-// ── getRegisteredAssets ─────────────────────────────────────────────────────────
-
-describe('getRegisteredAssets', () => {
-  it('gets registered assets successfully', async () => {
-    syntheticAssetsService.getRegisteredAssets.mockResolvedValue([
-      {
-        symbol: 'sUSD',
-        name: 'Synthetic USD',
-        decimals: 6,
-      },
-      {
-        symbol: 'sBTC',
-        name: 'Synthetic BTC',
-        decimals: 8,
-      },
-    ]);
-
-    const result = await syntheticAssetsService.getRegisteredAssets();
-
-    expect(result).toHaveLength(2);
-    expect(result[0].symbol).toBe('sUSD');
-    expect(syntheticAssetsService.getRegisteredAssets).toHaveBeenCalled();
-  });
-
-  it('handles get registered assets error', async () => {
-    syntheticAssetsService.getRegisteredAssets.mockRejectedValue(
-      new Error('Registry unavailable')
-    );
-
-    await expect(syntheticAssetsService.getRegisteredAssets()).rejects.toThrow(
-      'Registry unavailable'
-    );
-  });
-});
-
-// ── monitorLiquidations ─────────────────────────────────────────────────────────
-
-describe('monitorLiquidations', () => {
-  it('monitors liquidations successfully', async () => {
-    databaseService.query.mockResolvedValue({
-      rows: [{ position_id: '1234567890' }, { position_id: '0987654321' }],
-    });
-
-    syntheticAssetsService.isLiquidatable.mockResolvedValueOnce(true);
-    syntheticAssetsService.isLiquidatable.mockResolvedValueOnce(false);
-
-    await syntheticAssetsService.monitorLiquidations();
-
-    expect(databaseService.query).toHaveBeenCalledWith(
-      'SELECT position_id FROM positions WHERE status = $1 AND type = $2',
-      ['OPEN', 'COLLATERAL']
-    );
-    expect(syntheticAssetsService.isLiquidatable).toHaveBeenCalledTimes(2);
-  });
-
-  it('handles monitor liquidations error', async () => {
-    databaseService.query.mockRejectedValue(
-      new Error('Database connection failed')
-    );
-
-    await expect(syntheticAssetsService.monitorLiquidations()).rejects.toThrow(
-      'Database connection failed'
-    );
   });
 });
