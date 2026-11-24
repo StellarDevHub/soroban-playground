@@ -14,9 +14,15 @@ import {
  * every response and therefore readable by an attacker, which defeats the
  * point of a nonce.
  *
+ * Next.js 16 deprecates the `middleware` file convention in favor of `proxy`.
+ * This logic runs unchanged under the `proxy` convention; the file is exposed
+ * as `src/proxy.ts` (see the migration note in the accompanying change set).
+ *
  * The documented mechanism is used here:
  *
- *  1. Mint a fresh nonce for this request.
+ *  1. Mint a fresh nonce for this request using the Web Crypto API
+ *     (`crypto.getRandomValues`), which is available in both the Edge and the
+ *     Node runtimes and avoids Node-only APIs such as `process.cwd`.
  *  2. Build the policy and set it on the *request* headers. Next.js parses the
  *     nonce out of this request header and stamps it onto the scripts it
  *     injects during rendering.
@@ -27,7 +33,7 @@ import {
  * run before rendering. When it does not run - for example a static export -
  * the policy simply is not sent rather than being sent with a broken nonce.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const nonce = generateNonce();
   const policy = buildContentSecurityPolicy(nonce);
 

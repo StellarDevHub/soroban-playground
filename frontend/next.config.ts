@@ -14,18 +14,20 @@ try {
   // package not installed — no-op wrapper is used instead
 }
 
-// ---------------------------------------------------------------------------
-// Security headers
-//
-// `Content-Security-Policy` is deliberately *not* set here. It is applied by
-// `src/middleware.ts` instead, because the policy carries a per-response nonce
-// that changes on every request; `headers()` is evaluated once at build time
-// and cannot do that.
-//
-// The two escape hatches kept in the middleware CSP:
-//   • `'wasm-unsafe-eval'` — WASM inspector and in-browser rustfmt
-//   • `'unsafe-eval'`      — pinned monaco-languageclient workers
-// ---------------------------------------------------------------------------
+/**
+ * Static security headers for the Playground (#1540).
+ *
+ * `Content-Security-Policy` is deliberately *not* set here. It is applied by
+ * `src/proxy.ts` (the Next.js 16 successor to `src/middleware.ts`) instead,
+ * because the policy omits `'unsafe-inline'` and therefore has to carry a nonce
+ * that changes on every response; `headers()` is evaluated once at build time
+ * and cannot do that. The two escape hatches it keeps (`'wasm-unsafe-eval'` for
+ * the WASM inspector and in-browser rustfmt, and `'unsafe-eval'` for the pinned
+ * `monaco-languageclient` workers) are documented on `buildContentSecurityPolicy`.
+ *
+ * The headers below need no per-response value, so keeping them here means they
+ * still apply to any route the proxy might not match.
+ */
 const SECURITY_HEADERS = [
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   // Required for Monaco language-server workers to use SharedArrayBuffer.

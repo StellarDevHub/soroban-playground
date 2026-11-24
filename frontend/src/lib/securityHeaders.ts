@@ -2,7 +2,7 @@
  * Content-Security-Policy construction for the Playground (#1540).
  *
  * The policy is built here rather than inlined in `next.config.ts` so that the
- * nonce can be minted per request by `middleware.ts` and so the resulting
+ * nonce can be minted per request by `proxy.ts` and so the resulting
  * policy is unit-testable without booting Next.
  *
  * ## Why a nonce and not `'unsafe-inline'`
@@ -27,7 +27,7 @@ const SCRIPT_ESCAPE_HATCHES = ["'wasm-unsafe-eval'", "'unsafe-eval'"];
  *
  * @param nonce base64 nonce shared with the request's inline scripts. When
  *   omitted the policy falls back to `'unsafe-inline'`, which is correct only
- *   for environments where middleware does not run (e.g. a static export) and
+ *   for environments where the proxy does not run (e.g. a static export) and
  *   is always the weaker option.
  */
 export function buildContentSecurityPolicy(nonce?: string): string {
@@ -87,32 +87,20 @@ export const CSP_HEADER = "Content-Security-Policy";
 /**
  * Cryptographically random, base64-encoded nonce.
  *
- * Uses the platform CSPRNG so the value cannot be predicted from a previous
- * response. Server-only: the value is echoed into HTML.
+ * Uses the Web Crypto CSPRNG (`crypto.getRandomValues`), which is available on
+ * both the Edge and Node runtimes, so no Node-only `crypto` module is needed.
+ * Server-only: the value is echoed into HTML.
  */
 export function generateNonce(): string {
   const bytes = new Uint8Array(16);
-
-  // Middleware runs on the edge runtime, which exposes Web Crypto, while the
-  // Node runtime and jsdom do not reliably expose `crypto.getRandomValues`.
-  // Prefer whichever CSPRNG is present rather than assuming one.
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-    crypto.getRandomValues(bytes);
-  } else {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { randomFillSync } = require("crypto") as {
-      randomFillSync: (buffer: Uint8Array) => Uint8Array;
-    };
-    randomFillSync(bytes);
-  }
-
+  crypto.getRandomValues(bytes);
   return Buffer.from(bytes).toString("base64");
 }
 
 /**
  * Recover the nonce that a policy already carries.
  *
- * `middleware.ts` writes the policy onto the *request* headers as well as the
+ * `proxy.ts` writes the policy onto the *request* headers as well as the
  * response, which is how Next.js discovers the nonce for the scripts it injects.
  * The root layout reads it back through `headers()` to nonce its own inline
  * script. Returns `null` when no nonce is present, so callers can degrade
