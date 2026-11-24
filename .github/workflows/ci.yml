@@ -88,6 +88,14 @@ jobs:
         env:
           NODE_ENV: test
 
+      - name: Install Redis for isolated reconnect integration test
+        run: sudo apt-get update && sudo apt-get install -y redis-server
+
+      - name: Verify shared Redis configuration, fallback and recovery
+        env:
+          REDIS_TEST_SERVER: redis-server
+        run: npx jest --config backend/jest.config.cjs backend/tests/redisConnection.test.js backend/tests/redisConnection.integration.test.js --runInBand
+
       - name: Run Ephemeral Quickstart Orchestrator Tests (BE-07)
         working-directory: backend
         run: npx jest tests/ephemeralQuickstart.integration.test.js --forceExit

@@ -1,16 +1,11 @@
 import Redis from 'ioredis';
 import dotenv from 'dotenv';
+import { redisConfig, reconnectDelay } from '../config/redis.js';
 import { LRUCache } from 'lru-cache';
 import { TOKEN_BUCKET_LUA, tokenBucketStep } from './tokenBucket.js';
 
 dotenv.config();
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const REDIS_TLS = process.env.REDIS_TLS === 'true';
-const REDIS_CLUSTER_NODES = process.env.REDIS_CLUSTER_NODES
-  ? process.env.REDIS_CLUSTER_NODES.split(',')
-  : null;
-const FALLBACK_TO_MEMORY = true;
 const ANALYTICS_TTL_SECONDS = 60 * 60 * 24 * 30;
 const DEFAULT_TTL_SECONDS = 300;
 const POPULARITY_TTL_SECONDS = 86400 * 7;
@@ -51,13 +46,12 @@ function incrementCounter(map, key, status) {
   map.set(key, entry);
 }
 
-class RedisService {
+export class RedisService {
   constructor() {
     this.client = null;
     this.isFallbackMode = false;
     this.connectionAttempts = 0;
-    this.maxAttempts = 10;
-    this.reconnectBackoffMs = 1000;
+    this.circuitBreakerTimer = null;
     this.circuitBreakerState = 'CLOSED';
     this.circuitBreakerFailures = 0;
     this.circuitBreakerLastFailTime = null;
@@ -83,110 +77,73 @@ class RedisService {
   }
 
   init() {
+    if (this.client) return;
+    this.isFallbackMode = true;
     try {
-      if (!process.env.REDIS_URL && process.env.NODE_ENV === 'production') {
-        console.log(
-          'No REDIS_URL provided in production, switching to fallback mode'
-        );
-        this.isFallbackMode = true;
-        return;
-      }
-
-      this.client = this._buildClient(REDIS_URL);
+      const config = redisConfig();
+      if (!config.enabled) return;
+      this.client = this._buildClient(config.url);
     } catch (err) {
-      console.error('Failed to initialize Redis:', err.message || err);
-      this.isFallbackMode = true;
+      console.error('Failed to initialize Redis:', err.message);
     }
   }
 
   _buildClient(url) {
+    const config = redisConfig({ ...process.env, REDIS_URL: url });
+    const retryStrategy = (times) => {
+      this.connectionAttempts = times;
+      if (times >= CIRCUIT_BREAKER_THRESHOLD) this.openCircuitBreaker();
+      // Keep retrying in the background while cache requests use the LRU.
+      return reconnectDelay(times);
+    };
     const baseOptions = {
-      maxRetriesPerRequest: 3,
+      ...config.options,
+      maxRetriesPerRequest: 1,
       connectTimeout: 5000,
       commandTimeout: 3000,
       enableReadyCheck: true,
-      enableOfflineQueue: true,
+      enableOfflineQueue: false,
       lazyConnect: false,
       connectionName: 'soroban-playground',
-      retryStrategy: (times) => {
-        if (times > this.maxAttempts) {
-          console.error(
-            `Redis max retry attempts (${this.maxAttempts}) exceeded, engaging circuit breaker`
-          );
-          this.openCircuitBreaker();
-          return null;
-        }
-        const jitter = Math.random() * 1000;
-        const delay = Math.min(
-          this.reconnectBackoffMs * Math.pow(2, times - 1) + jitter,
-          30000
-        );
-        console.log(
-          `Redis reconnection attempt ${times}, retrying in ${Math.round(delay)}ms`
-        );
-        return delay;
-      },
+      retryStrategy,
+      reconnectOnError: (err) => err.message.startsWith('READONLY'),
     };
-
-    if (REDIS_TLS) {
-      baseOptions.tls = {
-        rejectUnauthorized:
-          process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
-      };
-    }
-
     let client;
-    if (REDIS_CLUSTER_NODES && REDIS_CLUSTER_NODES.length > 0) {
-      const clusterNodes = REDIS_CLUSTER_NODES.map((node) => {
-        const [host, port] = node.split(':');
-        return { host, port: parseInt(port || '6379', 10) };
-      });
-      client = new Redis.Cluster(clusterNodes, {
+    if (config.nodes.length) {
+      client = new Redis.Cluster(config.nodes, {
         redisOptions: baseOptions,
-        clusterRetryStrategy: baseOptions.retryStrategy,
+        enableOfflineQueue: false,
+        enableReadyCheck: true,
+        clusterRetryStrategy: retryStrategy,
       });
-      console.log('Initializing Redis Cluster with nodes:', clusterNodes);
+    } else if (config.sentinels.length) {
+      client = new Redis({
+        ...baseOptions,
+        ...config.sentinelOptions,
+        sentinels: config.sentinels,
+        name: config.name,
+        role: 'master',
+        sentinelRetryStrategy: retryStrategy,
+      });
     } else {
-      client = new Redis(url, baseOptions);
+      client = new Redis(config.url, baseOptions);
     }
-
-    client.on('error', (err) => {
-      if (!this.isFallbackMode) {
-        if (err.code !== 'ECONNREFUSED' && err.code !== 'ETIMEDOUT') {
-          console.error('Redis Error:', err.message || err);
-        }
-      }
+    client.on('error', () => {
+      if (this.client !== client) return;
       this.recordCircuitBreakerFailure();
-      if (
-        err.code === 'ECONNREFUSED' ||
-        err.code === 'ETIMEDOUT' ||
-        err.code === 'ENOTFOUND'
-      ) {
-        this.isFallbackMode = true;
-      }
+      this.openCircuitBreaker();
     });
-
-    client.on('connect', () => {
-      console.log('Connected to Redis');
-      this.resetCircuitBreaker();
-      this.isFallbackMode = false;
-      this.connectionAttempts = 0;
-      this.defineScripts();
-    });
-
     client.on('ready', () => {
-      console.log('Redis client ready');
+      if (this.client !== client) return;
+      this.defineScripts();
       this.resetCircuitBreaker();
+      this.connectionAttempts = 0;
     });
-
-    client.on('reconnecting', (delay) => {
-      console.log(`Redis reconnecting in ${delay}ms`);
-    });
-
-    client.on('close', () => {
-      console.warn('Redis connection closed');
-    });
-
+    for (const event of ['close', 'end', 'reconnecting']) {
+      client.on(event, () => {
+        if (this.client === client) this.isFallbackMode = true;
+      });
+    }
     return client;
   }
 
@@ -199,26 +156,29 @@ class RedisService {
   }
 
   openCircuitBreaker() {
-    if (this.circuitBreakerState !== 'OPEN') {
-      console.warn(
-        `Circuit breaker OPEN after ${this.circuitBreakerFailures} failures. Falling back to LRU memory cache.`
-      );
-      this.circuitBreakerState = 'OPEN';
-      this.isFallbackMode = true;
-      setTimeout(() => {
-        this.circuitBreakerState = 'HALF_OPEN';
-        this.circuitBreakerHalfOpenAttempts = 0;
-        console.log(
-          'Circuit breaker entering HALF_OPEN state, testing connection...'
-        );
-      }, CIRCUIT_BREAKER_TIMEOUT_MS);
-    }
+    this.circuitBreakerState = 'OPEN';
+    this.isFallbackMode = true;
+    if (this.circuitBreakerTimer) return;
+    this.circuitBreakerTimer = setTimeout(async () => {
+      this.circuitBreakerTimer = null;
+      this.circuitBreakerState = 'HALF_OPEN';
+      this.circuitBreakerHalfOpenAttempts = 0;
+      const client = this.client;
+      try {
+        if (!client || client.status !== 'ready')
+          throw new Error('Redis unavailable');
+        await client.ping();
+        if (this.client === client) this.resetCircuitBreaker();
+      } catch {
+        if (this.client === client && client) this.openCircuitBreaker();
+      }
+    }, CIRCUIT_BREAKER_TIMEOUT_MS);
+    this.circuitBreakerTimer.unref?.();
   }
 
   resetCircuitBreaker() {
-    if (this.circuitBreakerState !== 'CLOSED') {
-      console.log('Circuit breaker CLOSED, Redis connection restored');
-    }
+    clearTimeout(this.circuitBreakerTimer);
+    this.circuitBreakerTimer = null;
     this.circuitBreakerState = 'CLOSED';
     this.circuitBreakerFailures = 0;
     this.circuitBreakerHalfOpenAttempts = 0;
@@ -261,7 +221,7 @@ class RedisService {
     const next = this._buildClient(url);
     const previous = this.client;
     this.client = next;
-    this.isFallbackMode = false;
+    this.isFallbackMode = true;
 
     if (previous && previous !== next) {
       try {
@@ -501,7 +461,7 @@ class RedisService {
   }
 
   _getRedisSubscriber() {
-    if (this.redisSubscriber && this.redisSubscriber.status === 'ready') {
+    if (this.redisSubscriber) {
       return this.redisSubscriber;
     }
     if (this.isFallbackMode || !this.client) {
@@ -759,15 +719,22 @@ class RedisService {
   }
 
   async expire(key, seconds) {
-    if (this.isFallbackMode || !this.client) {
+    const expireLocal = () => {
+      const value = this.localCache.get(key);
+      if (value === undefined) return 0;
+      if (seconds <= 0) this.localCache.delete(key);
+      else this.localCache.set(key, value, { ttl: seconds * 1000 });
       return 1;
+    };
+    if (this.isFallbackMode || !this.client) {
+      return expireLocal();
     }
     try {
       return await this.executeWithCircuitBreaker(() =>
         this.client.expire(key, seconds)
       );
     } catch (err) {
-      return 1;
+      return expireLocal();
     }
   }
 
@@ -870,21 +837,23 @@ class RedisService {
   }
 
   async connect() {
-    if (this.client && !this.client.status.includes('connect')) {
+    if (this.client && ['wait', 'end'].includes(this.client.status)) {
       await this.client.connect();
     }
   }
 
   async quit() {
-    if (this.client) {
-      await this.client.quit();
-    }
+    await this.close();
   }
 
   async disconnect() {
-    if (this.client) {
-      this.client.disconnect();
-    }
+    clearTimeout(this.circuitBreakerTimer);
+    this.circuitBreakerTimer = null;
+    this.redisSubscriber?.disconnect();
+    this.redisSubscriber = null;
+    this.client?.disconnect();
+    this.client = null;
+    this.isFallbackMode = true;
   }
 
   get status() {
@@ -1065,7 +1034,15 @@ class RedisService {
   // ==================== CacheService Methods (Merged) ====================
 
   async #deleteByPattern(pattern) {
-    if (!this.isConnected || !this.client) return 0;
+    const prefix = pattern.slice(0, -1);
+    let memoryDeleted = 0;
+    for (const key of this.localCache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.localCache.delete(key);
+        memoryDeleted++;
+      }
+    }
+    if (!this.isConnected || !this.client) return memoryDeleted;
 
     let cursor = '0';
     let deleted = 0;
@@ -1095,7 +1072,12 @@ class RedisService {
   async #scanPattern(pattern) {
     const results = [];
     let cursor = '0';
-    if (!this.isConnected || !this.client) return results;
+    if (!this.isConnected || !this.client) {
+      const prefix = pattern.slice(0, -1);
+      return [...this.localCache.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ key, value }));
+    }
 
     try {
       await this.executeWithCircuitBreaker(async () => {
@@ -1140,7 +1122,6 @@ class RedisService {
   }
 
   async clearSearchCache() {
-    if (!this.isConnected) return false;
     try {
       await this.#deleteByPattern('search:*');
       return true;
@@ -1152,23 +1133,12 @@ class RedisService {
 
   async incrementSearchPopularity(query) {
     const key = `popular:${query}`;
-    try {
-      if (this.isConnected) {
-        await this.executeWithCircuitBreaker(async () => {
-          await this.client.incr(key);
-          await this.client.expire(key, POPULARITY_TTL_SECONDS);
-        });
-        return true;
-      }
-    } catch (error) {
-      console.error('Popularity increment error:', error);
-    }
-    return false;
+    await this.incr(key);
+    await this.expire(key, POPULARITY_TTL_SECONDS);
+    return true;
   }
 
   async getPopularSearches(limit = 10) {
-    if (!this.isConnected) return [];
-
     try {
       const entries = await this.#scanPattern('popular:*');
       const searches = entries.map(({ key, value }) => ({
@@ -1184,8 +1154,6 @@ class RedisService {
   }
 
   async cacheSearchResults(query, filters, pagination, results) {
-    if (!this.isConnected) return false;
-
     try {
       const key = this.generateSearchKey(query, filters, pagination);
       const popularityScore = await this.getQueryPopularity(query);
@@ -1206,8 +1174,6 @@ class RedisService {
   }
 
   async getQueryPopularity(query) {
-    if (!this.isConnected) return 0;
-
     try {
       const key = `popular:${query}`;
       const count = await this.get(key);
@@ -1228,8 +1194,10 @@ class RedisService {
     }
 
     try {
-      const pong = await this.ping();
-      const info = await this.info('memory');
+      // Probe the actual client: convenience wrappers deliberately hide outages.
+      const pong = await this.client.ping();
+      if (pong !== 'PONG') throw new Error('Unexpected Redis health response');
+      const info = await this.client.info('memory');
 
       return {
         status: 'connected',
@@ -1239,9 +1207,11 @@ class RedisService {
         circuitBreaker: this.circuitBreakerState,
       };
     } catch (error) {
+      this.recordCircuitBreakerFailure();
+      this.openCircuitBreaker();
       return {
-        status: 'error',
-        message: error.message,
+        status: 'fallback',
+        message: 'Redis health probe failed, using memory cache',
         circuitBreaker: this.circuitBreakerState,
       };
     }
@@ -1279,11 +1249,21 @@ class RedisService {
   }
 
   async close() {
-    if (this.client) {
-      await this.client.quit();
-      this.isFallbackMode = true;
-      this.isConnected = false;
-    }
+    const clients = [this.redisSubscriber, this.client].filter(Boolean);
+    this.redisSubscriber = null;
+    this.client = null;
+    this.isFallbackMode = true;
+    clearTimeout(this.circuitBreakerTimer);
+    this.circuitBreakerTimer = null;
+    await Promise.all(
+      clients.map(async (client) => {
+        try {
+          if (client.status === 'ready') await client.quit();
+        } finally {
+          client.disconnect();
+        }
+      })
+    );
   }
 
   async initialize() {
