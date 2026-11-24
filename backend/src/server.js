@@ -159,6 +159,8 @@ import queuesRoute from './routes/queues.js';
 
 import rpcRoute from './routes/rpc.js';
 
+import ipfsRoute from './routes/ipfs.js';
+
 import { validateStartupEnv } from './config/envSchema.js';
 import {
   mountGrpcGateway,
@@ -347,6 +349,7 @@ app.use('/api/service-registry', serviceRegistryRoute);
 app.use('/api/batch-submitter', batchSubmitterRoute);
 app.use('/api/queues', queuesRoute);
 app.use('/api/rpc', rpcRoute);
+app.use('/api/ipfs', ipfsRoute);
 app.use('/metrics', metricsRoute);
 
 const grpcEnabled = process.env.GRPC_ENABLED !== 'false';

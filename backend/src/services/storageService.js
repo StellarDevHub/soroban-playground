@@ -539,6 +539,25 @@ export class StorageService {
   }
 
   /**
+   * Upload an arbitrary object (used by the IPFS document cache).
+   * @param {string} key - Storage key
+   * @param {Buffer|string} content - Object bytes
+   * @param {object} metadata - Optional metadata
+   * @returns {Promise<object>} Upload result
+   */
+  async putObject(key, content, metadata = {}) {
+    const buffer =
+      typeof content === 'string' ? Buffer.from(content) : content;
+    await uploadBuffer(buffer, key, metadata);
+    return {
+      key,
+      bucket: this.bucket,
+      size: buffer.length,
+      contentHash: computeContentHash(buffer),
+    };
+  }
+
+  /**
    * Download an object as a Buffer.
    * @param {string} key - Storage key
    * @returns {Promise<Buffer>}
