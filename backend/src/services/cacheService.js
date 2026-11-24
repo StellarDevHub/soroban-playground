@@ -6,6 +6,7 @@
 // Please import from './redisService.js' instead.
 
 import redisService from './redisService.js';
+import multiLevelCache from './multiLevelCache.js';
 
 console.warn(
   'DEPRECATION WARNING: cacheService.js is deprecated. Use redisService.js instead.'
@@ -128,7 +129,11 @@ class CacheService {
   async del(key) {
     if (!redisService) return false;
     try {
-      await redisService.delete(key);
+      // Route through multiLevelCache so the invalidation is broadcast to all
+      // cluster workers via the cache:invalidate Pub/Sub channel. A direct
+      // redisService.delete() call would only remove the Redis key and leave
+      // sibling workers' in-process L1 caches stale.
+      await multiLevelCache.invalidate(key);
       return true;
     } catch (error) {
       console.error('Cache delete error:', error);
@@ -265,7 +270,9 @@ class CacheService {
 
   async invalidateCache({ hash, dependency, namespace }) {
     if (hash) {
-      await this.del(hash);
+      // Use multiLevelCache.invalidate() so the eviction is broadcast to all
+      // workers via the cache:invalidate Pub/Sub channel.
+      await multiLevelCache.invalidate(hash);
     }
     return { success: true };
   }

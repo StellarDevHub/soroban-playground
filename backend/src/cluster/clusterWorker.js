@@ -17,6 +17,47 @@ export function log(text, level = 'info') {
 }
 
 /**
+ * Broadcast a cache invalidation to sibling workers via the master process.
+ *
+ * This is used as a fallback when Redis Pub/Sub is unavailable (fallback mode).
+ * The master re-broadcasts the message to every other worker via IPC.
+ *
+ * Message shape:
+ *   { type: 'cache:invalidate', keys?: string[], prefix?: string }
+ */
+export function broadcastCacheInvalidation(payload) {
+  if (cluster.isWorker && process.send) {
+    process.send({ type: 'cache:invalidate', ...payload });
+  }
+}
+
+/**
+ * Subscribe a worker to inbound cache invalidation IPC messages from the master.
+ *
+ * When master relays a cache:invalidate IPC message, `handler` is called with
+ * the same payload shape as the Redis Pub/Sub message so both paths share one
+ * handler:  { keys?: string[], prefix?: string }
+ *
+ * Returns a cleanup function that removes the listener.
+ */
+export function attachCacheInvalidationListener(handler) {
+  if (!cluster.isWorker) return () => {};
+
+  const listener = (msg) => {
+    if (!msg || msg.type !== 'cache:invalidate') return;
+    const { type: _type, ...payload } = msg;
+    try {
+      handler(payload);
+    } catch (err) {
+      log(`Cache invalidation IPC handler error: ${err.message}`, 'error');
+    }
+  };
+
+  process.on('message', listener);
+  return () => process.off('message', listener);
+}
+
+/**
  * Wire up graceful shutdown for an HTTP(S) server.
  * When master sends { type: 'shutdown' }, drains connections then exits cleanly.
  */

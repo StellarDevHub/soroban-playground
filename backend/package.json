@@ -19,6 +19,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:unit": "jest tests/*.test.js",
+    "test:cluster": "node src/cluster/cluster.test.js",
+    "test:cluster:cache": "node src/cluster/cacheInvalidation.cluster.test.js",
     "test:integration": "jest tests/syntheticAssets.integration.test.js",
     "test:e2e": "jest tests/syntheticAssets.e2e.test.js",
     "test:synthetic": "jest tests/syntheticAssets.*.test.js",

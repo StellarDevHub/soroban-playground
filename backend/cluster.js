@@ -53,6 +53,23 @@ class ClusterManager {
           message.level || 'info'
         );
       }
+
+      if (message && message.type === 'cache:invalidate') {
+        // Re-broadcast the invalidation payload to every other worker so their
+        // in-process L1 caches are purged even when Redis Pub/Sub is down.
+        for (const [id, sibling] of this.workers) {
+          if (id !== worker.id) {
+            try {
+              sibling.send(message);
+            } catch (err) {
+              this._log(
+                `Failed to relay cache:invalidate to worker ${id}: ${err.message}`,
+                'warn'
+              );
+            }
+          }
+        }
+      }
     });
 
     process.on('SIGTERM', () => this._gracefulShutdown('SIGTERM'));

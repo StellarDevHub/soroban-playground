@@ -12,6 +12,10 @@
 
 import redisService from './redisService.js';
 import multiLevelCache from './multiLevelCache.js';
+import {
+  broadcastCacheInvalidation,
+  attachCacheInvalidationListener,
+} from '../cluster/clusterWorker.js';
 
 export const INVALIDATION_CHANNEL = 'cache:invalidate';
 export const TAG_SET_PREFIX = 'cache:tag:';
@@ -82,12 +86,15 @@ export class CacheInvalidator {
     this.localTags = new Map();
     this.localKeyTags = new Map();
     this.subscriber = null;
+    this._ipcCleanup = null;
     this.started = false;
     this.stats = {
       tagPurges: 0,
       keysDeleted: 0,
       ledgerEvents: 0,
       pubsubReceived: 0,
+      ipcReceived: 0,
+      ipcBroadcast: 0,
     };
   }
 
@@ -225,6 +232,13 @@ export class CacheInvalidator {
       );
     }
 
+    // IPC fallback: receive invalidations relayed by the cluster master when
+    // Redis Pub/Sub is unavailable, and apply them to this worker's local L1.
+    this._ipcCleanup = attachCacheInvalidationListener((payload) => {
+      this.stats.ipcReceived += 1;
+      this.applyRemoteInvalidation(payload);
+    });
+
     const client = this.#redisClient();
     if (
       !client ||
@@ -259,6 +273,10 @@ export class CacheInvalidator {
 
   async stop() {
     this.started = false;
+    if (this._ipcCleanup) {
+      this._ipcCleanup();
+      this._ipcCleanup = null;
+    }
     if (this.subscriber) {
       try {
         await this.subscriber.unsubscribe(this.channel);
@@ -278,6 +296,7 @@ export class CacheInvalidator {
     return {
       started: this.started,
       pubsub: Boolean(this.subscriber),
+      ipcFallback: Boolean(this._ipcCleanup),
       redis: Boolean(this.#redisClient()),
       localTags: this.localTags.size,
       ...this.stats,
@@ -344,11 +363,20 @@ export class CacheInvalidator {
 
   async #publish(message) {
     const client = this.#redisClient();
-    if (!client || typeof client.publish !== 'function') return;
+    if (!client || typeof client.publish !== 'function') {
+      // Redis is unavailable — fall back to IPC so the master re-broadcasts
+      // the invalidation to all sibling workers.
+      this.stats.ipcBroadcast += 1;
+      broadcastCacheInvalidation(message);
+      return;
+    }
     try {
       await client.publish(this.channel, JSON.stringify(message));
     } catch (err) {
       console.warn('[CacheInvalidator] publish failed:', err.message);
+      // Best-effort IPC fallback if the publish call itself fails.
+      this.stats.ipcBroadcast += 1;
+      broadcastCacheInvalidation(message);
     }
   }
 
