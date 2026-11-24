@@ -1,4 +1,4 @@
-import warrantyRoutes from './warranty.js';
+import warrantyRoutes from './warrantyManagement.js';
 import favoritesRoutes from './favorites.js';
 import workspaceRoutes from './workspace.js';
 import searchRoutes from './search.js';
