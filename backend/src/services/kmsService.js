@@ -8,12 +8,16 @@
  * data key is then wrapped by AWS KMS, HashiCorp Vault Transit, or a local
  * master key (development / tests). Rotation issues a new data key and keeps
  * the previous ciphertext for a configurable grace window.
+ *
+ * Every envelope records the wrapping key id/version so rotation of the KEK
+ * itself can be verified and old envelopes remain decryptable.
  */
 
 import crypto from 'crypto';
 
 const AES_ALGO = 'aes-256-gcm';
 const IV_LENGTH = 12;
+const TAG_LENGTH = 16;
 const DEK_LENGTH = 32;
 const DEFAULT_GRACE_MS = 15 * 60 * 1000;
 const STELLAR_SECRET_PATTERN = /^S[A-Z2-7]{55}$/;
@@ -37,8 +41,14 @@ function assertSecret(secret) {
 }
 
 function encryptWithDek(dek, plaintext) {
+  if (!Buffer.isBuffer(dek) || dek.length !== DEK_LENGTH) {
+    throw new Error('DEK must be 32 bytes');
+  }
+  // Fresh random 96-bit IV per encryption; never reused under the same DEK.
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(AES_ALGO, dek, iv);
+  const cipher = crypto.createCipheriv(AES_ALGO, dek, iv, {
+    authTagLength: TAG_LENGTH,
+  });
   const ciphertext = Buffer.concat([
     cipher.update(String(plaintext), 'utf8'),
     cipher.final(),
@@ -51,38 +61,56 @@ function encryptWithDek(dek, plaintext) {
 }
 
 function decryptWithDek(dek, envelope) {
-  const decipher = crypto.createDecipheriv(
-    AES_ALGO,
-    dek,
-    Buffer.from(envelope.iv, 'base64')
-  );
-  decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+  const iv = Buffer.from(envelope.iv, 'base64');
+  const tag = Buffer.from(envelope.tag, 'base64');
+  if (iv.length !== IV_LENGTH || tag.length !== TAG_LENGTH) {
+    throw new Error('Malformed envelope');
+  }
+  const decipher = crypto.createDecipheriv(AES_ALGO, dek, iv, {
+    authTagLength: TAG_LENGTH,
+  });
+  decipher.setAuthTag(tag);
   return Buffer.concat([
     decipher.update(Buffer.from(envelope.ciphertext, 'base64')),
     decipher.final(),
   ]).toString('utf8');
 }
 
+/**
+ * Local KEK provider. Derives a 256-bit KEK from KMS_LOCAL_MASTER_KEY using
+ * scrypt with a per-instance salt. Intended for development and tests only;
+ * production deployments must use AWS KMS or Vault Transit.
+ */
 export class LocalMasterKeyProvider {
   constructor(masterKey = process.env.KMS_LOCAL_MASTER_KEY) {
     const material = masterKey || crypto.randomBytes(32).toString('hex');
-    this.key = crypto.createHash('sha256').update(String(material)).digest();
+    const salt = crypto.createHash('sha256').update('kms-local-kek-v1').digest();
+    this.key = crypto.scryptSync(String(material), salt, 32);
+    this.keyVersion = 'local-v1';
     this.name = 'local';
   }
 
   async wrap(dek) {
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv(AES_ALGO, this.key, iv);
+    const cipher = crypto.createCipheriv(AES_ALGO, this.key, iv, {
+      authTagLength: TAG_LENGTH,
+    });
     const wrapped = Buffer.concat([cipher.update(dek), cipher.final()]);
-    return Buffer.concat([iv, cipher.getAuthTag(), wrapped]).toString('base64');
+    const tag = cipher.getAuthTag();
+    return Buffer.concat([iv, tag, wrapped]).toString('base64');
   }
 
   async unwrap(wrappedB64) {
     const buf = Buffer.from(wrappedB64, 'base64');
+    if (buf.length < IV_LENGTH + TAG_LENGTH) {
+      throw new Error('Malformed wrapped DEK');
+    }
     const iv = buf.subarray(0, IV_LENGTH);
-    const tag = buf.subarray(IV_LENGTH, IV_LENGTH + 16);
-    const wrapped = buf.subarray(IV_LENGTH + 16);
-    const decipher = crypto.createDecipheriv(AES_ALGO, this.key, iv);
+    const tag = buf.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
+    const wrapped = buf.subarray(IV_LENGTH + TAG_LENGTH);
+    const decipher = crypto.createDecipheriv(AES_ALGO, this.key, iv, {
+      authTagLength: TAG_LENGTH,
+    });
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(wrapped), decipher.final()]);
   }
@@ -97,6 +125,7 @@ export class AwsKmsProvider {
     this.keyId = keyId;
     this.region = region;
     this.client = client || null;
+    this.keyVersion = keyId || null;
     this.name = 'aws-kms';
   }
 
@@ -152,6 +181,7 @@ export class VaultTransitProvider {
     this.mount = mount.replace(/^\//, '').replace(/\/$/, '');
     this.keyName = keyName;
     this.fetchImpl = fetchImpl;
+    this.keyVersion = keyName;
     this.name = 'vault';
   }
 
@@ -245,11 +275,21 @@ export class KmsService {
   }
 
   async #seal(secret) {
+    // Unique DEK per secret; DEK is wrapped by the KEK and zeroed after use.
     const dek = crypto.randomBytes(DEK_LENGTH);
-    const envelope = encryptWithDek(dek, secret);
-    const wrappedDek = await this.provider.wrap(dek);
-    dek.fill(0);
-    return { ...envelope, wrappedDek, provider: this.provider.name };
+    try {
+      const envelope = encryptWithDek(dek, secret);
+      const wrappedDek = await this.provider.wrap(dek);
+      return {
+        ...envelope,
+        wrappedDek,
+        provider: this.provider.name,
+        keyVersion: this.provider.keyVersion ?? null,
+        algorithm: AES_ALGO,
+      };
+    } finally {
+      dek.fill(0);
+    }
   }
 
   async #open(record) {
@@ -300,7 +340,9 @@ export class KmsService {
     try {
       return await this.#open(entry.current);
     } catch (err) {
-      if (allowPrevious && entry.previous) {
+      const withinGrace =
+        entry.previous && (entry.previous.expiresAt ?? 0) > Date.now();
+      if (allowPrevious && withinGrace) {
         this.#record('unwrap-fallback', name);
         return this.#open(entry.previous);
       }
@@ -352,10 +394,7 @@ export class KmsService {
   }
 
   async initialize() {
-    if (this.rotationMs && !this.timer) {
-      this.startRotationLoop(this.rotationMs);
-    }
-    return this;
+    return this.start();
   }
 
   stop() {
@@ -382,6 +421,8 @@ export class KmsService {
       createdAt: entry.createdAt,
       rotatedAt: entry.rotatedAt,
       provider: entry.current.provider,
+      keyVersion: entry.current.keyVersion,
+      algorithm: entry.current.algorithm,
       hasPrevious: Boolean(entry.previous),
       metadata: entry.metadata,
     };
