@@ -18,6 +18,7 @@ import * as protoLoader from '@grpc/proto-loader';
 import { context, propagation } from '@opentelemetry/api';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { buildClientCredentials } from './grpcCredentials.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -67,18 +68,26 @@ async function withRetry(fn, maxRetries = 3, baseDelayMs = 200) {
 export class GrpcClient {
   /**
    * @param {object} [opts]
-   * @param {string} [opts.host]        - Indexer host (default: localhost)
-   * @param {number} [opts.port]        - gRPC port (default: 50051)
-   * @param {boolean}[opts.tls]         - Use TLS (default: false)
-   * @param {number} [opts.deadlineMs]  - Per-call deadline in ms (default: 10000)
-   * @param {number} [opts.maxRetries]  - Retry limit for transient errors
-   * @param {string} [opts.authorizationToken] - Access token for authenticated RPCs
+   * @param {string}  [opts.host]           - Indexer host (default: localhost)
+   * @param {number}  [opts.port]           - gRPC port (default: 50051)
+   * @param {boolean} [opts.mtls]           - Override GRPC_MTLS env var
+   * @param {boolean} [opts.tls]            - Use server-only TLS (mTLS takes precedence)
+   * @param {Buffer}  [opts.rootCert]       - CA cert for server verification
+   * @param {Buffer}  [opts.clientCert]     - Client certificate chain (mTLS)
+   * @param {Buffer}  [opts.clientKey]      - Client private key (mTLS)
+   * @param {number}  [opts.deadlineMs]     - Per-call deadline in ms (default: 10000)
+   * @param {number}  [opts.maxRetries]     - Retry limit for transient errors
+   * @param {string}  [opts.authorizationToken] - Access token for authenticated RPCs
    */
   constructor(opts = {}) {
     const {
       host = process.env.GRPC_INDEXER_HOST ?? 'localhost',
       port = Number(process.env.GRPC_INDEXER_PORT ?? 50051),
-      tls = false,
+      mtls,
+      tls,
+      rootCert,
+      clientCert,
+      clientKey,
       deadlineMs = 10_000,
       maxRetries = 3,
       authorizationToken = process.env.GRPC_AUTH_TOKEN,
@@ -89,9 +98,13 @@ export class GrpcClient {
     this._maxRetries = maxRetries;
     this._authorizationToken = authorizationToken;
 
-    const credentials = tls
-      ? grpc.credentials.createSsl()
-      : grpc.credentials.createInsecure();
+    const credentials = buildClientCredentials({
+      mtls,
+      tls,
+      rootCert,
+      clientCert,
+      clientKey,
+    });
 
     // Channel options matching server config
     const channelOptions = {
@@ -102,6 +115,13 @@ export class GrpcClient {
       'grpc.max_send_message_length': 64 * 1024 * 1024,
       'grpc.max_receive_message_length': 64 * 1024 * 1024,
     };
+
+    // Allow overriding the TLS server name when the cert DNS name differs
+    // from the host (e.g. in Kubernetes with a custom SAN).
+    if (process.env.GRPC_TLS_SERVER_NAME) {
+      channelOptions['grpc.ssl_target_name_override'] =
+        process.env.GRPC_TLS_SERVER_NAME;
+    }
 
     this._stub = new proto.IndexerService(
       this._address,

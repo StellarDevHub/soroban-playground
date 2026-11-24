@@ -21,6 +21,7 @@
 
 import { GrpcClient } from './client.js';
 import { EventEmitter } from 'events';
+import { MTLS_ENABLED, TLS_ENABLED } from './grpcCredentials.js';
 
 // ─── Types (JSDoc) ────────────────────────────────────────────────────────────
 
@@ -127,7 +128,10 @@ export class ServiceRegistry extends EventEmitter {
     const client = new GrpcClient({
       host: endpoint.host,
       port: endpoint.port,
-      tls: endpoint.tls ?? false,
+      // Honour the endpoint's explicit tls/mtls flag; fall back to the
+      // process-level GRPC_MTLS / GRPC_TLS env vars.
+      mtls: endpoint.mtls ?? (MTLS_ENABLED || undefined),
+      tls: endpoint.tls ?? (TLS_ENABLED || undefined),
       deadlineMs: this._healthTimeoutMs,
     });
 

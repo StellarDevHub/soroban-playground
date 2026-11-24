@@ -111,17 +111,32 @@ const endpoint = serviceRegistry.resolve('indexer');
 
 ## Environment Variables
 
-| Variable                   | Default     | Description                                                     |
-| -------------------------- | ----------- | --------------------------------------------------------------- |
-| `GRPC_PORT`                | `50051`     | Port the gRPC server binds to                                   |
-| `GRPC_HOST`                | `127.0.0.1` | gRPC bind address; use TLS before binding to a public interface |
-| `GRPC_ENABLED`             | `true`      | Set to `false` to disable gRPC and its REST gateway             |
-| `GRPC_TLS`                 | `false`     | Enable gRPC TLS using `SSL_KEY_PATH` and `SSL_CERT_PATH`        |
-| `GRPC_GATEWAY_HOST`        | `127.0.0.1` | gRPC address used by the local REST proxy                       |
-| `GRPC_GATEWAY_DEADLINE_MS` | `120000`    | Gateway gRPC deadline                                           |
-| `GRPC_AUTH_TOKEN`          | unset       | Access token for `GrpcClient` inter-service calls               |
-| `GRPC_INDEXER_HOST`        | `localhost` | Indexer host used by GrpcClient                                 |
-| `GRPC_INDEXER_PORT`        | `50051`     | Indexer port used by GrpcClient                                 |
+| Variable                   | Default     | Description                                                               |
+| -------------------------- | ----------- | ------------------------------------------------------------------------- |
+| `GRPC_PORT`                | `50051`     | Port the gRPC server binds to                                             |
+| `GRPC_HOST`                | `127.0.0.1` | gRPC bind address                                                         |
+| `GRPC_ENABLED`             | `true`      | Set to `false` to disable gRPC and its REST gateway                       |
+| `GRPC_MTLS`                | `false`     | **Enable mutual TLS** — both server and client must present certificates  |
+| `GRPC_TLS`                 | `false`     | Enable server-only TLS (mTLS is preferred for production)                 |
+| `GRPC_SERVER_CERT`         | unset       | PEM-encoded server certificate chain (inline, `\n`-escaped)              |
+| `GRPC_SERVER_KEY`          | unset       | PEM-encoded server private key (inline, `\n`-escaped)                    |
+| `GRPC_CA_CERT`             | unset       | PEM CA used to verify client certificates (required for mTLS)             |
+| `GRPC_CLIENT_CERT`         | unset       | PEM client certificate chain (required for mTLS on the client side)       |
+| `GRPC_CLIENT_KEY`          | unset       | PEM client private key (required for mTLS on the client side)             |
+| `GRPC_ROOT_CERT`           | unset       | PEM root CA for verifying the server certificate                          |
+| `SSL_CERT_PATH`            | unset       | File-path fallback for server cert                                        |
+| `SSL_KEY_PATH`             | unset       | File-path fallback for server key                                         |
+| `GRPC_CA_CERT_PATH`        | unset       | File-path fallback for CA cert                                            |
+| `GRPC_CLIENT_CERT_PATH`    | unset       | File-path fallback for client cert                                        |
+| `GRPC_CLIENT_KEY_PATH`     | unset       | File-path fallback for client key                                         |
+| `GRPC_ROOT_CERT_PATH`      | unset       | File-path fallback for root CA cert                                       |
+| `GRPC_GATEWAY_HOST`        | `127.0.0.1` | gRPC address used by the local REST proxy                                 |
+| `GRPC_GATEWAY_DEADLINE_MS` | `120000`    | Gateway gRPC deadline                                                     |
+| `GRPC_AUTH_TOKEN`          | unset       | Access token for `GrpcClient` inter-service calls                        |
+| `GRPC_INDEXER_HOST`        | `localhost` | Indexer host used by GrpcClient                                           |
+| `GRPC_INDEXER_PORT`        | `50051`     | Indexer port used by GrpcClient                                           |
+| `GRPC_TLS_SERVER_NAME`     | unset       | Override expected TLS server name (for Kubernetes / custom SANs)         |
+| `GRPC_SSL_CIPHER_SUITES`   | set by grpcCredentials.js | Colon-separated OpenSSL cipher list enforced by gRPC-core |
 
 ## Soroban dual-protocol API
 
@@ -174,8 +189,80 @@ gateway address.
 
 ## Security
 
-- TLS is supported on both server and client via the `tls`, `certChain`, and `privateKey` options.
-- Default (development) mode uses insecure credentials; set `tls: true` for production.
+### Mutual TLS (mTLS) — recommended for production
+
+All gRPC communication should use mutual TLS so that both endpoints verify each other's X.509 certificate.  Set `GRPC_MTLS=true` and supply certificate material via environment variables or Kubernetes Secrets.
+
+```
+GRPC_MTLS=true
+
+# Server certificate (PEM-encoded; use \n to encode newlines in a single line):
+GRPC_SERVER_CERT=<server-cert-chain PEM>
+GRPC_SERVER_KEY=<server-private-key PEM>
+GRPC_CA_CERT=<CA-cert PEM>          # CA used to verify client certificates
+
+# Client certificate (required when GRPC_MTLS=true):
+GRPC_CLIENT_CERT=<client-cert PEM>
+GRPC_CLIENT_KEY=<client-private-key PEM>
+GRPC_ROOT_CERT=<root-CA PEM>        # used to verify the server certificate
+```
+
+File-path alternatives are accepted when the PEM env vars are absent:
+
+```
+SSL_CERT_PATH=      # server cert file
+SSL_KEY_PATH=       # server key file
+GRPC_CA_CERT_PATH=
+GRPC_CLIENT_CERT_PATH=
+GRPC_CLIENT_KEY_PATH=
+GRPC_ROOT_CERT_PATH=
+```
+
+#### How it works
+
+`grpcCredentials.js` is the single source of truth for credential construction:
+
+- **Server** — `buildServerCredentials()` calls `grpc.ServerCredentials.createSsl(caCert, [{cert_chain, private_key}], true)`.  The third argument (`checkClientCertificate: true`) makes the TLS handshake require and verify the client's certificate against the supplied CA.
+- **Client** — `buildClientCredentials()` calls `grpc.credentials.createSsl(rootCert, clientKey, clientCert)`, presenting the client's certificate during the TLS handshake.
+- **Cipher policy** — `GRPC_SSL_CIPHER_SUITES` is set at startup to a TLS 1.3 + strong ECDHE/AEAD-only TLS 1.2 suite list.  Weak suites (RC4, 3DES, NULL, EXPORT, MD5-based) are excluded.
+- **Production guard** — `buildServerCredentials()` and `buildClientCredentials()` throw at startup if `NODE_ENV=production` and neither `GRPC_MTLS` nor `GRPC_TLS` is set, preventing accidental insecure deployments.
+
+#### Generating certificates (development / staging)
+
+```bash
+# 1. Generate a CA
+openssl genrsa -out ca.key 4096
+openssl req -new -x509 -key ca.key -out ca.crt -days 365 \
+  -subj "/CN=SorobanCA/O=StellarDevTools"
+
+# 2. Generate a server cert signed by the CA
+openssl genrsa -out server.key 4096
+openssl req -new -key server.key -out server.csr \
+  -subj "/CN=soroban-grpc/O=StellarDevTools"
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out server.crt -days 365 -sha256 \
+  -extfile <(echo "subjectAltName=DNS:localhost,IP:127.0.0.1")
+
+# 3. Generate a client cert signed by the same CA
+openssl genrsa -out client.key 4096
+openssl req -new -key client.key -out client.csr \
+  -subj "/CN=soroban-client/O=StellarDevTools"
+openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out client.crt -days 365 -sha256 \
+  -extfile <(echo "extendedKeyUsage=clientAuth")
+
+# Load into env (inline PEM — replace literal newlines with \n):
+export GRPC_SERVER_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' server.crt)
+export GRPC_SERVER_KEY=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' server.key)
+export GRPC_CA_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ca.crt)
+export GRPC_CLIENT_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' client.crt)
+export GRPC_CLIENT_KEY=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' client.key)
+export GRPC_ROOT_CERT=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ca.crt)
+```
+
+For Kubernetes, mount the certs as a Secret and reference the file paths via `SSL_CERT_PATH`, `SSL_KEY_PATH`, `GRPC_CA_CERT_PATH`, etc.
+
+- Default (development) mode uses insecure credentials when `GRPC_MTLS` and `GRPC_TLS` are both unset; this is blocked in `NODE_ENV=production`.
 - The `ServiceRegistry` evicts stale entries after a configurable TTL (default 120 s).
 
 ---

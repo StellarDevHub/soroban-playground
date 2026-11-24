@@ -25,6 +25,7 @@ import {
   sorobanServiceDefinition,
   toGrpcError,
 } from './sorobanService.js';
+import { buildServerCredentials } from './grpcCredentials.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -194,14 +195,19 @@ function authenticatedStream(handler) {
 /**
  * Creates and starts the gRPC server.
  *
+ * mTLS (mutual TLS) is the default for all non-development environments.
+ * Set GRPC_MTLS=true and supply certificate material via environment variables:
+ *   GRPC_SERVER_CERT, GRPC_SERVER_KEY, GRPC_CA_CERT (see grpcCredentials.js).
+ *
  * @param {Map<string, object>} compileJobStore - Shared compile-job state map
  * @param {Map<string, object>} deployJobStore  - Shared deploy-job state map
  * @param {object}              [opts]
- * @param {string}              [opts.host]     - Bind address (default: 0.0.0.0)
- * @param {number}              [opts.port]     - Port (default: 50051)
- * @param {boolean}             [opts.tls]      - Enable TLS (default: false)
- * @param {Buffer}              [opts.certChain]
- * @param {Buffer}              [opts.privateKey]
+ * @param {string}              [opts.host]        - Bind address (default: 127.0.0.1)
+ * @param {number}              [opts.port]        - Port (default: 50051)
+ * @param {Buffer}              [opts.caCert]      - CA cert for client verification (mTLS)
+ * @param {Buffer}              [opts.serverCert]  - Server certificate chain
+ * @param {Buffer}              [opts.serverKey]   - Server private key
+ * @param {boolean}             [opts.mtls]        - Override GRPC_MTLS env var
  * @returns {Promise<grpc.Server>}
  */
 export async function startGrpcServer(
@@ -210,11 +216,12 @@ export async function startGrpcServer(
   opts = {}
 ) {
   const {
-    host = '0.0.0.0',
-    port = 50051,
-    tls = false,
-    certChain,
-    privateKey,
+    host = process.env.GRPC_HOST ?? '127.0.0.1',
+    port = Number(process.env.GRPC_PORT ?? 50051),
+    caCert,
+    serverCert,
+    serverKey,
+    mtls,
   } = opts;
 
   const server = new grpc.Server({
@@ -234,16 +241,25 @@ export async function startGrpcServer(
   });
   server.addService(sorobanServiceDefinition, createSorobanServiceHandlers());
 
-  const credentials = tls
-    ? grpc.ServerCredentials.createSsl(null, [
-        { cert_chain: certChain, private_key: privateKey },
-      ])
-    : grpc.ServerCredentials.createInsecure();
+  const credentials = buildServerCredentials({
+    caCert,
+    serverCert,
+    serverKey,
+    mtls,
+  });
 
   await new Promise((resolve, reject) => {
     server.bindAsync(`${host}:${port}`, credentials, (err, boundPort) => {
       if (err) return reject(err);
-      console.log(`[gRPC] IndexerService listening on ${host}:${boundPort}`);
+      const mode =
+        process.env.GRPC_MTLS === 'true'
+          ? 'mTLS'
+          : process.env.GRPC_TLS === 'true'
+            ? 'TLS'
+            : 'insecure (development only)';
+      console.log(
+        `[gRPC] IndexerService listening on ${host}:${boundPort} [${mode}]`
+      );
       resolve(boundPort);
     });
   });

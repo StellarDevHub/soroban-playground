@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createProtoLoaderOptions } from './protoLoaderOptions.js';
+import { buildClientCredentials } from './grpcCredentials.js';
 
 export type CompileRequest = {
   code: string;
@@ -134,7 +135,7 @@ const definitions = packageDefinition as unknown as ProtoPackageDefinition;
 
 export function createSorobanGrpcClient(
   address: string,
-  credentials: grpc.ChannelCredentials = grpc.credentials.createInsecure(),
+  credentials: grpc.ChannelCredentials,
   options: Record<string, string | number | boolean> = {}
 ): SorobanServiceClient {
   return new loadedProto.soroban_playground.SorobanService(
@@ -529,32 +530,29 @@ function invokeGrpc(
 
 export function mountGrpcGateway(
   app: express.Express,
-  options: { host?: string; port?: number; tls?: boolean } = {}
+  options: { host?: string; port?: number; tls?: boolean; mtls?: boolean } = {}
 ) {
   const host = options.host || process.env.GRPC_GATEWAY_HOST || '127.0.0.1';
   const port = options.port || Number(process.env.GRPC_PORT || 50051);
   const deadlineMs = getGatewayDeadlineMs();
   const tls = options.tls ?? process.env.GRPC_TLS === 'true';
+  const mtls = options.mtls ?? process.env.GRPC_MTLS === 'true';
+
   const channelOptions: Record<string, string | number | boolean> = {
     'grpc.max_receive_message_length': 64 * 1024 * 1024,
     'grpc.max_send_message_length': 64 * 1024 * 1024,
     'grpc.keepalive_time_ms': 10_000,
     'grpc.keepalive_timeout_ms': 5_000,
   };
-  if (tls && process.env.GRPC_TLS_SERVER_NAME) {
+  if ((tls || mtls) && process.env.GRPC_TLS_SERVER_NAME) {
     channelOptions['grpc.ssl_target_name_override'] =
       process.env.GRPC_TLS_SERVER_NAME;
   }
 
-  const credentials = tls
-    ? grpc.credentials.createSsl(
-        (() => {
-          const rootCertPath =
-            process.env.GRPC_ROOT_CERT_PATH || process.env.SSL_CERT_PATH;
-          return rootCertPath ? readFileSync(rootCertPath) : undefined;
-        })()
-      )
-    : grpc.credentials.createInsecure();
+  // Build credentials via the shared credential factory so cipher policy and
+  // certificate loading are consistent across server, client, and gateway.
+  const credentials = buildClientCredentials({ tls, mtls });
+
   const client = createSorobanGrpcClient(
     `${host}:${port}`,
     credentials,
