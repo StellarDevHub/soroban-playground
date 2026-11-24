@@ -879,6 +879,50 @@ mod test {
     }
 
     #[test]
+    fn test_aggregate_rate_overflow_is_rejected() {
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &1_000_000_000, &1_000_000_000, &30).unwrap();
+        let trader = Address::generate(&env);
+        let amount = i128::MAX / SCALE;
+
+        for _ in 0..10 {
+            client
+                .submit_order(&trader, &true, &amount, &MIN_ORDER_DURATION_LEDGERS)
+                .unwrap();
+        }
+        assert_eq!(
+            client.submit_order(&trader, &true, &amount, &MIN_ORDER_DURATION_LEDGERS),
+            Err(Ok(Error::Overflow))
+        );
+    }
+
+    #[test]
+    fn test_multiple_opposing_orders_keep_balanced_pool_near_spot_price() {
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &1_000_000_000, &1_000_000_000, &30).unwrap();
+        let trader = Address::generate(&env);
+
+        for _ in 0..4 {
+            client.submit_order(&trader, &true, &100_000, &100).unwrap();
+            client.submit_order(&trader, &false, &100_000, &100).unwrap();
+        }
+
+        env.ledger().with_mut(|ledger| ledger.sequence_number += 50);
+        // A spot swap forces lazy settlement of the accumulated virtual orders.
+        client.swap(&trader, &true, &1_000, &0).unwrap();
+
+        let price = client.spot_price().unwrap();
+        let one_percent = SCALE / 100;
+        assert!(
+            (price - SCALE).abs() <= one_percent,
+            "balanced opposing orders should keep spot near 1.0; price={}",
+            price
+        );
+    }
+
+    #[test]
     fn test_cancel_order_refund() {
         let (env, admin, contract_id) = setup();
         let client = TwammContractClient::new(&env, &contract_id);
