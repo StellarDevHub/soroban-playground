@@ -63,6 +63,14 @@ export interface GitRemoteConfig {
   name: string;
 }
 
+/** Last push known to the in-app repository for a single branch. */
+export interface RemoteBranchTracking {
+  /** Commit SHA the remote branch pointed at after the push. */
+  sha: string;
+  /** Local commit id that produced `sha`, when one is known. */
+  localCommitId: string | null;
+}
+
 /** Per-file status reported by {@link getWorkingTreeStatus}. */
 export type GitFileStatus =
   | "added"
@@ -163,6 +171,8 @@ export interface GitState {
   remote: GitRemoteConfig | null;
   /** Commit ids that have already been pushed to the remote. */
   pushedCommits: string[];
+  /** Remote branch HEADs last observed by a push, keyed by branch name. */
+  remoteHeads: Record<string, RemoteBranchTracking>;
 }
 
 /** A node of the visual commit graph. */

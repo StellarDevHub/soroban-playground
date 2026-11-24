@@ -52,6 +52,7 @@ describe("components/Git/BranchConflictResolver", () => {
     fireEvent.change(screen.getByTestId("commit-message-input"), {
       target: { value: "Add the contract" },
     });
+    fireEvent.click(screen.getByTestId("diff-reviewed-checkbox"));
     fireEvent.click(screen.getByTestId("commit-button"));
 
     expect(useGitStore.getState().repo.head).not.toBeNull();
@@ -61,6 +62,37 @@ describe("components/Git/BranchConflictResolver", () => {
       ),
     ).toBe(true);
     expect(screen.getByTestId("git-status-message")).toBeInTheDocument();
+  });
+
+  it("shows the diff and requires a review before committing", () => {
+    const { rerender } = render(
+      <BranchConflictResolver code={"fn main() {}\n"} />,
+    );
+    rerender(<BranchConflictResolver code={"fn main() { /* changed */ }\n"} />);
+
+    expect(screen.getByTestId("commit-diff-review")).toBeInTheDocument();
+    expect(screen.getAllByTestId("commit-diff-add").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("commit-button")).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId("commit-message-input"), {
+      target: { value: "Reviewed change" },
+    });
+    fireEvent.click(screen.getByTestId("commit-button"));
+    expect(
+      Object.values(useGitStore.getState().repo.commits).some(
+        (commit) => commit.message === "Reviewed change",
+      ),
+    ).toBe(false);
+
+    fireEvent.click(screen.getByTestId("diff-reviewed-checkbox"));
+    expect(screen.getByTestId("commit-button")).toBeEnabled();
+  });
+
+  it("renders the pull request form", () => {
+    render(<BranchConflictResolver code={"fn main() {}\n"} />);
+    expect(screen.getByTestId("pr-branch-input")).toBeInTheDocument();
+    expect(screen.getByTestId("pr-title-input")).toBeInTheDocument();
+    expect(screen.getByTestId("github-create-pr")).toBeDisabled();
   });
 
   it("creates a branch", () => {

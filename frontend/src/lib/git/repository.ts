@@ -23,6 +23,7 @@ import type {
   GitState,
   GitTree,
   MergeFileResult,
+  RemoteBranchTracking,
   MergeResult,
   RebaseResult,
 } from "./types";
@@ -120,6 +121,7 @@ export function createInitialState(
     stagedTree: {},
     remote: null,
     pushedCommits: [],
+    remoteHeads: {},
   };
 }
 
@@ -811,6 +813,57 @@ export function markPushed(
 ): GitState {
   const pushed = new Set([...state.pushedCommits, ...commitIds]);
   return { ...state, pushedCommits: Array.from(pushed) };
+}
+
+/** Options accepted by {@link recordPush}. */
+export interface RecordPushOptions {
+  /** Branch that was pushed. */
+  branch: string;
+  /** SHA of the new remote branch HEAD. */
+  sha: string;
+  /** Local commit the remote SHA was created from, when known. */
+  localCommitId?: string | null;
+  /** Local commit ids included in the push. */
+  commitIds: string[];
+}
+
+/**
+ * Record a successful push, including the remote HEAD used for the next
+ * optimistic concurrency check.
+ */
+export function recordPush(
+  state: GitState,
+  options: RecordPushOptions,
+): GitState {
+  const tracking: RemoteBranchTracking = {
+    sha: options.sha,
+    localCommitId: options.localCommitId ?? null,
+  };
+  return {
+    ...markPushed(state, options.commitIds),
+    remoteHeads: { ...state.remoteHeads, [options.branch]: tracking },
+  };
+}
+
+/**
+ * Local commits of `branch` that were created after the last recorded push.
+ *
+ * An empty array means the branch is in sync with the remote. When the branch
+ * was never pushed every local commit is returned, so a brand new remote
+ * branch receives the complete history.
+ */
+export function getUnpushedCommits(
+  state: GitState,
+  branch: string,
+): GitCommit[] {
+  const history = getCommitHistory(state, branch).slice().reverse();
+  const tracking = state.remoteHeads[branch];
+  if (!tracking?.localCommitId) return history;
+
+  const index = history.findIndex(
+    (commit) => commit.id === tracking.localCommitId,
+  );
+  return index === -1 ? history : history.slice(index + 1);
 }
 
 /** Set the remote the workspace is linked to. */
