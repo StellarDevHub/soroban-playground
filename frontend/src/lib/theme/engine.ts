@@ -9,6 +9,13 @@
  *
  * Every helper is SSR-safe: when `window`/`document` are unavailable the engine
  * falls back to static answers instead of throwing during pre-render.
+ *
+ * Zero-FOUC: `THEME_BOOTSTRAP_SCRIPT` is a synchronous, dependency-free inline
+ * script meant to be injected into `<head>` before any stylesheet or body markup.
+ * It sets `data-theme` and `color-scheme` on `<html>` before first paint, and
+ * `globals.css` binds every color to semantic CSS custom properties keyed off
+ * that attribute, so the initial paint already uses the correct palette.
+ * The `high-contrast` mode is an official WCAG AAA theme for low-vision users.
  */
 
 import { evaluateContrast, type ContrastReport } from "./contrast";
@@ -34,6 +41,9 @@ const LEGACY_STORAGE_KEY = "sp-theme";
 /** Media query used to detect the operating system theme. */
 export const SYSTEM_THEME_QUERY = "(prefers-color-scheme: dark)";
 
+/** Media query used to detect the OS forced-colors / high-contrast request. */
+export const FORCED_COLORS_QUERY = "(forced-colors: active)";
+
 /** Attribute written on `<html>`; `globals.css` keys off it. */
 export const THEME_ATTRIBUTE = "data-theme";
 
@@ -50,7 +60,7 @@ export interface ThemeState {
 }
 
 function isThemeMode(value: unknown): value is ThemeMode {
-  return value === "light" || value === "dark";
+  return value === "light" || value === "dark" || value === "high-contrast";
 }
 
 function isThemePreference(value: unknown): value is ThemePreference {
@@ -102,7 +112,7 @@ export function writeStoredPreference(
   }
 }
 
-/** What the operating system currently asks for. */
+/** What the operating system currently asks for (dark / light). */
 export function systemTheme(
   matchMediaImplementation?: ((query: string) => MediaQueryList) | null,
 ): ThemeMode {
@@ -113,6 +123,20 @@ export function systemTheme(
     return matchMedia(SYSTEM_THEME_QUERY).matches ? "dark" : "light";
   } catch {
     return DEFAULT_THEME_MODE;
+  }
+}
+
+/** Whether the OS requests forced colors / high contrast. */
+export function systemPrefersHighContrast(
+  matchMediaImplementation?: ((query: string) => MediaQueryList) | null,
+): boolean {
+  const matchMedia =
+    matchMediaImplementation ?? getWindow()?.matchMedia?.bind(getWindow());
+  if (!matchMedia) return false;
+  try {
+    return matchMedia(FORCED_COLORS_QUERY).matches;
+  } catch {
+    return false;
   }
 }
 
@@ -132,11 +156,16 @@ export function resolveThemeState(
   const stored = readStoredPreference(storage);
   const osTheme = systemTheme(matchMediaImplementation);
 
-  // An explicit light/dark choice is honoured and attributed to storage; a
-  // persisted "system" preference keeps following the OS and stays attributed
-  // to the system.
+  // An explicit choice is honoured and attributed to storage; a persisted
+  // "system" preference keeps following the OS and stays attributed to the system.
   if (stored && stored !== "system") {
     return { preference: stored, mode: resolveThemeMode(stored, osTheme), source: "stored" };
+  }
+
+  // Forced-colors / high-contrast OS requests map to the high-contrast theme
+  // when the user has no explicit preference.
+  if (systemPrefersHighContrast(matchMediaImplementation)) {
+    return { preference: stored ?? "system", mode: "high-contrast", source: "system" };
   }
 
   return { preference: stored ?? "system", mode: osTheme, source: "system" };
@@ -146,8 +175,7 @@ export function resolveThemeState(
  * Write a theme onto the document.
  *
  * Tokens are mirrored as inline custom properties on `<html>` so a theme can be
- * applied before the stylesheet is parsed (avoiding a flash of the wrong
- * palette) and so a future custom-theme feature can swap values at runtime.
+ * swapped at runtime without a stylesheet reload.
  */
 export function applyTheme(
   mode: ThemeMode,
@@ -158,7 +186,7 @@ export function applyTheme(
   if (!root) return mode;
 
   root.setAttribute(THEME_ATTRIBUTE, mode);
-  root.style.setProperty("color-scheme", mode);
+  root.style.setProperty("color-scheme", mode === "light" ? "light" : "dark");
 
   const variables = tokensToCssVariables(tokensForMode(mode));
   for (const [name, value] of Object.entries(variables)) {
@@ -193,19 +221,18 @@ export function validateTheme(mode: ThemeMode): ContrastReport {
 /**
  * Inline bootstrap script.
  *
- * Injected into `<head>` by the root layout so the correct `data-theme` is set
- * before first paint. Kept dependency-free and defensive: any failure falls
- * back to the default dark theme rather than leaving the page unstyled.
+ * Must be injected synchronously into `<head>` (before any stylesheet link and
+ * before `<body>`) so `data-theme` and `color-scheme` are set before the first
+ * paint. Kept dependency-free and defensive: any failure falls back to the
+ * default theme rather than leaving the page unstyled.
  */
 export const THEME_BOOTSTRAP_SCRIPT = `(function(){try{var k=${JSON.stringify(
   THEME_STORAGE_KEY,
 )},l=${JSON.stringify(LEGACY_STORAGE_KEY)},d=${JSON.stringify(
   DEFAULT_THEME_MODE,
-)},a=${JSON.stringify(THEME_ATTRIBUTE)};var s=null;try{s=window.localStorage}catch(e){}var p=null;if(s){p=s.getItem(k)||s.getItem(l)}if(p!=="light"&&p!=="dark"&&p!=="system"){p=null}var m=p;if(m==="system"||m===null){m=window.matchMedia&&window.matchMedia(${JSON.stringify(
+)},a=${JSON.stringify(THEME_ATTRIBUTE)},sd=${JSON.stringify(
   SYSTEM_THEME_QUERY,
-)}).matches?"dark":"light"}var r=document.documentElement;r.setAttribute(a,m);r.style.colorScheme=m}catch(e){document.documentElement.setAttribute(${JSON.stringify(
-  THEME_ATTRIBUTE,
-)},${JSON.stringify(DEFAULT_THEME_MODE)})}})();`;
+)},fc=${JSON.stringify(FORCED_COLORS_QUERY)};var s=null;try{s=window.localStorage}catch(e){}var p=null;if(s){p=s.getItem(k)||s.getItem(l)}if(p!=="light"&&p!=="dark"&&p!=="high-contrast"&&p!=="system"){p=null}var mm=window.matchMedia?window.matchMedia.bind(window):null;var m=p;if(m==="system"||m===null){if(mm&&mm(fc).matches){m="high-contrast"}else{m=mm&&mm(sd).matches?"dark":(mm?"light":d)}}var r=document.documentElement;r.setAttribute(a,m);r.style.colorScheme=m==="light"?"light":"dark"}catch(e){document.documentElement.setAttribute(a,d)}})();`;
 
 export interface ThemeController {
   /** Current preference, resolved mode and provenance. */
@@ -223,8 +250,8 @@ export interface ThemeController {
 /**
  * Create a controller that owns the theme for the lifetime of a React tree.
  *
- * `setPreference("system")` keeps following the OS; an explicit light/dark
- * choice pins the theme until the user changes it again.
+ * `setPreference("system")` keeps following the OS; an explicit choice pins the
+ * theme until the user changes it again.
  */
 export function createThemeController(): ThemeController {
   const win = getWindow();
@@ -259,7 +286,7 @@ export function createThemeController(): ThemeController {
     if (state.preference !== "system") return;
     const next: ThemeState = {
       preference: "system",
-      mode: systemTheme(),
+      mode: systemPrefersHighContrast() ? "high-contrast" : systemTheme(),
       source: "system",
     };
     applyTheme(next.mode, doc);
@@ -270,17 +297,15 @@ export function createThemeController(): ThemeController {
     if (event.key !== null && event.key !== THEME_STORAGE_KEY && event.key !== LEGACY_STORAGE_KEY) {
       return;
     }
-    const stored = readStoredPreference();
-    const next: ThemeState =
-      stored && stored !== "system"
-        ? { preference: stored, mode: resolveThemeMode(stored, systemTheme()), source: "stored" }
-        : { preference: stored ?? "system", mode: systemTheme(), source: "system" };
+    const next = resolveThemeState();
     applyTheme(next.mode, doc);
     notify(next);
   };
 
   const media = win?.matchMedia?.(SYSTEM_THEME_QUERY) ?? null;
+  const contrastMedia = win?.matchMedia?.(FORCED_COLORS_QUERY) ?? null;
   media?.addEventListener?.("change", handleSystemChange);
+  contrastMedia?.addEventListener?.("change", handleSystemChange);
   win?.addEventListener?.("storage", handleStorage);
 
   return {
@@ -294,6 +319,7 @@ export function createThemeController(): ThemeController {
     destroy: () => {
       listeners.clear();
       media?.removeEventListener?.("change", handleSystemChange);
+      contrastMedia?.removeEventListener?.("change", handleSystemChange);
       win?.removeEventListener?.("storage", handleStorage);
     },
   };

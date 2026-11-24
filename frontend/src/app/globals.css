@@ -14,6 +14,10 @@
  * The dark palette is the historical (and default) look. `[data-theme="light"]`
  * adds a light palette and inverts the Tailwind `slate`/`teal`/`orange` scales
  * plus `white`/`black` so existing utility classes flip with the theme.
+ *
+ * `[data-theme="high-contrast"]` provides a WCAG AAA high-contrast palette
+ * (>= 7:1 for all text pairs). The theme attribute is applied by a blocking
+ * bootstrap script in <head> before first paint to prevent FOUC.
  */
 
 /* ---------- Default + dark theme ---------- */
@@ -22,8 +26,10 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --background: 217 59% 8%;
-  --foreground: 214 52% 94%;
+  --bg-primary: 217 59% 8%;
+  --text-primary: 214 52% 94%;
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
   --accent: 172 66% 50%;
   --accent-strong: 25 95% 53%;
   --panel: 217 59% 8%;
@@ -47,8 +53,10 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
+  --bg-primary: 210 40% 98%;
+  --text-primary: 222 47% 11%;
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
   --accent: 172 80% 25%;
   --accent-strong: 25 92% 36%;
   --panel: 0 0% 100%;
@@ -108,6 +116,34 @@
   --color-black: oklch(0.984 0.003 247.858);
 }
 
+/* ---------- High-contrast theme (WCAG AAA, >= 7:1) ---------- */
+
+[data-theme="high-contrast"] {
+  color-scheme: dark;
+
+  --bg-primary: 0 0% 0%;
+  --text-primary: 0 0% 100%;
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
+  --accent: 180 100% 50%;
+  --accent-strong: 55 100% 50%;
+  --panel: 0 0% 0%;
+  --panel-border: 0 0% 100%;
+  --grid: 0 0% 100%;
+
+  --code-background: 0 0% 0%;
+  --code-foreground: 0 0% 100%;
+  --code-keyword: 300 100% 80%;
+  --code-string: 120 100% 70%;
+  --code-number: 40 100% 70%;
+  --code-comment: 0 0% 85%;
+  --code-function: 180 100% 75%;
+  --code-type: 55 100% 70%;
+  --code-operator: 0 0% 100%;
+
+  --readable-muted: #ffffff;
+}
+
 /* ---------- Tailwind theme bridge ---------- */
 
 @theme inline {
@@ -145,8 +181,8 @@ html {
 }
 
 body {
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background: hsl(var(--bg-primary));
+  color: hsl(var(--text-primary));
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   min-height: 100vh;
   transition:
@@ -246,7 +282,7 @@ a {
   }
 }
 
-/* Keyboard navigation stays visible across utility styles and both themes. */
+/* Keyboard navigation stays visible across utility styles and all themes. */
 :where(
   a,
   button,
@@ -295,7 +331,7 @@ a {
   color: var(--readable-muted);
 }
 [data-theme="dark"] .text-gray-500,
-:root:not([data-theme="light"]) .text-gray-500 {
+:root:not([data-theme="light"]):not([data-theme="high-contrast"]) .text-gray-500 {
   color: #9ca3af;
 }
 /* Gray is used alongside slate throughout legacy panels; invert both neutral ramps. */
@@ -312,6 +348,46 @@ a {
   --color-gray-100: #111827;
   --color-gray-50: #030712;
 }
+
+/* High-contrast: force every neutral and brand utility to pure black/white. */
+[data-theme="high-contrast"] {
+  --color-slate-950: #000000;
+  --color-slate-900: #000000;
+  --color-slate-800: #000000;
+  --color-slate-700: #ffffff;
+  --color-slate-600: #ffffff;
+  --color-slate-500: #ffffff;
+  --color-slate-400: #ffffff;
+  --color-slate-300: #ffffff;
+  --color-slate-200: #ffffff;
+  --color-slate-100: #ffffff;
+  --color-slate-50: #ffffff;
+  --color-gray-950: #000000;
+  --color-gray-900: #000000;
+  --color-gray-800: #000000;
+  --color-gray-700: #ffffff;
+  --color-gray-600: #ffffff;
+  --color-gray-500: #ffffff;
+  --color-gray-400: #ffffff;
+  --color-gray-300: #ffffff;
+  --color-gray-200: #ffffff;
+  --color-gray-100: #ffffff;
+  --color-gray-50: #ffffff;
+  --color-white: #ffffff;
+  --color-black: #000000;
+}
+[data-theme="high-contrast"] .text-slate-500,
+[data-theme="high-contrast"] .text-slate-600,
+[data-theme="high-contrast"] .text-gray-500 {
+  color: #ffffff;
+}
+[data-theme="high-contrast"] :is(button, a) {
+  border-color: #ffffff;
+}
+[data-theme="high-contrast"] a:not(:is(button, [role="button"])) {
+  text-decoration: underline;
+}
+
 /* Filled buttons keep a readable, theme-independent foreground. */
 :is(button, a).bg-cyan-600 {
   background-color: #0e7490;
@@ -401,7 +477,7 @@ a {
   background-color: #374151;
 }
 
-:root:not([data-theme="light"]) .bg-gray-100.text-gray-500 {
+:root:not([data-theme="light"]):not([data-theme="high-contrast"]) .bg-gray-100.text-gray-500 {
   color: #475569;
 }
 [data-theme="light"] .bg-white .text-gray-500,
@@ -418,7 +494,7 @@ a {
 }
 
 /* Template surfaces deliberately remain light in the default palette. */
-:root:not([data-theme="light"]) .template-library .text-gray-500 {
+:root:not([data-theme="light"]):not([data-theme="high-contrast"]) .template-library .text-gray-500 {
   color: #475569;
 }
 /* An opaque status badge maintains contrast on both light and dark pages. */

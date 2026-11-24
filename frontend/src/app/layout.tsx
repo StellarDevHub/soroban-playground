@@ -42,6 +42,12 @@ export default function RootLayout({
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <ThemeBootstrapScript />
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var t=localStorage.getItem('theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;var m=t==='light'||t==='high-contrast'?t:(t==='dark'?'dark':(d?'dark':'light'));var r=document.documentElement;r.classList.remove('dark','light','high-contrast');r.classList.add(m);r.setAttribute('data-theme',m);r.style.colorScheme=m==='light'?'light':'dark';}catch(e){}})();",
+          }}
+        />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased" suppressHydrationWarning>
         <ScreenReaderAnnouncer />

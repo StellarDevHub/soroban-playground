@@ -23,6 +23,11 @@ import type { ThemePreference } from "@/lib/theme/types";
  * preference rendering light while the server rendered dark) and trip a
  * hydration mismatch. The provider renders this canonical default until the
  * mount effect adopts the real stored/OS theme.
+ *
+ * The pre-paint bootstrap script in the root `<head>` has already applied the
+ * correct `data-theme` / color-scheme attributes before first paint, so the
+ * visible theme is correct from the first frame (no FOUC); React state simply
+ * catches up after mount.
  */
 export const SSR_THEME_STATE: ThemeState = {
   preference: "system",
