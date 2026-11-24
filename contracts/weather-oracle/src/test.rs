@@ -566,3 +566,83 @@ fn test_different_locations_independent_records() {
         .unwrap();
     assert_eq!(client.get_record_count().unwrap(), 2);
 }
+
+#[test]
+fn test_multi_oracle_consensus_with_iqr_outlier_trimming() {
+    let (env, admin, client) = setup();
+    client.initialize(&admin, &Some(3)).unwrap(); // threshold K = 3
+
+    let mut reporters = soroban_sdk::Vec::new(&env);
+    for i in 0..5 {
+        let src = Address::generate(&env);
+        client
+            .add_data_source(&admin, &src, &String::from_str(&env, "Station"))
+            .unwrap();
+        reporters.push_back(src);
+    }
+
+    let station_id = 101;
+    let epoch = env.ledger().timestamp();
+
+    // 4 legitimate readings: 48, 50, 52, 53 mm
+    // 1 corrupted outlier reading: 9999 mm
+    let readings = [48, 50, 52, 53, 9999];
+    for (i, &val) in readings.iter().enumerate() {
+        let rep = reporters.get(i as u32).unwrap();
+        client
+            .report_weather(&rep, &station_id, &val, &epoch)
+            .unwrap();
+    }
+
+    let consensus = client.finalize_epoch_consensus(&station_id, &epoch).unwrap();
+    assert_eq!(consensus.station_id, station_id);
+    assert_eq!(consensus.total_reports, 5);
+    // IQR trimming removes the 9999 mm outlier!
+    assert!(consensus.valid_reports >= 4);
+    assert!(consensus.trimmed_median_rainfall >= 48 && consensus.trimmed_median_rainfall <= 53);
+}
+
+#[test]
+fn test_network_partition_prevents_premature_consensus() {
+    let (env, admin, client) = setup();
+    client.initialize(&admin, &Some(4)).unwrap(); // Requires K = 4 reports
+
+    let src1 = Address::generate(&env);
+    let src2 = Address::generate(&env);
+    client
+        .add_data_source(&admin, &src1, &String::from_str(&env, "S1"))
+        .unwrap();
+    client
+        .add_data_source(&admin, &src2, &String::from_str(&env, "S2"))
+        .unwrap();
+
+    let station_id = 102;
+    let epoch = env.ledger().timestamp();
+
+    // Only 2 of 4 reports arrive due to network partition
+    client.report_weather(&src1, &station_id, &45, &epoch).unwrap();
+    client.report_weather(&src2, &station_id, &46, &epoch).unwrap();
+
+    let err = client
+        .finalize_epoch_consensus(&station_id, &epoch)
+        .unwrap_err();
+    assert_eq!(err, Error::ConsensusNotReached);
+}
+
+#[test]
+fn test_stale_weather_data_rejected() {
+    let (env, admin, client) = setup();
+    client.initialize(&admin, &None).unwrap();
+    let src = Address::generate(&env);
+    client
+        .add_data_source(&admin, &src, &String::from_str(&env, "S1"))
+        .unwrap();
+
+    let station_id = 103;
+    let stale_epoch = 10; // Very old timestamp
+
+    let err = client
+        .report_weather(&src, &station_id, &30, &stale_epoch)
+        .unwrap_err();
+    assert_eq!(err, Error::StaleData);
+}

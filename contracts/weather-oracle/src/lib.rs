@@ -27,14 +27,19 @@ mod types;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 
 use crate::storage::{
-    get_admin, get_history_index, get_record, get_record_count, get_source, get_threshold,
-    has_submitted, is_circuit_breaker_active, is_initialized, is_paused, mark_submitted, set_admin,
-    set_circuit_breaker, set_history_index, set_initialized, set_paused, set_record,
+    get_admin, get_epoch_consensus, get_epoch_reports, get_history_index, get_record,
+    get_record_count, get_source, get_threshold, has_submitted, is_circuit_breaker_active,
+    is_initialized, is_paused, mark_submitted, set_admin, set_circuit_breaker, set_epoch_consensus,
+    set_epoch_reports, set_history_index, set_initialized, set_paused, set_record,
     set_record_count, set_source, set_threshold, source_exists,
 };
-use crate::types::{DataSource, Error, WeatherData, WeatherDataStatus};
+use crate::types::{
+    DataSource, EpochConsensus, EpochReport, Error, WeatherData, WeatherDataStatus,
+};
 
 // ── Validation constants ───────────────────────────────────────────────────────
+/// Maximum allowed timestamp staleness: 24 hours (in seconds)
+pub const MAX_STALENESS_SECONDS: u64 = 86_400;
 /// Temperature range: −90°C to +60°C (in fixed-point × 100: −9000 to 6000)
 const TEMP_MIN: i32 = -9000;
 const TEMP_MAX: i32 = 6000;
@@ -270,6 +275,147 @@ impl WeatherOracle {
         set_source(&env, &ds);
 
         Ok(record_id)
+    }
+
+    // ── Parametric Weather Consensus & IQR Outlier Trimming ───────────────────
+
+    /// Submit weather report for parametric multi-source consensus epoch.
+    pub fn report_weather(
+        env: Env,
+        reporter: Address,
+        station_id: u32,
+        rainfall_mm: u32,
+        epoch: u64,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        not_circuit_breaker(&env)?;
+        reporter.require_auth();
+
+        let ds = get_source(&env, &reporter)?;
+        if !ds.active {
+            return Err(Error::SourceInactive);
+        }
+
+        let now = env.ledger().timestamp();
+        if now.saturating_sub(epoch) > MAX_STALENESS_SECONDS {
+            return Err(Error::StaleData);
+        }
+
+        let mut reports = get_epoch_reports(&env, station_id, epoch);
+        for r in reports.iter() {
+            if r.reporter == reporter {
+                return Err(Error::AlreadySubmitted);
+            }
+        }
+
+        reports.push_back(EpochReport {
+            reporter: reporter.clone(),
+            station_id,
+            rainfall_mm,
+            observed_at: epoch,
+        });
+        set_epoch_reports(&env, station_id, epoch, &reports);
+
+        env.events().publish(
+            (symbol_short!("rainRep"), station_id),
+            (reporter, rainfall_mm, epoch),
+        );
+
+        Ok(())
+    }
+
+    /// Finalize consensus for an epoch requiring at least K of N reports and applying IQR trimming.
+    pub fn finalize_epoch_consensus(
+        env: Env,
+        station_id: u32,
+        epoch: u64,
+    ) -> Result<EpochConsensus, Error> {
+        ensure_initialized(&env)?;
+        not_paused(&env)?;
+        not_circuit_breaker(&env)?;
+
+        let reports = get_epoch_reports(&env, station_id, epoch);
+        let k = get_threshold(&env);
+        let total = reports.len();
+        if total < k {
+            return Err(Error::ConsensusNotReached);
+        }
+
+        // Collect rainfall values into a sortable list
+        let mut vals: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(&env);
+        for r in reports.iter() {
+            vals.push_back(r.rainfall_mm);
+        }
+
+        // In-place sort for no_std
+        let n = vals.len();
+        for i in 0..n {
+            for j in 0..(n - 1 - i) {
+                let a = vals.get(j).unwrap();
+                let b = vals.get(j + 1).unwrap();
+                if a > b {
+                    vals.set(j, b);
+                    vals.set(j + 1, a);
+                }
+            }
+        }
+
+        // Compute Q1 (25th percentile) and Q3 (75th percentile)
+        let q1_idx = n / 4;
+        let q3_idx = (3 * n) / 4;
+        let q1 = vals.get(q1_idx).unwrap();
+        let q3 = vals.get(q3_idx).unwrap();
+        let iqr = q3.saturating_sub(q1);
+
+        // 1.5 * IQR = (3 * iqr) / 2
+        let step = (3 * iqr) / 2;
+        let lower_bound = q1.saturating_sub(step);
+        let upper_bound = q3.saturating_add(step);
+
+        let mut valid_vals: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(&env);
+        for v in vals.iter() {
+            if v >= lower_bound && v <= upper_bound {
+                valid_vals.push_back(v);
+            }
+        }
+
+        let valid_count = valid_vals.len();
+        if valid_count == 0 {
+            return Err(Error::OutlierFiltered);
+        }
+
+        // Trimmed median
+        let median_idx = valid_count / 2;
+        let trimmed_median = valid_vals.get(median_idx).unwrap();
+
+        let consensus = EpochConsensus {
+            station_id,
+            epoch,
+            total_reports: total,
+            valid_reports: valid_count,
+            trimmed_median_rainfall: trimmed_median,
+            finalized_at: env.ledger().timestamp(),
+        };
+
+        set_epoch_consensus(&env, station_id, epoch, &consensus);
+
+        env.events().publish(
+            (symbol_short!("rainCons"), station_id),
+            (epoch, trimmed_median, valid_count),
+        );
+
+        Ok(consensus)
+    }
+
+    /// Retrieve finalized epoch consensus benchmark.
+    pub fn get_epoch_consensus(
+        env: Env,
+        station_id: u32,
+        epoch: u64,
+    ) -> Result<EpochConsensus, Error> {
+        ensure_initialized(&env)?;
+        get_epoch_consensus(&env, station_id, epoch)
     }
 
     // ── Read-only ─────────────────────────────────────────────────────────────

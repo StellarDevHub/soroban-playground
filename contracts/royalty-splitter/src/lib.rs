@@ -47,7 +47,7 @@ use soroban_sdk::{
 /// Basis points representing 100% of a node's allocation.
 pub const BPS_DENOMINATOR: u32 = 10_000;
 /// Maximum nesting depth of the beneficiary tree (root = depth 1).
-pub const MAX_DEPTH: u32 = 8;
+pub const MAX_DEPTH: u32 = 3;
 /// Maximum children a single splitter node may have.
 pub const MAX_CHILDREN: u32 = 32;
 /// Maximum leaf beneficiaries in the whole tree.
@@ -109,6 +109,8 @@ pub enum Error {
     TooManyChildren = 12,
     /// The amount exceeds `MAX_AMOUNT`.
     AmountTooLarge = 13,
+    /// Circular dependency or duplicate beneficiary in hierarchy.
+    CircularDependency = 14,
 }
 
 #[contract]
@@ -124,7 +126,7 @@ impl RoyaltySplitter {
         }
         admin.require_auth();
 
-        Self::validate_tree(&tree)?;
+        Self::validate_tree(&env, &tree)?;
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -159,7 +161,7 @@ impl RoyaltySplitter {
             return Err(Error::ImmutableConfig);
         }
 
-        Self::validate_tree(&tree)?;
+        Self::validate_tree(&env, &tree)?;
         env.storage().instance().set(&DataKey::Tree, &tree);
 
         env.events()
@@ -266,7 +268,7 @@ impl RoyaltySplitter {
         if amount > MAX_AMOUNT {
             return Err(Error::AmountTooLarge);
         }
-        Self::validate_tree(&tree)?;
+        Self::validate_tree(&env, &tree)?;
         let mut credits: Vec<(Address, i128)> = Vec::new(&env);
         Self::apply(&env, &tree, amount, &mut credits)?;
         Ok(credits)
@@ -347,18 +349,31 @@ impl RoyaltySplitter {
     }
 
     /// Structural validation of a tree: per-node bps sums, child/leaf/depth
-    /// bounds. Runs once at set time so the distribution walk never re-checks.
-    fn validate_tree(node: &Node) -> Result<(), Error> {
+    /// bounds, and cycle detection. Runs once at set time so the distribution walk never re-checks.
+    fn validate_tree(env: &Env, node: &Node) -> Result<(), Error> {
         let mut leaves: u32 = 0;
-        Self::validate_node(node, 1, &mut leaves)
+        let mut visited: Vec<Address> = Vec::new(env);
+        Self::validate_node(env, node, 1, &mut leaves, &mut visited)
     }
 
-    fn validate_node(node: &Node, depth: u32, leaves: &mut u32) -> Result<(), Error> {
+    fn validate_node(
+        env: &Env,
+        node: &Node,
+        depth: u32,
+        leaves: &mut u32,
+        visited: &mut Vec<Address>,
+    ) -> Result<(), Error> {
         if depth > MAX_DEPTH {
             return Err(Error::TooDeep);
         }
         match node {
-            Node::Beneficiary(_) => {
+            Node::Beneficiary(addr) => {
+                for v in visited.iter() {
+                    if v == *addr {
+                        return Err(Error::CircularDependency);
+                    }
+                }
+                visited.push_back(addr.clone());
                 *leaves = leaves.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
                 if *leaves > MAX_LEAVES {
                     return Err(Error::TooManyLeaves);
@@ -380,7 +395,7 @@ impl RoyaltySplitter {
                     total = total
                         .checked_add(child.share_bps)
                         .ok_or(Error::ArithmeticOverflow)?;
-                    Self::validate_node(&child.node, depth + 1, leaves)?;
+                    Self::validate_node(env, &child.node, depth + 1, leaves, visited)?;
                 }
                 if total != BPS_DENOMINATOR {
                     return Err(Error::InvalidBps);

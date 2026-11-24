@@ -175,3 +175,44 @@ fn test_new_investor_does_not_claim_old_dividends() {
     let early_claimable = client.claimable_dividends(&early, &trust_id);
     assert_eq!(early_claimable, 5_000_000); // 500/1000 * 10_000_000
 }
+
+#[test]
+fn test_zero_dust_loss_over_10000_distributions_with_prime_shares() {
+    let (env, admin, client) = setup();
+    client.initialize(&admin);
+    // Prime total shares: 97 shares
+    let trust_id = client.create_trust(
+        &admin,
+        &String::from_str(&env, "Prime Fractional REIT"),
+        &97,
+        &10_000,
+        &500,
+    );
+
+    let alice = Address::generate(&env); // 31 shares (prime)
+    let bob = Address::generate(&env);   // 43 shares (prime)
+    let carol = Address::generate(&env); // 23 shares (prime)
+    // 31 + 43 + 23 = 97 shares (100%)
+
+    client.buy_shares(&alice, &trust_id, &31);
+    client.buy_shares(&bob, &trust_id, &43);
+    client.buy_shares(&carol, &trust_id, &23);
+
+    let deposit_amount = 1_000_003i128; // Prime deposit amount
+    let cycles = 10_000;
+    for _ in 0..cycles {
+        client.deposit_dividends(&admin, &trust_id, &deposit_amount);
+    }
+
+    let alice_claim = client.claim_dividends(&alice, &trust_id);
+    let bob_claim = client.claim_dividends(&bob, &trust_id);
+    let carol_claim = client.claim_dividends(&carol, &trust_id);
+
+    let total_claimed = alice_claim + bob_claim + carol_claim;
+    let trust = client.get_trust(&trust_id);
+    let total_distributed_plus_dust = total_claimed + trust.dust_reserve;
+    let total_deposited = deposit_amount * (cycles as i128);
+
+    // Exact conservation: zero tokens lost!
+    assert_eq!(total_distributed_plus_dust, total_deposited);
+}
