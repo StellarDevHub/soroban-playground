@@ -4,19 +4,39 @@
 //! verifies compact cryptographic inclusion / non-inclusion proofs submitted
 //! off-chain. Enables off-chain state commitments to be verified on-chain with
 //! O(256) verification cost regardless of the number of registered keys.
+//!
+//! ## Hashing scheme
+//!
+//! All hashes are SHA-256 with domain separation so interior nodes can never be
+//! confused with leaves (second-preimage resistance):
+//!
+//! * leaf     = `sha256(0x00 || key || value)`
+//! * interior = `sha256(0x01 || left || right)`
+//!
+//! Unlike a plain (set-membership) Merkle tree, sibling pairs are **not** sorted
+//! here: in a sparse Merkle tree the position of a node is fixed by the bits of
+//! the key, so `left`/`right` carry meaning and sorting would make distinct
+//! trees collide. Set-membership trees (e.g. the allowlist contract) use sorted
+//! pair hashing instead.
 
 #![no_std]
+// `update_root` takes both roots, both values and the proof by design.
+#![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env,
     Symbol, Vec,
 };
 
-const ROOT_KEY: Symbol = symbol_short!("ROOT");
 const ADMIN_KEY: Symbol = symbol_short!("ADMIN");
 const INITIALIZED_KEY: Symbol = symbol_short!("INIT");
 
 const SMT_DEPTH: u32 = 256;
+
+/// Domain-separation prefix for leaf hashes.
+const LEAF_PREFIX: u8 = 0x00;
+/// Domain-separation prefix for interior-node hashes.
+const NODE_PREFIX: u8 = 0x01;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -78,21 +98,19 @@ impl SparseMerkleRegistry {
 
     // ── Public hash helpers (used by off-chain proof generators) ────────────
 
-    /// Hashes a 32-byte input into a 32-byte digest.
+    /// Hashes a 32-byte input into a 32-byte SHA-256 digest.
     pub fn hash_data(env: Env, data: BytesN<32>) -> BytesN<32> {
         Self::hash_data_ref(&env, data)
     }
 
-    /// Hashes a pair of 32-byte nodes into a parent node.
+    /// Hashes a pair of 32-byte nodes into a parent: `sha256(0x01 || left || right)`.
     pub fn hash_pair(env: Env, left: BytesN<32>, right: BytesN<32>) -> BytesN<32> {
         Self::hash_pair_ref(&env, left, right)
     }
 
-    /// Hashes a key-value pair into a leaf node.
+    /// Hashes a key-value pair into a leaf node: `sha256(0x00 || key || value)`.
     pub fn hash_leaf(env: Env, key: BytesN<32>, value: BytesN<32>) -> BytesN<32> {
-        let kh = Self::hash_data_ref(&env, key);
-        let vh = Self::hash_data_ref(&env, value);
-        Self::hash_pair_ref(&env, kh, vh)
+        Self::hash_leaf_ref(&env, key, value)
     }
 
     // ── Queries ─────────────────────────────────────────────────────────────
@@ -262,40 +280,22 @@ impl SparseMerkleRegistry {
     // ── Internal (take &Env so they can be called repeatedly) ───────────────
 
     fn hash_data_ref(env: &Env, data: BytesN<32>) -> BytesN<32> {
-        let arr = data.to_array();
-        let digest = Self::hash_bytes(env, &arr);
-        BytesN::from_array(env, &digest)
+        let bytes = Bytes::from_array(env, &data.to_array());
+        env.crypto().sha256(&bytes).to_bytes()
     }
 
     fn hash_pair_ref(env: &Env, left: BytesN<32>, right: BytesN<32>) -> BytesN<32> {
-        let la = left.to_array();
-        let ra = right.to_array();
-        let mut buf = [0u8; 64];
-        buf[..32].copy_from_slice(&la);
-        buf[32..].copy_from_slice(&ra);
-        let digest = Self::hash_bytes(env, &buf);
-        BytesN::from_array(env, &digest)
+        let mut buf = Bytes::from_array(env, &[NODE_PREFIX]);
+        buf.append(&Bytes::from_array(env, &left.to_array()));
+        buf.append(&Bytes::from_array(env, &right.to_array()));
+        env.crypto().sha256(&buf).to_bytes()
     }
 
     fn hash_leaf_ref(env: &Env, key: BytesN<32>, value: BytesN<32>) -> BytesN<32> {
-        let kh = Self::hash_data_ref(env, key);
-        let vh = Self::hash_data_ref(env, value);
-        Self::hash_pair_ref(env, kh, vh)
-    }
-
-    fn hash_bytes(env: &Env, data: &[u8]) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        let mut acc: u32 = 0x811c9dc5;
-        for (i, b) in data.iter().enumerate() {
-            acc ^= *b as u32;
-            acc = acc.wrapping_mul(0x01000193);
-            out[i % 32] ^= acc as u8;
-            out[(i.wrapping_add(1)) % 32] ^= (acc >> 8) as u8;
-            out[(i.wrapping_add(2)) % 32] ^= (acc >> 16) as u8;
-            out[(i.wrapping_add(3)) % 32] ^= (acc >> 24) as u8;
-        }
-        out[0] ^= data.len() as u8;
-        out
+        let mut buf = Bytes::from_array(env, &[LEAF_PREFIX]);
+        buf.append(&Bytes::from_array(env, &key.to_array()));
+        buf.append(&Bytes::from_array(env, &value.to_array()));
+        env.crypto().sha256(&buf).to_bytes()
     }
 }
 
@@ -303,146 +303,284 @@ impl SparseMerkleRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
-    fn make_admin(env: &Env) -> Address {
-        Address::generate(env)
+    // Known-answer vectors computed independently with Python's hashlib:
+    //   LEAF    = sha256(0x00 || [0x42; 32] || [0x7f; 32])
+    //   NODE_ZZ = sha256(0x01 || [0; 32] || [0; 32])
+    //   DATA_Z  = sha256([0; 32])
+    const LEAF: [u8; 32] = [
+        0x21, 0x22, 0x91, 0xbe, 0x09, 0xe1, 0x9a, 0x3e, 0x02, 0xe4, 0xe0, 0xff, 0xb2, 0x7d, 0x10,
+        0x69, 0x96, 0x4b, 0x07, 0x89, 0xf7, 0xc7, 0x7e, 0x93, 0x85, 0x86, 0x0e, 0xa3, 0xa1, 0x52,
+        0xb8, 0x3b,
+    ];
+    const NODE_ZZ: [u8; 32] = [
+        0xae, 0x07, 0x98, 0xd0, 0xec, 0xae, 0xd2, 0xb7, 0x78, 0xed, 0xde, 0xbf, 0x18, 0xf0, 0x71,
+        0xa5, 0x61, 0xc5, 0x36, 0x58, 0xc0, 0x5e, 0x76, 0xce, 0xde, 0xcc, 0x27, 0xca, 0xfb, 0xdb,
+        0xc5, 0x77,
+    ];
+    const DATA_Z: [u8; 32] = [
+        0x66, 0x68, 0x7a, 0xad, 0xf8, 0x62, 0xbd, 0x77, 0x6c, 0x8f, 0xc1, 0x8b, 0x8e, 0x9f, 0x8e,
+        0x20, 0x08, 0x97, 0x14, 0x85, 0x6e, 0xe2, 0x33, 0xb3, 0x90, 0x2a, 0x59, 0x1d, 0x0d, 0x5f,
+        0x29, 0x25,
+    ];
+
+    fn setup(env: &Env) -> SparseMerkleRegistryClient<'_> {
+        env.mock_all_auths();
+        let id = env.register_contract(None, SparseMerkleRegistry);
+        SparseMerkleRegistryClient::new(env, &id)
+    }
+
+    fn bn(env: &Env, byte: u8) -> BytesN<32> {
+        BytesN::from_array(env, &[byte; 32])
+    }
+
+    fn zero_path(env: &Env) -> Vec<BytesN<32>> {
+        let zero = bn(env, 0);
+        let mut path = Vec::new(env);
+        for _ in 0..SMT_DEPTH {
+            path.push_back(zero.clone());
+        }
+        path
+    }
+
+    /// Walks `start` up the tree along `key`'s bit-path with all-zero siblings.
+    fn root_from(
+        client: &SparseMerkleRegistryClient,
+        env: &Env,
+        key: &BytesN<32>,
+        start: BytesN<32>,
+    ) -> BytesN<32> {
+        let zero = bn(env, 0);
+        let ka = key.to_array();
+        let mut cur = start;
+        for i in 0..SMT_DEPTH as usize {
+            let bit = (ka[i / 8] >> (7 - (i % 8))) & 1u8;
+            cur = if bit == 0 {
+                client.hash_pair(&cur, &zero)
+            } else {
+                client.hash_pair(&zero, &cur)
+            };
+        }
+        cur
     }
 
     #[test]
-    fn test_hash_data_deterministic() {
+    fn test_hashes_match_known_vectors() {
         let env = Env::default();
-        let contract = SparseMerkleRegistry;
-        let id = env.register_contract(None, contract);
-        let client = SparseMerkleRegistryClient::new(&env, &id);
+        let client = setup(&env);
 
-        let a = BytesN::from_array(&env, &[1, 2, 3]);
-        let h1 = client.hash_data(&a);
-        let h2 = client.hash_data(&a);
-        let h3 = client.hash_data(&BytesN::from_array(&env, &[1, 2, 4]));
-        assert_eq!(h1, h2);
-        assert_ne!(h1, h3);
+        assert_eq!(
+            client.hash_data(&bn(&env, 0)),
+            BytesN::from_array(&env, &DATA_Z)
+        );
+        assert_eq!(
+            client.hash_pair(&bn(&env, 0), &bn(&env, 0)),
+            BytesN::from_array(&env, &NODE_ZZ)
+        );
+        assert_eq!(
+            client.hash_leaf(&bn(&env, 0x42), &bn(&env, 0x7f)),
+            BytesN::from_array(&env, &LEAF)
+        );
+    }
+
+    #[test]
+    fn test_hash_data_deterministic_and_collision_free_for_distinct_inputs() {
+        let env = Env::default();
+        let client = setup(&env);
+
+        let a = bn(&env, 1);
+        assert_eq!(client.hash_data(&a), client.hash_data(&a));
+        assert_ne!(client.hash_data(&a), client.hash_data(&bn(&env, 2)));
+    }
+
+    #[test]
+    fn test_leaf_and_node_hashes_are_domain_separated() {
+        let env = Env::default();
+        let client = setup(&env);
+
+        let a = bn(&env, 0x11);
+        let b = bn(&env, 0x22);
+        // Same 64 input bytes, different role: must produce different digests.
+        assert_ne!(client.hash_leaf(&a, &b), client.hash_pair(&a, &b));
+        // Pair hashing is ordered in an SMT: position carries meaning.
+        assert_ne!(client.hash_pair(&a, &b), client.hash_pair(&b, &a));
     }
 
     #[test]
     fn test_verify_inclusion() {
         let env = Env::default();
-        let contract = SparseMerkleRegistry;
-        let id = env.register_contract(None, contract);
-        let client = SparseMerkleRegistryClient::new(&env, &id);
+        let client = setup(&env);
+        client.initialize(&Address::generate(&env), &bn(&env, 0));
 
-        let admin = make_admin(&env);
-        client.initialize(&admin, &BytesN::from_array(&env, &[0u8; 32]));
+        let key = bn(&env, 0x42);
+        let value = bn(&env, 0x7f);
+        let root = root_from(&client, &env, &key, client.hash_leaf(&key, &value));
 
-        let key = BytesN::from_array(&env, &[0x42; 32]);
-        let value = BytesN::from_array(&env, &[0x7f; 32]);
+        assert!(client.verify_inclusion_proof(&key, &value, &root, &zero_path(&env)));
+    }
 
-        let zero = BytesN::from_array(&env, &[0u8; 32]);
-        let mut path = Vec::new(&env);
-        for _ in 0..SMT_DEPTH {
-            path.push_back(zero.clone());
-        }
+    #[test]
+    fn test_inclusion_rejects_wrong_value_key_root_and_tampered_path() {
+        let env = Env::default();
+        let client = setup(&env);
+        client.initialize(&Address::generate(&env), &bn(&env, 0));
 
-        let leaf = client.hash_leaf(&key, &value);
-        let mut cur = leaf;
-        let ka = key.to_array();
-        for i in 0..SMT_DEPTH {
-            let bit = (ka[i / 8] >> (7 - (i % 8))) & 1u8;
-            if bit == 0 {
-                cur = client.hash_pair(&cur, &zero);
-            } else {
-                cur = client.hash_pair(&zero, &cur);
-            }
-        }
+        let key = bn(&env, 0x42);
+        let value = bn(&env, 0x7f);
+        let root = root_from(&client, &env, &key, client.hash_leaf(&key, &value));
+        let path = zero_path(&env);
 
-        let ok = client.verify_inclusion_proof(&key, &value, &cur, &path);
-        assert!(ok);
+        assert!(!client.verify_inclusion_proof(&key, &bn(&env, 0x80), &root, &path));
+        assert!(!client.verify_inclusion_proof(&bn(&env, 0x43), &value, &root, &path));
+        assert!(!client.verify_inclusion_proof(&key, &value, &bn(&env, 0x99), &path));
+
+        let mut tampered = zero_path(&env);
+        tampered.set(10, bn(&env, 0x01));
+        assert!(!client.verify_inclusion_proof(&key, &value, &root, &tampered));
+    }
+
+    #[test]
+    fn test_inclusion_rejects_wrong_proof_length() {
+        let env = Env::default();
+        let client = setup(&env);
+        client.initialize(&Address::generate(&env), &bn(&env, 0));
+
+        let mut short = zero_path(&env);
+        short.pop_back();
+        assert_eq!(
+            client.try_verify_inclusion_proof(&bn(&env, 1), &bn(&env, 2), &bn(&env, 3), &short),
+            Err(Ok(Error::ProofTooShort))
+        );
+    }
+
+    #[test]
+    fn test_interior_node_cannot_pass_as_leaf() {
+        let env = Env::default();
+        let client = setup(&env);
+        client.initialize(&Address::generate(&env), &bn(&env, 0));
+
+        // Attacker treats an interior node (zero, zero) as if it were the leaf for
+        // (key, value) = (zero, zero) — the domain prefixes make the hashes differ.
+        let zero = bn(&env, 0);
+        assert_ne!(
+            client.hash_leaf(&zero, &zero),
+            client.hash_pair(&zero, &zero)
+        );
     }
 
     #[test]
     fn test_verify_non_inclusion() {
         let env = Env::default();
-        let contract = SparseMerkleRegistry;
-        let id = env.register_contract(None, contract);
-        let client = SparseMerkleRegistryClient::new(&env, &id);
+        let client = setup(&env);
+        client.initialize(&Address::generate(&env), &bn(&env, 0));
 
-        let admin = make_admin(&env);
-        client.initialize(&admin, &BytesN::from_array(&env, &[0u8; 32]));
+        let key = bn(&env, 0x42);
+        let other_key = bn(&env, 0x43);
+        let other_value = bn(&env, 0x01);
+        let root = root_from(
+            &client,
+            &env,
+            &key,
+            client.hash_leaf(&other_key, &other_value),
+        );
+        let path = zero_path(&env);
 
-        let key = BytesN::from_array(&env, &[0x42; 32]);
-        let other_key = BytesN::from_array(&env, &[0x43; 32]);
-        let other_value = BytesN::from_array(&env, &[0x01; 32]);
+        assert!(client.verify_non_inclusion_proof(&key, &other_key, &other_value, &root, &path));
+        // A wrong occupant does not validate against the root.
+        assert!(!client.verify_non_inclusion_proof(
+            &key,
+            &other_key,
+            &bn(&env, 0x02),
+            &root,
+            &path
+        ));
+    }
 
-        let zero = BytesN::from_array(&env, &[0u8; 32]);
-        let mut path = Vec::new(&env);
-        for _ in 0..SMT_DEPTH {
-            path.push_back(zero.clone());
-        }
+    #[test]
+    fn test_non_inclusion_rejects_key_equal_to_conflicting_key() {
+        let env = Env::default();
+        let client = setup(&env);
+        client.initialize(&Address::generate(&env), &bn(&env, 0));
 
-        let leaf = client.hash_leaf(&other_key, &other_value);
-        let mut cur = leaf;
-        let ka = key.to_array();
-        for i in 0..SMT_DEPTH {
-            let bit = (ka[i / 8] >> (7 - (i % 8))) & 1u8;
-            if bit == 0 {
-                cur = client.hash_pair(&cur, &zero);
-            } else {
-                cur = client.hash_pair(&zero, &cur);
-            }
-        }
-
-        let ok = client.verify_non_inclusion_proof(&key, &other_key, &other_value, &cur, &path);
-        assert!(ok);
+        let key = bn(&env, 0x42);
+        assert_eq!(
+            client.try_verify_non_inclusion_proof(
+                &key,
+                &key,
+                &bn(&env, 1),
+                &bn(&env, 2),
+                &zero_path(&env)
+            ),
+            Err(Ok(Error::KeyCollision))
+        );
     }
 
     #[test]
     fn test_update_root_transition() {
         let env = Env::default();
-        let contract = SparseMerkleRegistry;
-        let id = env.register_contract(None, contract);
-        let client = SparseMerkleRegistryClient::new(&env, &id);
+        let client = setup(&env);
+        let admin = Address::generate(&env);
 
-        let admin = make_admin(&env);
-        let key = BytesN::from_array(&env, &[0x42; 32]);
-        let old_val = BytesN::from_array(&env, &[0x01; 32]);
-        let new_val = BytesN::from_array(&env, &[0x02; 32]);
+        let key = bn(&env, 0x42);
+        let old_val = bn(&env, 0x01);
+        let new_val = bn(&env, 0x02);
+        let path = zero_path(&env);
 
-        let zero = BytesN::from_array(&env, &[0u8; 32]);
-        let mut path = Vec::new(&env);
-        for _ in 0..SMT_DEPTH {
-            path.push_back(zero.clone());
-        }
+        let old_root = root_from(&client, &env, &key, client.hash_leaf(&key, &old_val));
+        let new_root = root_from(&client, &env, &key, client.hash_leaf(&key, &new_val));
 
-        let old_leaf = client.hash_leaf(&key, &old_val);
-        let new_leaf = client.hash_leaf(&key, &new_val);
-        let ka = key.to_array();
-
-        let mut old_root = old_leaf.clone();
-        for i in 0..SMT_DEPTH {
-            let bit = (ka[i / 8] >> (7 - (i % 8))) & 1u8;
-            if bit == 0 {
-                old_root = client.hash_pair(&old_root, &zero);
-            } else {
-                old_root = client.hash_pair(&zero, &old_root);
-            }
-        }
-        let mut new_root = new_leaf.clone();
-        for i in 0..SMT_DEPTH {
-            let bit = (ka[i / 8] >> (7 - (i % 8))) & 1u8;
-            if bit == 0 {
-                new_root = client.hash_pair(&new_root, &zero);
-            } else {
-                new_root = client.hash_pair(&zero, &new_root);
-            }
-        }
-
-        let id2 = env.register_contract(None, SparseMerkleRegistry);
-        let client2 = SparseMerkleRegistryClient::new(&env, &id2);
-        client2.initialize(&admin, &old_root);
-
-        let res = client2.update_root(
+        client.initialize(&admin, &old_root);
+        client.update_root(
             &admin, &key, &old_val, &new_val, &old_root, &new_root, &path,
         );
-        assert!(res.is_ok());
-        assert_eq!(client2.get_root(), new_root);
+        assert_eq!(client.get_root(), new_root);
+    }
+
+    #[test]
+    fn test_update_root_rejects_non_admin_stale_root_and_bad_proof() {
+        let env = Env::default();
+        let client = setup(&env);
+        let admin = Address::generate(&env);
+        let attacker = Address::generate(&env);
+
+        let key = bn(&env, 0x42);
+        let old_val = bn(&env, 0x01);
+        let new_val = bn(&env, 0x02);
+        let path = zero_path(&env);
+        let old_root = root_from(&client, &env, &key, client.hash_leaf(&key, &old_val));
+        let new_root = root_from(&client, &env, &key, client.hash_leaf(&key, &new_val));
+        client.initialize(&admin, &old_root);
+
+        assert_eq!(
+            client
+                .try_update_root(&attacker, &key, &old_val, &new_val, &old_root, &new_root, &path),
+            Err(Ok(Error::Unauthorized))
+        );
+        assert_eq!(
+            client.try_update_root(
+                &admin,
+                &key,
+                &old_val,
+                &new_val,
+                &bn(&env, 9),
+                &new_root,
+                &path
+            ),
+            Err(Ok(Error::RootMismatch))
+        );
+        assert_eq!(
+            client.try_update_root(
+                &admin,
+                &key,
+                &old_val,
+                &new_val,
+                &old_root,
+                &bn(&env, 9),
+                &path
+            ),
+            Err(Ok(Error::InvalidProof))
+        );
+        assert_eq!(client.get_root(), old_root);
     }
 }
