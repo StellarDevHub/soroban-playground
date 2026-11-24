@@ -80,6 +80,7 @@ import WalletConnect from "@/components/WalletConnect";
 import TransactionStatus from "@/components/TransactionStatus";
 import VestingDashboard, {
   VestingScheduleData,
+  vestedAmountAt,
 } from "@/components/VestingDashboard";
 import IdentityPortal, { IdentityData } from "@/components/IdentityPortal";
 import LendingDashboard from "@/components/LendingDashboard";
@@ -1358,8 +1359,19 @@ export default function Home() {
         functionName: "revoke",
         args: { schedule_id: String(scheduleId) },
       });
+      const revokedTimestamp = Math.floor(Date.now() / 1000);
       setVestingSchedules((prev) =>
-        prev.map((s) => (s.id === scheduleId ? { ...s, revoked: true } : s)),
+        prev.map((s) => {
+          if (s.id !== scheduleId) return s;
+          const vestedAmount = vestedAmountAt(s, revokedTimestamp);
+          return {
+            ...s,
+            releasedAmount: vestedAmount,
+            revokedAmount: s.totalAmount - vestedAmount,
+            revoked: true,
+            revokedTimestamp,
+          };
+        }),
       );
       updateTx(txId, { status: "success" });
       appendLog(`[vesting] Schedule #${scheduleId} revoked`);
