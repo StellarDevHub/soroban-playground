@@ -7,6 +7,7 @@ import { Keypair } from '@stellar/stellar-sdk';
 import { createHttpError } from './errorHandler.js';
 import redisService from '../services/redisService.js';
 import authService from '../services/authService.js';
+import jwtRevocationService from '../services/jwtRevocationService.js';
 
 const JWT_SECRET =
   process.env.JWT_SECRET || process.env.JWT_SECRETS || 'dev-secret-change-me';
@@ -53,13 +54,8 @@ export async function authenticate(req, res, next) {
       throw createHttpError(401, 'Unauthorized: Token missing subject');
     }
 
-    if (payload.jti) {
-      const blacklisted =
-        (await redisService.get(`bl_access:${payload.jti}`)) ||
-        (await redisService.get(`blacklist:${payload.jti}`));
-      if (blacklisted) {
-        throw createHttpError(401, 'Unauthorized: Token revoked');
-      }
+    if (payload.jti && (await jwtRevocationService.isJtiRevoked(payload.jti))) {
+      throw createHttpError(401, 'Unauthorized: Token revoked');
     }
 
     if (
@@ -67,6 +63,15 @@ export async function authenticate(req, res, next) {
       (await redisService.get(`bl_family:${payload.familyId}`))
     ) {
       throw createHttpError(401, 'Unauthorized: Token family revoked');
+    }
+
+    try {
+      await jwtRevocationService.assertTokenEpochValid(payload);
+    } catch (err) {
+      if (err?.status === 401 || err?.statusCode === 401) {
+        throw createHttpError(401, 'Unauthorized: Token revoked');
+      }
+      throw err;
     }
 
     try {
