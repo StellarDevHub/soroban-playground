@@ -430,3 +430,80 @@ a {
 [data-theme="light"] .asset-balance-errors {
   color: #92400e;
 }
+
+/* ── Mobile viewport / virtual keyboard support ─────────────────────────────
+ *
+ * dvh (dynamic viewport height) shrinks when the mobile soft keyboard
+ * appears, keeping editor content visible above the keys. The fallback
+ * uses `svh` (smallest viewport height) which also avoids the keyboard,
+ * then falls back to the classic `vh` unit for browsers that support neither.
+ *
+ * Usage:
+ *   .h-dvh      → height: 100dvh (falls back to 100svh → 100vh)
+ *   .min-h-dvh  → min-height: 100dvh
+ *
+ * The CSS custom property --keyboard-inset-height is kept in sync by
+ * useVirtualKeyboard.ts via the Visual Viewport API so components can
+ * use it in calc() expressions without JS layout thrashing.
+ */
+
+:root {
+  --keyboard-inset-height: 0px;
+}
+
+.h-dvh {
+  height: 100vh; /* legacy fallback */
+  height: 100svh; /* slightly-varying-vh: excludes soft keyboard on iOS */
+  height: 100dvh; /* dynamic: shrinks when soft keyboard appears */
+}
+
+.min-h-dvh {
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+}
+
+/* Editor pane height: full dynamic viewport minus the fixed 4rem top bar.
+ * On browsers without dvh the visible area may be partially obscured by the
+ * soft keyboard but content remains scrollable. */
+.editor-mobile-height {
+  height: calc(100vh - 4rem);
+  height: calc(100svh - 4rem);
+  height: calc(100dvh - 4rem);
+}
+
+/* When the virtual keyboard is open (flag set by useVirtualKeyboard), shrink
+ * the layout to the remaining unoccupied space reported by Visual Viewport. */
+[data-keyboard-open="true"] .editor-mobile-height {
+  height: calc(100dvh - 4rem - var(--keyboard-inset-height, 0px));
+}
+
+/* Bottom toolbar / tab bar: lift above the system gesture indicator on iOS
+ * and ensure it stays on screen when the keyboard is open. */
+.mobile-bottom-bar {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Minimum touch target size (WCAG 2.5.5). */
+.min-touch {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Horizontal scrollbar suppression on the haptic key row. */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  /* Prevent the full-screen editor from flowing behind fixed headers or the
+   * bottom tab bar on narrow viewports. */
+  body.keyboard-visible {
+    height: calc(var(--visual-vp-height, 100dvh));
+    overflow: hidden;
+  }
+}

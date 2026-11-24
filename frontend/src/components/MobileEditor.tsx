@@ -1,21 +1,54 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Code2, Terminal } from "lucide-react";
 import SplitPane from "@/components/layout/SplitPane";
+import { HapticVirtualKeyboard } from "@/components/Mobile/HapticVirtualKeyboard";
+import { useVirtualKeyboard } from "@/hooks/useVirtualKeyboard";
 
 interface MobileEditorProps {
   editor: React.ReactNode;
   output: React.ReactNode;
+  /**
+   * Optional ref to the underlying Monaco editor instance so the haptic key
+   * bar can insert text at the current cursor position.
+   * When not supplied the bar is still rendered but insertions are no-ops.
+   */
+  editorRef?: React.RefObject<{ trigger: (source: string, handlerId: string, payload: unknown) => void } | null>;
 }
 
-export default function MobileEditor({ editor, output }: MobileEditorProps) {
+MobileEditor.displayName = "MobileEditor";
+
+export default function MobileEditor({ editor, output, editorRef }: MobileEditorProps) {
   const [activeTab, setActiveTab] = useState<"editor" | "output">("editor");
+  const { isOpen: _keyboardOpen } = useVirtualKeyboard();
 
   const editorTabId = "mobile-editor-tab";
   const outputTabId = "mobile-output-tab";
   const editorPanelId = "mobile-editor-panel";
   const outputPanelId = "mobile-output-panel";
+
+  /**
+   * Insert text at the Monaco editor's current cursor position.
+   * Falls back to a no-op when the editor ref is not wired up.
+   */
+  const handleInsert = useCallback(
+    (text: string, cursorOffset?: number) => {
+      const editor = editorRef?.current;
+      if (!editor || typeof editor.trigger !== "function") return;
+      // Use the built-in Monaco paste command to insert text at the cursor.
+      editor.trigger("haptic-keyboard", "type", { text });
+      // If the key pair needs the cursor placed inside (e.g. `{}` → `{|}`)
+      // move left by the complement after insertion.
+      if (cursorOffset !== undefined && cursorOffset < text.length) {
+        const steps = text.length - cursorOffset;
+        for (let i = 0; i < steps; i++) {
+          editor.trigger("haptic-keyboard", "cursorLeft", null);
+        }
+      }
+    },
+    [editorRef],
+  );
 
   return (
     <>
@@ -34,8 +67,12 @@ export default function MobileEditor({ editor, output }: MobileEditorProps) {
         />
       </div>
 
-      {/* Mobile / Tablet: tabbed layout */}
-      <div className="flex flex-col lg:hidden h-[calc(100vh-4rem)] overflow-hidden">
+      {/* Mobile / Tablet: tabbed layout with dvh-aware height */}
+      <div
+        className="flex flex-col lg:hidden editor-mobile-height overflow-hidden"
+        data-testid="mobile-editor-container"
+      >
+        {/* Tab content panels */}
         <div className="flex-1 overflow-hidden">
           <div
             role="tabpanel"
@@ -55,11 +92,28 @@ export default function MobileEditor({ editor, output }: MobileEditorProps) {
           </div>
         </div>
 
-        {/* Tab bar at bottom */}
+        {/*
+         * Haptic quick-access key bar — only shown when:
+         *   • the editor tab is active, AND
+         *   • the virtual keyboard is open (or on a touch device generally)
+         *
+         * The bar sits above the tab strip so code symbols are reachable
+         * without dismissing the keyboard.
+         */}
+        {activeTab === "editor" && (
+          <HapticVirtualKeyboard
+            onInsert={handleInsert}
+            aria-label="Quick-access code symbols"
+            data-testid="haptic-key-bar"
+          />
+        )}
+
+        {/* Tab bar — mobile-bottom-bar adds safe-area padding for iOS home indicator */}
         <div
-          className="flex shrink-0 border-t border-slate-800/60 bg-slate-950/90 backdrop-blur-md"
+          className="flex shrink-0 border-t border-slate-800/60 bg-slate-950/90 backdrop-blur-md mobile-bottom-bar"
           role="tablist"
           aria-label="Editor sections"
+          data-testid="mobile-tab-bar"
         >
           <button
             role="tab"
@@ -73,7 +127,7 @@ export default function MobileEditor({ editor, output }: MobileEditorProps) {
                 : "text-slate-500 hover:text-slate-300"
             }`}
           >
-            <Code2 size={16} />
+            <Code2 size={16} aria-hidden="true" />
             Editor
           </button>
           <button
@@ -88,7 +142,7 @@ export default function MobileEditor({ editor, output }: MobileEditorProps) {
                 : "text-slate-500 hover:text-slate-300"
             }`}
           >
-            <Terminal size={16} />
+            <Terminal size={16} aria-hidden="true" />
             Output
           </button>
         </div>

@@ -115,8 +115,7 @@ export default function SidebarShell({
   children,
 }: {
   children: React.ReactNode;
-}) {
-  const pathname = usePathname();
+}) {  const pathname = usePathname();
   const wallet = useFreighterWallet();
   const [isOpen, setIsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -244,7 +243,7 @@ export default function SidebarShell({
 
   return (
     <div
-      className="flex min-h-screen bg-background text-foreground font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200"
+      className="flex min-h-dvh bg-background text-foreground font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200"
       suppressHydrationWarning
       onTouchStart={handleTouchStart}
       onTouchEnd={handleSurfaceTouchEnd}
@@ -452,7 +451,7 @@ export default function SidebarShell({
         aria-label="Navigation menu"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleDrawerTouchEnd}
-        className={`fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] bg-slate-950/95 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col outline-none md:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] h-dvh bg-slate-950/95 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col outline-none md:hidden ${
           reducedMotion
             ? isOpen
               ? "translate-x-0"
@@ -678,3 +677,5 @@ export default function SidebarShell({
     </div>
   );
 }
+
+SidebarShell.displayName = "SidebarShell";

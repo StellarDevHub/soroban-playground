@@ -115,7 +115,7 @@ const formatAddress = (addr: string | null) => {
   return `${addr.slice(0, 5)}...${addr.slice(-4)}`;
 };
 
-export default function ResponsiveNav({
+function ResponsiveNav({
   children,
 }: {
   children: React.ReactNode;
@@ -233,7 +233,7 @@ export default function ResponsiveNav({
   }, [isOpen]);
 
   return (
-    <div className="flex min-h-screen bg-[#060c18] text-[#e6edf7] font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200">
+    <div className="flex min-h-dvh bg-[#060c18] text-[#e6edf7] font-sans antialiased selection:bg-teal-500/30 selection:text-teal-200">
       {/* Background Gradients */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-teal-500/10 blur-[120px]" />
@@ -396,7 +396,7 @@ export default function ResponsiveNav({
         role="dialog"
         aria-modal="true"
         aria-label="Navigation"
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950/90 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col md:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950/90 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col md:hidden h-dvh ${
           reducedMotion
             ? isOpen
               ? "translate-x-0"
@@ -567,3 +567,6 @@ export default function ResponsiveNav({
     </div>
   );
 }
+
+ResponsiveNav.displayName = "ResponsiveNav";
+export default ResponsiveNav;
