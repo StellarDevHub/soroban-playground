@@ -1,6 +1,8 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
+import { sanitizeEmailHtml } from './emailSanitizer.js';
+
 class JobError extends Error {
   constructor(
     message,
@@ -17,6 +19,19 @@ class JobError extends Error {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_SUBJECT_LENGTH = 998;
 const MAX_BODY_LENGTH = 1_048_576;
+const DEFAULT_SUBJECT = '(no subject)';
+const DEFAULT_FROM = 'noreply@soroban-playground.dev';
+
+/**
+ * Strip characters that would break out of an SMTP header. A CR or LF in the
+ * subject or sender lets a caller append arbitrary headers (Bcc, a different
+ * Content-Type) to the message, so they are folded to spaces rather than
+ * passed through. Recipients are already protected by EMAIL_REGEX, which
+ * forbids whitespace.
+ */
+function sanitizeHeaderValue(value) {
+  return value.replace(/[\r\n\u0000]+/g, ' ').trim();
+}
 
 function validateEmailInput(data) {
   const errors = [];
@@ -30,11 +45,12 @@ function validateEmailInput(data) {
     errors.push(`Invalid email address: "${data.to}"`);
   }
 
+  // An empty subject is not an error: it is what a template with no subject
+  // variable renders to, and it is replaced with DEFAULT_SUBJECT below. Only
+  // the type and encoded length are validated here.
   if (data.subject != null) {
     if (typeof data.subject !== 'string') {
       errors.push('"subject" must be a string');
-    } else if (data.subject.trim().length === 0) {
-      errors.push('"subject" must not be empty');
     } else if (data.subject.length > MAX_SUBJECT_LENGTH) {
       errors.push(`"subject" exceeds maximum length of ${MAX_SUBJECT_LENGTH}`);
     }
@@ -84,7 +100,13 @@ export default async function emailProcessor(job) {
   }
 
   const { to, subject, body, html, from } = data;
-  const emailSubject = subject ?? '(no subject)';
+  const emailSubject = subject?.trim()
+    ? sanitizeHeaderValue(subject)
+    : DEFAULT_SUBJECT;
+  const emailFrom = from ? sanitizeHeaderValue(from) : DEFAULT_FROM;
+  // Sanitize at the send boundary: whatever template produced `html`, only
+  // policy-compliant markup reaches the transport.
+  const safeHtml = sanitizeEmailHtml(html);
   const recipient = to.trim();
 
   try {
@@ -108,8 +130,8 @@ export default async function emailProcessor(job) {
       success: true,
       sentTo: recipient,
       subject: emailSubject,
-      from: from ?? 'noreply@soroban-playground.dev',
-      hasHtmlContent: Boolean(html),
+      from: emailFrom,
+      hasHtmlContent: safeHtml !== '',
       hasTextContent: Boolean(body),
       durationMs,
     };
