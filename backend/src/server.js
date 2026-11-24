@@ -165,6 +165,7 @@ import {
   shutdownGrpcServer,
   startGrpcServer,
 } from './grpc/index.js';
+import { attachGracefulShutdown } from './cluster/clusterWorker.js';
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
@@ -245,6 +246,10 @@ export const acmeChallengeStore = attachAcmeHttp01(app);
 // Fallback to HTTP/1.1 if no certs are provided, otherwise HTTP/2 + TLS 1.3 via ALPN.
 server = createAlpnServer(app, hasCertificates ? httpsOptions : null);
 applyServerTuning(server);
+attachGracefulShutdown(server, {
+  drainTimeout: 15_000,
+  onShutdown: () => shutdown('CLUSTER_SHUTDOWN'),
+});
 let stopCertificateWatch = () => {};
 if (hasCertificates) {
   stopCertificateWatch = watchTlsCertificates(server, {
@@ -427,6 +432,12 @@ async function start() {
 async function shutdown(signal) {
   console.log(`Received ${signal}, shutting down...`);
   try {
+    await new Promise((resolve) => {
+      server.close(() => {
+        console.log('Server stopped accepting connections.');
+        resolve();
+      });
+    });
     stopCertificateWatch();
     stopOriginCacheRefresh();
     stopCleanupWorker();
@@ -443,10 +454,8 @@ async function shutdown(signal) {
     await cacheInvalidator.stop();
     await shutdownQueues();
     await closeDatabase();
-    server.close(() => {
-      console.log('Server closed.');
-      process.exit(0);
-    });
+    console.log('Server closed.');
+    process.exit(0);
   } catch (err) {
     console.error('Error during shutdown:', err);
     process.exit(1);
