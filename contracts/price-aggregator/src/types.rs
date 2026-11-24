@@ -3,7 +3,7 @@
 
 use soroban_sdk::{contracterror, contracttype, String};
 
-/// Aggregation strategy for combining multiple source prices.
+/// Legacy ABI strategy variants; only Median is accepted for consensus.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -74,10 +74,14 @@ pub enum DataKey {
     Source(u32),
     /// Last price for (source_id, asset).
     Price(u32, String),
+    /// Only authenticated rounds submitted after reporter binding.
+    VerifiedPrice(u32, String),
     /// Whether source_id is authorized to submit prices.
     Authorized(u32),
     /// Circuit-breaker: last aggregated price for asset (for delta check).
     LastAggregated(String),
+    PriceBounds(String),
+    Reporter(u32),
 }
 
 #[contracterror]
@@ -98,4 +102,17 @@ pub enum Error {
     EmptyAsset = 12,
     MaxSourcesReached = 13,
     SourceInactive = 14,
+    InvalidParameter = 15,
+    PriceBoundsNotSet = 16,
+    PriceOutOfBounds = 17,
+    DuplicateReporter = 18,
+    ReporterAlreadySet = 19,
+}
+
+/// Inclusive price limits in the asset's native price scale.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PriceBounds {
+    pub min: i128,
+    pub max: i128,
 }
