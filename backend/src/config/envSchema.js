@@ -125,8 +125,13 @@ export const ENV_SCHEMA = z.object({
     .min(1)
     .default('https://soroban-testnet.stellar.org'),
   SOROBAN_RPC_FALLBACK_URLS: z.string().optional(),
+  SOROBAN_RPC_PUBLIC_URL: z.string().optional(),
+  QUICKNODE_RPC_URL: z.string().optional(),
+  BLOCKDAEMON_RPC_URL: z.string().optional(),
+  HORIZON_URLS: z.string().optional(),
   RPC_TIMEOUT_MS: intEnv(15_000),
   RPC_HEALTH_CHECK_INTERVAL_MS: intEnv(10_000),
+  RPC_MAX_LEDGER_LAG: intEnv(50),
   RPC_FAILURE_THRESHOLD: intEnv(3),
   RPC_RESET_TIMEOUT_MS: intEnv(30_000),
 

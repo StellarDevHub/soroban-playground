@@ -103,6 +103,14 @@ const DEFAULTS = {
   HEAP_DUMP_DIR: '/tmp/heapdumps',
   HEAP_DUMP_INTERVAL_MS: 30000,
   SOROBAN_RPC_URL: 'https://soroban-testnet.stellar.org',
+  SOROBAN_RPC_FALLBACK_URLS: undefined,
+  SOROBAN_RPC_PUBLIC_URL: 'https://soroban-testnet.stellar.org',
+  QUICKNODE_RPC_URL: undefined,
+  BLOCKDAEMON_RPC_URL: undefined,
+  HORIZON_URLS:
+    'https://horizon-testnet.stellar.org,https://horizon.stellar.org',
+  RPC_HEALTH_CHECK_INTERVAL_MS: 10000,
+  RPC_MAX_LEDGER_LAG: 50,
   INDEXER_POLL_INTERVAL_MS: 5000,
   BACKUP_ENABLED: false,
   BACKUP_CRON_SCHEDULE: '0 2 * * *',
@@ -441,6 +449,43 @@ export function createConfig(env = process.env, options = {}) {
     },
     network: {
       default: cleanString(env.DEFAULT_NETWORK, DEFAULTS.DEFAULT_NETWORK),
+      rpc: {
+        primaryUrl: cleanString(env.SOROBAN_RPC_URL, DEFAULTS.SOROBAN_RPC_URL),
+        publicUrl: cleanString(
+          env.SOROBAN_RPC_PUBLIC_URL,
+          DEFAULTS.SOROBAN_RPC_PUBLIC_URL
+        ),
+        quicknodeUrl: cleanString(
+          env.QUICKNODE_RPC_URL,
+          DEFAULTS.QUICKNODE_RPC_URL
+        ),
+        blockdaemonUrl: cleanString(
+          env.BLOCKDAEMON_RPC_URL,
+          DEFAULTS.BLOCKDAEMON_RPC_URL
+        ),
+        fallbackUrls: cleanString(
+          env.SOROBAN_RPC_FALLBACK_URLS,
+          DEFAULTS.SOROBAN_RPC_FALLBACK_URLS
+        ),
+        healthCheckIntervalMs: toInt(
+          env.RPC_HEALTH_CHECK_INTERVAL_MS,
+          DEFAULTS.RPC_HEALTH_CHECK_INTERVAL_MS,
+          'RPC_HEALTH_CHECK_INTERVAL_MS',
+          warnings,
+          { min: 1000 }
+        ),
+        maxLedgerLag: toInt(
+          env.RPC_MAX_LEDGER_LAG,
+          DEFAULTS.RPC_MAX_LEDGER_LAG,
+          'RPC_MAX_LEDGER_LAG',
+          warnings,
+          { min: 0 }
+        ),
+      },
+      horizonUrls: cleanString(env.HORIZON_URLS, DEFAULTS.HORIZON_URLS)
+        .split(',')
+        .map((url) => url.trim())
+        .filter(Boolean),
     },
     simulationDelays: {
       deployMs: toInt(
