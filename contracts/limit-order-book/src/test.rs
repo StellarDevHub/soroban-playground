@@ -5,7 +5,7 @@
 
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
-use crate::types::{Error, OrderStatus, Side};
+use crate::types::{Error, OrderStatus, Side, MAX_MATCHED_FILLS};
 use crate::{LimitOrderBookContract, LimitOrderBookContractClient};
 
 fn setup() -> (Env, LimitOrderBookContractClient<'static>, Address) {
@@ -49,6 +49,7 @@ fn test_place_buy_order() {
     assert_eq!(order.owner, buyer);
     assert_eq!(order.remaining, 5_000_000);
     assert_eq!(order.status, OrderStatus::Open);
+    assert_eq!(client.best_bid(), 1_000_000);
 }
 
 #[test]
@@ -78,9 +79,11 @@ fn test_cancel_order() {
     let (env, client, _) = setup();
     let seller = Address::generate(&env);
     let id = client.place_order(&seller, &Side::Sell, &1_000_000, &3_000_000);
+    assert_eq!(client.best_ask(), 1_000_000);
     client.cancel_order(&seller, &id);
     let order = client.get_order(&id);
     assert_eq!(order.status, OrderStatus::Cancelled);
+    assert_eq!(client.best_ask(), 0);
 }
 
 #[test]
@@ -125,6 +128,8 @@ fn test_full_match() {
     assert_eq!(sell_order.status, OrderStatus::Filled);
     assert_eq!(buy_order.status, OrderStatus::Filled);
     assert_eq!(client.total_volume(), 5_000_000);
+    assert_eq!(client.best_ask(), 0);
+    assert_eq!(client.best_bid(), 0);
 }
 
 #[test]
@@ -191,6 +196,135 @@ fn test_no_match_price_mismatch() {
     assert_eq!(client.get_order(&sell_id).status, OrderStatus::Open);
     assert_eq!(client.get_order(&buy_id).status, OrderStatus::Open);
     assert_eq!(client.total_volume(), 0);
+}
+
+// ── Bucketed Price-Level & Linked-List Priority Guarantees ────────────────────
+
+#[test]
+fn test_large_book_matches_beyond_200_orders_strict_price_time() {
+    let (env, client, _) = setup();
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Populate > 220 worse-priced sell orders first so linear scan would have missed later orders
+    for i in 0..220u64 {
+        env.budget().reset_unlimited();
+        let price = 2_000_000 + (i as i128 % 10) * 10_000;
+        client.place_order(&seller, &Side::Sell, &price, &1_000_000);
+    }
+    env.budget().reset_default();
+
+    // Now place three orders at better price 950_000 in strict sequence
+    let best_first = client.place_order(&seller, &Side::Sell, &950_000, &2_000_000);
+    let best_middle = client.place_order(&seller, &Side::Sell, &950_000, &2_000_000);
+    let best_third = client.place_order(&seller, &Side::Sell, &950_000, &2_000_000);
+
+    // Cancel the middle order to verify O(1) doubly-linked list unlinking mid-bucket
+    client.cancel_order(&seller, &best_middle);
+
+    // Buy 3_000_000 @ 1_000_000 -> must fill best_first completely and best_third partially
+    let buy_id = client.place_order(&buyer, &Side::Buy, &1_000_000, &3_000_000);
+
+    assert_eq!(client.get_order(&buy_id).status, OrderStatus::Filled);
+    assert_eq!(client.get_order(&best_first).status, OrderStatus::Filled);
+    assert_eq!(
+        client.get_order(&best_middle).status,
+        OrderStatus::Cancelled
+    );
+    let third = client.get_order(&best_third);
+    assert_eq!(third.status, OrderStatus::PartiallyFilled);
+    assert_eq!(third.remaining, 1_000_000);
+}
+
+#[test]
+fn test_max_matched_fills_cap_per_transaction() {
+    let (env, client, _) = setup();
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let total_orders = MAX_MATCHED_FILLS + 5;
+    for _ in 0..total_orders {
+        client.place_order(&seller, &Side::Sell, &1_000_000, &1_000_000);
+    }
+
+    // Place a single large buy order that could cross all `total_orders`
+    let large_qty = (total_orders as i128) * 1_000_000;
+    let buy_id = client.place_order(&buyer, &Side::Buy, &1_000_000, &large_qty);
+
+    // First transaction caps at MAX_MATCHED_FILLS fills
+    let buy_order = client.get_order(&buy_id);
+    assert_eq!(buy_order.status, OrderStatus::PartiallyFilled);
+    assert_eq!(buy_order.remaining, 5 * 1_000_000);
+    assert_eq!(
+        client.total_volume(),
+        (MAX_MATCHED_FILLS as i128) * 1_000_000
+    );
+
+    // Subsequent call to `match_orders` completes the remaining 5 fills
+    let trades = client.match_orders(&buy_id);
+    assert_eq!(trades.len(), 5);
+    assert_eq!(client.get_order(&buy_id).status, OrderStatus::Filled);
+    assert_eq!(client.total_volume(), large_qty);
+}
+
+#[test]
+fn test_benchmark_sub_100k_instructions_per_matched_trade() {
+    let (env, client, _) = setup();
+    let contract_id = client.address.clone();
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Populate a deep order book with 250 resting orders across multiple price levels
+    for i in 0..250u64 {
+        env.budget().reset_unlimited();
+        let price = 1_100_000 + (i as i128 % 25) * 10_000;
+        client.place_order(&seller, &Side::Sell, &price, &1_000_000);
+    }
+
+    // Place 10 resting orders at the top-of-book (1_000_000)
+    for _ in 0..10 {
+        env.budget().reset_unlimited();
+        client.place_order(&seller, &Side::Sell, &1_000_000, &1_000_000);
+    }
+
+    // Create the aggressor order in storage, then benchmark the pure matching engine
+    // (`try_match`) across 10 matched trades against the 260-order book.
+    let buy_id = env.as_contract(&contract_id, || {
+        let id = crate::storage::get_order_count(&env) + 1;
+        crate::storage::set_order_count(&env, id);
+        let order = crate::types::Order {
+            id,
+            owner: buyer.clone(),
+            side: Side::Buy,
+            price: 1_000_000,
+            quantity: 10_000_000,
+            remaining: 10_000_000,
+            status: OrderStatus::Open,
+            created_at: env.ledger().sequence(),
+        };
+        crate::storage::set_order(&env, &order);
+        id
+    });
+
+    let (trades_len, cpu_insns_total) = env.as_contract(&contract_id, || {
+        env.budget().reset_default();
+        let before = env.budget().cpu_instruction_cost();
+        let trades = LimitOrderBookContract::try_match(&env, buy_id).unwrap();
+        let after = env.budget().cpu_instruction_cost();
+        (trades.len(), after.saturating_sub(before))
+    });
+    env.budget().reset_unlimited();
+
+    assert_eq!(trades_len, 10);
+    let cpu_insns_per_trade = cpu_insns_total / 10;
+
+    assert_eq!(client.get_order(&buy_id).status, OrderStatus::Filled);
+    assert!(
+        cpu_insns_per_trade < 100_000,
+        "Expected < 100,000 CPU instructions per matched trade, got {} (total: {})",
+        cpu_insns_per_trade,
+        cpu_insns_total
+    );
 }
 
 // ── Pause / unpause ───────────────────────────────────────────────────────────
