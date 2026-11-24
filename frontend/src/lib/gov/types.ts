@@ -79,3 +79,23 @@ export interface BatchVoteItem {
   choice: VoteChoice;
   credits: number;
 }
+
+export interface TreasuryImpactCalculation {
+  currentTreasuryBalance: number;
+  projectedTreasuryBalance: number;
+  netDiff: number;
+  percentageChange: number;
+  impactType: 'disbursal' | 'fee_adjustment' | 'neutral';
+  description: string;
+}
+
+export interface ContractVoteEvent {
+  proposalId: string;
+  voter: string;
+  choice: VoteChoice;
+  credits: number;
+  votes: number;
+  ledger: number;
+  timestamp: number;
+}
+

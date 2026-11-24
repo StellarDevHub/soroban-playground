@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Vote,
   CheckCircle2,
@@ -25,6 +25,7 @@ import type {
   ProposalStatus,
   VoteChoice,
   BatchVoteItem,
+  ContractVoteEvent,
 } from "@/lib/gov/types";
 import {
   calculateQuadraticVotes,
@@ -33,12 +34,16 @@ import {
   generateQuadraticCurvePoints,
   calculateQuorumProgress,
   calculateApprovalProgress,
+  calculateTreasuryImpact,
 } from "@/lib/gov/govMath";
 import { INITIAL_GOVERNANCE_PROPOSALS } from "@/lib/gov/mockProposals";
+import { QuorumCircularGauge } from "./QuorumCircularGauge";
+import { TreasuryImpactVisualizer } from "./TreasuryImpactVisualizer";
 
 export interface ProposalImpactVisualizerProps {
   proposals?: GovernanceProposal[];
   connectedWalletAddress?: string;
+  enableLiveStream?: boolean;
   onVoteSubmit?: (
     proposalId: string,
     choice: VoteChoice,
@@ -51,6 +56,7 @@ export interface ProposalImpactVisualizerProps {
 export default function ProposalImpactVisualizer({
   proposals: initialProposals = INITIAL_GOVERNANCE_PROPOSALS,
   connectedWalletAddress = "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFTGONUCTXOTMIW2ELW5P",
+  enableLiveStream = false,
   onVoteSubmit,
   onBatchVoteSubmit,
   className = "",
@@ -64,6 +70,11 @@ export default function ProposalImpactVisualizer({
   const [statusFilter, setStatusFilter] = useState<"All" | ProposalStatus>(
     "All",
   );
+
+  // --- Live Soroban Contract Event Subscription State ---
+  const [isLiveStreamActive, setIsLiveStreamActive] = useState<boolean>(enableLiveStream);
+  const [liveEventCount, setLiveEventCount] = useState<number>(0);
+  const [recentEvents, setRecentEvents] = useState<ContractVoteEvent[]>([]);
 
   // --- Voting & Quadratic Simulator State ---
   const [creditAllocation, setCreditAllocation] = useState<number>(100);
@@ -129,6 +140,50 @@ export default function ProposalImpactVisualizer({
   const qvMetrics = useMemo(() => {
     return calculateQuadraticMetrics(creditAllocation);
   }, [creditAllocation]);
+
+  // Simulated treasury impact for active proposal
+  const treasuryImpact = useMemo(() => {
+    if (!activeProposal) return null;
+    return calculateTreasuryImpact(activeProposal);
+  }, [activeProposal]);
+
+  // Live Soroban Contract Event stream subscription
+  useEffect(() => {
+    if (!isLiveStreamActive || !activeProposal) return;
+
+    const interval = setInterval(() => {
+      if (activeProposal.status !== "Active") return;
+
+      const randomCredits = 50;
+      const effectiveVotes = calculateQuadraticVotes(randomCredits);
+
+      const newEvent: ContractVoteEvent = {
+        proposalId: activeProposal.id,
+        voter: "GCOMMUNITY...VOTER",
+        choice: "For",
+        credits: randomCredits,
+        votes: effectiveVotes,
+        ledger: activeProposal.currentLedger + 1,
+        timestamp: Date.now(),
+      };
+
+      setRecentEvents((prev) => [newEvent, ...prev].slice(0, 5));
+      setLiveEventCount((c) => c + 1);
+
+      setProposals((prev) =>
+        prev.map((p) => {
+          if (p.id !== activeProposal.id) return p;
+          return {
+            ...p,
+            votesFor: p.votesFor + effectiveVotes,
+            totalTokensVoted: p.totalTokensVoted + randomCredits,
+          };
+        }),
+      );
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [isLiveStreamActive, activeProposal]);
 
   // SVG points for quadratic curve (Votes = sqrt(Credits))
   const curvePoints = useMemo(() => {
@@ -372,6 +427,27 @@ export default function ProposalImpactVisualizer({
             <Boxes className="w-3.5 h-3.5" />
             <span>Batch Voting</span>
           </button>
+
+          {/* Live Event Stream Toggle */}
+          <button
+            type="button"
+            data-testid="live-event-stream-toggle"
+            onClick={() => setIsLiveStreamActive((prev) => !prev)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono transition ${
+              isLiveStreamActive
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                : "bg-white/5 text-slate-400 border-white/8"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                isLiveStreamActive ? "bg-emerald-400 animate-pulse" : "bg-slate-500"
+              }`}
+            />
+            <span>
+              {isLiveStreamActive ? "Live Stream (Active)" : "Live Stream (Paused)"}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -549,8 +625,8 @@ export default function ProposalImpactVisualizer({
 
             {/* --- Quorum & Approval Split Gauges --- */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Quorum Progress Bar */}
-              <div className="p-4 rounded-xl border border-white/8 bg-slate-900/40 space-y-2">
+              {/* Quorum Progress Bar & Circular Gauge */}
+              <div className="p-4 rounded-xl border border-white/8 bg-slate-900/40 space-y-3">
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5 font-semibold text-slate-200">
                     <TrendingUp className="w-4 h-4 text-indigo-400" />
@@ -567,26 +643,52 @@ export default function ProposalImpactVisualizer({
                   </span>
                 </div>
 
-                <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden p-0.5 border border-white/6 relative">
-                  <div
-                    style={{ width: `${quorum.progressPct}%` }}
-                    className={`h-full rounded-full transition-all duration-700 ${
-                      quorum.reached
-                        ? "bg-gradient-to-r from-emerald-500 to-teal-400"
-                        : "bg-gradient-to-r from-indigo-500 to-cyan-400"
-                    }`}
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  {/* SVG Circular Quorum Gauge */}
+                  <QuorumCircularGauge
+                    progressPct={quorum.progressPct}
+                    totalTokensVoted={activeProposal.totalTokensVoted}
+                    quorumThresholdTokens={activeProposal.quorumThresholdTokens}
+                    reached={quorum.reached}
+                    size={110}
+                    strokeWidth={8}
                   />
-                </div>
 
-                <div className="flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>
-                    Voted: {activeProposal.totalTokensVoted.toLocaleString()}{" "}
-                    Tokens
-                  </span>
-                  <span>
-                    Threshold:{" "}
-                    {activeProposal.quorumThresholdTokens.toLocaleString()}
-                  </span>
+                  <div className="flex-1 w-full space-y-2">
+                    <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden p-0.5 border border-white/6 relative">
+                      <div
+                        style={{ width: `${quorum.progressPct}%` }}
+                        className={`h-full rounded-full transition-all duration-700 ${
+                          quorum.reached
+                            ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                            : "bg-gradient-to-r from-indigo-500 to-cyan-400"
+                        }`}
+                      />
+                    </div>
+
+                    <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+                      <span>
+                        Voted: {activeProposal.totalTokensVoted.toLocaleString()}{" "}
+                        Tokens
+                      </span>
+                      <span>
+                        Threshold:{" "}
+                        {activeProposal.quorumThresholdTokens.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-slate-400">
+                      {quorum.reached ? (
+                        <span className="text-emerald-400 font-semibold">
+                          ✓ Quorum floor satisfied
+                        </span>
+                      ) : (
+                        <span className="text-amber-400 font-medium">
+                          ⚠️ Needs {quorum.tokensRemaining.toLocaleString()} more tokens
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -790,6 +892,11 @@ export default function ProposalImpactVisualizer({
                   </svg>
                 </div>
               </div>
+            )}
+
+            {/* --- Simulated Treasury Impact --- */}
+            {treasuryImpact && (
+              <TreasuryImpactVisualizer impact={treasuryImpact} />
             )}
 
             {/* --- Forecasted Execution Impact (State Diffs) --- */}

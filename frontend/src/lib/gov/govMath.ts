@@ -7,10 +7,12 @@
 
 import type {
   ApprovalStatus,
+  GovernanceProposal,
   LedgerStateDiff,
   ProposalExecutablePayload,
   QuadraticVotingMetrics,
   QuorumStatus,
+  TreasuryImpactCalculation,
 } from './types';
 
 /**
@@ -209,3 +211,92 @@ export function simulateProposalStateDiff(
 
   return diffs;
 }
+
+/**
+ * Calculates simulated treasury balance impact if the proposal is executed.
+ */
+export function calculateTreasuryImpact(
+  proposal: GovernanceProposal,
+  baseTreasuryBalance: number = 25_000_000,
+): TreasuryImpactCalculation {
+  if (!proposal) {
+    return {
+      currentTreasuryBalance: baseTreasuryBalance,
+      projectedTreasuryBalance: baseTreasuryBalance,
+      netDiff: 0,
+      percentageChange: 0,
+      impactType: 'neutral',
+      description: 'No proposal selected.',
+    };
+  }
+
+  // Check prospective state diffs for direct treasury balance keys
+  const diffs = proposal.prospectiveStateDiff || [];
+  const treasuryDiff = diffs.find(
+    (d) =>
+      d.key.toLowerCase().includes('treasury_reserve_balance') ||
+      d.key.toLowerCase().includes('treasury_balance'),
+  );
+
+  if (treasuryDiff && typeof treasuryDiff.proposedValue === 'number') {
+    const prev = typeof treasuryDiff.previousValue === 'number'
+      ? treasuryDiff.previousValue
+      : baseTreasuryBalance;
+    const projected = treasuryDiff.proposedValue;
+    const netDiff = projected - prev;
+    const percentageChange = Number(((netDiff / prev) * 100).toFixed(2));
+
+    return {
+      currentTreasuryBalance: prev,
+      projectedTreasuryBalance: projected,
+      netDiff,
+      percentageChange,
+      impactType: 'disbursal',
+      description: `Disburses ${Math.abs(netDiff).toLocaleString()} XLM from community treasury vault.`,
+    };
+  }
+
+  // Check executable payload for grant disbursement stroops
+  const args = proposal.executablePayload?.args || {};
+  if (args.amount_stroops && typeof args.amount_stroops === 'number') {
+    const amountXlm = args.amount_stroops / 10_000_000;
+    const projected = baseTreasuryBalance - amountXlm;
+    const percentageChange = Number(((-amountXlm / baseTreasuryBalance) * 100).toFixed(2));
+
+    return {
+      currentTreasuryBalance: baseTreasuryBalance,
+      projectedTreasuryBalance: projected,
+      netDiff: -amountXlm,
+      percentageChange,
+      impactType: 'disbursal',
+      description: `Disburses ${amountXlm.toLocaleString()} XLM to recipient address.`,
+    };
+  }
+
+  // Check fee adjustments
+  const feeDiff = diffs.find((d) => d.key.toLowerCase().includes('fee_rate_bps'));
+  if (feeDiff && typeof feeDiff.proposedValue === 'number' && typeof feeDiff.previousValue === 'number') {
+    const oldFee = feeDiff.previousValue;
+    const newFee = feeDiff.proposedValue;
+    const pctDiff = Number((((newFee - oldFee) / oldFee) * 100).toFixed(1));
+
+    return {
+      currentTreasuryBalance: baseTreasuryBalance,
+      projectedTreasuryBalance: baseTreasuryBalance,
+      netDiff: 0,
+      percentageChange: pctDiff,
+      impactType: 'fee_adjustment',
+      description: `Adjusts AMM swap protocol fee rate from ${oldFee} bps to ${newFee} bps (${pctDiff}% revenue projection).`,
+    };
+  }
+
+  return {
+    currentTreasuryBalance: baseTreasuryBalance,
+    projectedTreasuryBalance: baseTreasuryBalance,
+    netDiff: 0,
+    percentageChange: 0,
+    impactType: 'neutral',
+    description: 'No direct balance or revenue impacts on protocol treasury vaults.',
+  };
+}
+
