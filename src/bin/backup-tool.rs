@@ -20,6 +20,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -28,6 +29,8 @@ use aes_gcm::{
 use chrono::{DateTime, Duration, Utc};
 use sha2::{Digest, Sha256};
 use tokio::fs;
+
+static NONCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,59 +56,163 @@ struct VerifySummary {
 
 // ── Encryption helpers ────────────────────────────────────────────────────────
 
-/// Resolve the 32-byte AES-256-GCM key.
-/// Production deployments should supply `BACKUP_ENCRYPTION_KEY_HEX`.
-/// A deterministic-but-weak fallback is used in development so the binary
-/// remains functional without configuration.
-fn resolve_encryption_key() -> [u8; 32] {
-    if let Ok(hex) = env::var("BACKUP_ENCRYPTION_KEY_HEX") {
-        let trimmed = hex.trim();
-        if trimmed.len() == 64 {
-            let mut key = [0u8; 32];
-            if hex::decode_to_slice(trimmed, &mut key).is_ok() {
-                return key;
-            }
-            eprintln!(
-                "[WARN] BACKUP_ENCRYPTION_KEY_HEX is not valid hex; falling back to zeroed key"
-            );
-        } else {
-            eprintln!(
-                "[WARN] BACKUP_ENCRYPTION_KEY_HEX must be 64 hex chars (32 bytes); \
-                 falling back to zeroed key"
-            );
-        }
-    } else if env::var("NODE_ENV").as_deref() == Ok("production")
-        || env::var("RUST_ENV").as_deref() == Ok("production")
-    {
-        eprintln!(
-            "[ERROR] BACKUP_ENCRYPTION_KEY_HEX must be set in production. \
-             Using zeroed key is insecure!"
-        );
+/// Resolve the 32-byte AES-256-GCM key from managed secret stores.
+/// Preferred sources: AWS KMS (encrypted key blob decrypted via CLI) or
+/// HashiCorp Vault. `BACKUP_ENCRYPTION_KEY_HEX` is accepted only as an explicit
+/// local fallback and should not be stored in source-controlled configs.
+fn resolve_encryption_key() -> Result<[u8; 32], String> {
+    if let Ok(cipher_b64) = env::var("BACKUP_KMS_ENCRYPTED_KEY_B64") {
+        return decrypt_key_via_kms_cli(cipher_b64.trim());
     }
-    [0u8; 32]
+    if env::var("BACKUP_VAULT_ADDR").is_ok() && env::var("BACKUP_VAULT_SECRET_PATH").is_ok() {
+        return read_key_from_vault_cli();
+    }
+
+    if let Ok(hex_key) = env::var("BACKUP_ENCRYPTION_KEY_HEX").or_else(|_| env::var("BACKUP_ENCRYPTION_KEY")) {
+        let trimmed = hex_key.trim();
+        let key = decode_key_material(trimmed, "BACKUP_ENCRYPTION_KEY[_HEX] fallback")?;
+        eprintln!(
+            "[WARN] Using fallback environment key material. Configure AWS KMS or HashiCorp Vault for managed key storage."
+        );
+        return Ok(key);
+    }
+
+    Err(
+        "No backup encryption key configured. Set BACKUP_KMS_ENCRYPTED_KEY_B64 (AWS KMS) or BACKUP_VAULT_ADDR/BACKUP_VAULT_SECRET_PATH (HashiCorp Vault)."
+            .to_string(),
+    )
+}
+
+fn decode_key_material(raw: &str, source: &str) -> Result<[u8; 32], String> {
+    let trimmed = raw.trim().trim_matches('"');
+    let bytes = if trimmed.len() == 64 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        hex::decode(trimmed).map_err(|e| format!("Invalid hex key from {source}: {e}"))?
+    } else {
+        decode_base64_std(trimmed).map_err(|e| format!("Invalid base64 key from {source}: {e}"))?
+    };
+    bytes
+        .try_into()
+        .map_err(|_| format!("Encryption key from {source} must be 32 bytes"))
+}
+
+fn decode_base64_std(input: &str) -> Result<Vec<u8>, String> {
+    fn val(c: u8) -> Option<u32> {
+        match c {
+            b'A'..=b'Z' => Some((c - b'A') as u32),
+            b'a'..=b'z' => Some((c - b'a') as u32 + 26),
+            b'0'..=b'9' => Some((c - b'0') as u32 + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+
+    let clean: Vec<u8> = input.bytes().filter(|b| !b" \n\r\t".contains(b)).collect();
+    if clean.is_empty() {
+        return Err("empty input".to_string());
+    }
+    if clean.len() % 4 != 0 {
+        return Err("invalid length".to_string());
+    }
+
+    let mut out = Vec::with_capacity(clean.len() / 4 * 3);
+    for chunk in clean.chunks(4) {
+        let mut buf = 0u32;
+        let mut pad = 0usize;
+        for (i, &b) in chunk.iter().enumerate() {
+            let v = if b == b'=' {
+                pad += 1;
+                0
+            } else {
+                val(b).ok_or_else(|| "invalid character".to_string())?
+            };
+            buf |= v << (6 * (3 - i));
+        }
+        out.push(((buf >> 16) & 0xFF) as u8);
+        if pad < 2 {
+            out.push(((buf >> 8) & 0xFF) as u8);
+        }
+        if pad == 0 {
+            out.push((buf & 0xFF) as u8);
+        }
+    }
+    Ok(out)
+}
+
+fn decrypt_key_via_kms_cli(cipher_b64: &str) -> Result<[u8; 32], String> {
+    let mut cmd = Command::new("aws");
+    cmd.args([
+        "kms",
+        "decrypt",
+        "--query",
+        "Plaintext",
+        "--output",
+        "text",
+        "--ciphertext-blob",
+    ])
+    .arg(cipher_b64);
+    if let Ok(region) = env::var("BACKUP_KMS_REGION").or_else(|_| env::var("AWS_REGION")) {
+        cmd.args(["--region", &region]);
+    }
+    if let Ok(key_id) = env::var("BACKUP_KMS_KEY_ID") {
+        cmd.args(["--key-id", &key_id]);
+    }
+    let output = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Failed to invoke aws kms decrypt: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "aws kms decrypt failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    decode_key_material(&String::from_utf8_lossy(&output.stdout), "AWS KMS")
+}
+
+fn read_key_from_vault_cli() -> Result<[u8; 32], String> {
+    let path = env::var("BACKUP_VAULT_SECRET_PATH")
+        .map_err(|_| "BACKUP_VAULT_SECRET_PATH is required".to_string())?;
+    let field = env::var("BACKUP_VAULT_SECRET_FIELD").unwrap_or_else(|_| "key".to_string());
+    let mut cmd = Command::new("vault");
+    cmd.args(["kv", "get", &format!("-field={field}"), &path]);
+    let output = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Failed to invoke vault kv get: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "vault kv get failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    decode_key_material(&String::from_utf8_lossy(&output.stdout), "HashiCorp Vault")
+}
+
+fn derive_nonce(plaintext: &[u8]) -> [u8; 12] {
+    let mut hasher = Sha256::new();
+    hasher.update(Utc::now().timestamp_nanos_opt().unwrap_or_default().to_be_bytes());
+    hasher.update(std::process::id().to_be_bytes());
+    hasher.update(NONCE_COUNTER.fetch_add(1, Ordering::Relaxed).to_be_bytes());
+    hasher.update((plaintext.len() as u64).to_be_bytes());
+    let digest = hasher.finalize();
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&digest[..12]);
+    nonce
 }
 
 /// Encrypt `plaintext` using AES-256-GCM.
-/// The 12-byte nonce is derived from the current UTC timestamp and prepended
-/// to the ciphertext so the decryption routine can extract it.
-#[allow(deprecated)]
+/// Format: [12-byte nonce][ciphertext+tag]
 fn encrypt(plaintext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, String> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-
-    // Build a deterministic-but-unique nonce from the current second + random suffix
-    let ts_bytes = Utc::now().timestamp().to_be_bytes(); // 8 bytes
-    let mut nonce_bytes = [0u8; 12];
-    nonce_bytes[..8].copy_from_slice(&ts_bytes);
-    // Fill remaining 4 bytes with pseudo-random data derived from plaintext length
-    let len_bytes = (plaintext.len() as u32).to_be_bytes();
-    nonce_bytes[8..].copy_from_slice(&len_bytes);
-
+    let nonce_bytes = derive_nonce(plaintext);
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext = cipher
         .encrypt(nonce, plaintext)
         .map_err(|e| format!("AES-256-GCM encryption failed: {e}"))?;
 
-    // Format: [12-byte nonce][ciphertext+tag]
     let mut payload = nonce_bytes.to_vec();
     payload.extend_from_slice(&ciphertext);
     Ok(payload)
@@ -509,7 +616,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(30);
 
-    let key = resolve_encryption_key();
+    let key = resolve_encryption_key().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
     match action.as_str() {
         "backup" => {

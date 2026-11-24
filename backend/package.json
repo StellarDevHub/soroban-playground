@@ -26,6 +26,7 @@
     "test:jsonpatch": "jest tests/jsonPatchSync.*.test.js",
     "init-db": "SEED_SAMPLE_DATA=false knex migrate:latest && node src/database/init.js --no-seed",
     "backup:restore": "node src/services/backupService.js restore",
+    "backup:verify:restore": "node scripts/backup/verify-restore.mjs",
     "migrate:make": "knex migrate:make",
     "migrate:latest": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
@@ -42,6 +43,7 @@
   "author": "",
   "license": "IT",
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.600.0",
     "@aws-sdk/client-s3": "^3.600.0",
     "@aws-sdk/lib-storage": "^3.600.0",
     "@bull-board/api": "^9.4.0",

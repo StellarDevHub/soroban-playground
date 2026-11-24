@@ -92,6 +92,10 @@ jobs:
         working-directory: backend
         run: npx jest tests/ephemeralQuickstart.integration.test.js --forceExit
 
+      - name: Verify encrypted backup restore (disaster recovery)
+        working-directory: backend
+        run: node scripts/backup/verify-restore.mjs
+
       - name: Run CORS & OpenAPI Tests
         working-directory: backend
         run: >-

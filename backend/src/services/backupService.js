@@ -5,13 +5,22 @@
  * SQLite Automated Backup Service + PostgreSQL WAL-G PITR Orchestration
  *
  * Backup format: <s3-prefix>/backup-<ISO-timestamp>.tar.gz.enc
- * Encryption:    AES-256-CBC — a random 16-byte IV is prepended to the payload.
+ * Encryption:    AES-256-GCM (streaming). Payload layout: "SGCM1" + 12-byte IV
+ *                + ciphertext + 16-byte auth tag. Legacy AES-256-CBC backups
+ *                (raw 16-byte IV prefix) can still be restored for compatibility.
+ *
+ * Key management:
+ *   - Preferred: decrypt a data key via AWS KMS (BACKUP_KMS_KEY_ID /
+ *     BACKUP_KMS_ENCRYPTED_KEY_B64) or fetch from HashiCorp Vault
+ *     (BACKUP_VAULT_ADDR + BACKUP_VAULT_SECRET_PATH [+ token/field]).
+ *   - BACKUP_ENCRYPTION_KEY (hex) is supported only as an explicitly
+ *     acknowledged fallback and must never be committed to source control.
  *
  * ─── RESTORE PROCEDURE ────────────────────────────────────────────────────────
  *
  * Prerequisites
- *   • BACKUP_ENCRYPTION_KEY env var (64-character hex string representing 32 bytes)
- *   • AWS credentials with s3:GetObject permission
+ *   • Encryption key available via KMS, Vault, or BACKUP_ENCRYPTION_KEY
+ *   • AWS credentials with s3:GetObject permission (for S3 restores)
  *
  * Step 1 — Download the backup from S3
  *   aws s3 cp s3://<BUCKET>/<PREFIX>/backup-<TIMESTAMP>.tar.gz.enc /tmp/backup.tar.gz.enc
@@ -26,23 +35,7 @@
  *   await restoreFromFile({ sourcePath: '/tmp/backup.tar.gz.enc', destDir: '/tmp/db-restore/' });
  *
  * Step 3 — Swap the restored file into production
- *   # Stop the app (or use credential rotation to avoid downtime)
  *   cp /tmp/db-restore/snapshot-<TIMESTAMP>.sqlite /path/to/database.sqlite
- *   # Restart the app
- *
- * Generate an encryption key (run once, store securely):
- *   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
- *
- * ─── POSTGRESQL WAL-G PITR ────────────────────────────────────────────────────
- *
- * The PostgreSQL disaster-recovery pipeline is driven by
- * `backend/scripts/backup/walGPostgres.sh`. This service exposes thin
- * orchestration helpers so the Node backend can trigger base backups,
- * PITR restores, and weekly restore drills, and can emit Prometheus
- * alerts when WAL archiving falls behind.
- *
- *   import { runPostgresBaseBackup, runPostgresPitr, runRestoreDrill,
- *            checkWalArchiveLag } from './backupService.js';
  *
  * See `backend/scripts/backup/README.md` for the operational runbook.
  *
@@ -51,7 +44,7 @@
 
 import { Transform } from 'stream';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
-import { mkdir, unlink } from 'fs/promises';
+import { chmod, mkdir, unlink } from 'fs/promises';
 import { createReadStream } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -74,33 +67,40 @@ import { alertManager } from '../utils/alerting.js';
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
 
-const AES_ALGORITHM = 'aes-256-cbc';
+const GCM_ALGORITHM = 'aes-256-gcm';
+const GCM_MAGIC = Buffer.from('SGCM1');
+const GCM_IV_LENGTH = 12;
+const GCM_TAG_LENGTH = 16;
 const AES_KEY_LENGTH = 32;
-const AES_IV_LENGTH = 16;
+
+// Legacy CBC support for restoring older backups
+const LEGACY_CBC_ALGORITHM = 'aes-256-cbc';
+const LEGACY_CBC_IV_LENGTH = 16;
 
 const WALG_SCRIPT_PATH =
   process.env.WALG_SCRIPT_PATH ||
   path.resolve(_dirname, '../../scripts/backup/walGPostgres.sh');
 
-// ─── Crypto Transforms ────────────────────────────────────────────────────────
+let _cachedKeyMaterial = null;
 
-class AES256CbcEncryptTransform extends Transform {
+// ─── Crypto Transforms (AES-256-GCM) ─────────────────────────────────────────
+
+export class AES256GcmEncryptTransform extends Transform {
   constructor(key, options) {
     super(options);
-    this._iv = randomBytes(AES_IV_LENGTH);
-    this._cipher = createCipheriv(AES_ALGORITHM, key, this._iv);
+    this._iv = randomBytes(GCM_IV_LENGTH);
+    this._cipher = createCipheriv(GCM_ALGORITHM, key, this._iv);
     this._headerSent = false;
   }
 
   _transform(chunk, _encoding, callback) {
     try {
-      const encrypted = this._cipher.update(chunk);
       if (!this._headerSent) {
         this._headerSent = true;
-        this.push(Buffer.concat([this._iv, encrypted]));
-      } else {
-        if (encrypted.length) this.push(encrypted);
+        this.push(Buffer.concat([GCM_MAGIC, this._iv]));
       }
+      const encrypted = this._cipher.update(chunk);
+      if (encrypted.length) this.push(encrypted);
       callback();
     } catch (err) {
       callback(err);
@@ -111,12 +111,80 @@ class AES256CbcEncryptTransform extends Transform {
     try {
       const final = this._cipher.final();
       if (final.length) this.push(final);
+      this.push(this._cipher.getAuthTag());
       callback();
     } catch (err) {
       callback(err);
     }
   }
 }
+
+export class AES256GcmDecryptTransform extends Transform {
+  constructor(key, options) {
+    super(options);
+    this._key = key;
+    this._headerDone = false;
+    this._buffer = Buffer.alloc(0);
+    this._decipher = null;
+  }
+
+  _transform(chunk, _encoding, callback) {
+    try {
+      this._buffer = Buffer.concat([this._buffer, chunk]);
+      if (!this._headerDone) {
+        const headerLen = GCM_MAGIC.length + GCM_IV_LENGTH;
+        if (this._buffer.length < headerLen) return callback();
+        const magic = this._buffer.subarray(0, GCM_MAGIC.length);
+        if (!magic.equals(GCM_MAGIC)) {
+          return callback(
+            new Error('Unsupported backup format: expected AES-256-GCM payload')
+          );
+        }
+        const iv = this._buffer.subarray(
+          GCM_MAGIC.length,
+          GCM_MAGIC.length + GCM_IV_LENGTH
+        );
+        this._decipher = createDecipheriv(GCM_ALGORITHM, this._key, iv);
+        this._buffer = this._buffer.subarray(headerLen);
+        this._headerDone = true;
+      }
+
+      if (this._buffer.length > GCM_TAG_LENGTH) {
+        const toDecipher = this._buffer.subarray(
+          0,
+          this._buffer.length - GCM_TAG_LENGTH
+        );
+        this._buffer = this._buffer.subarray(this._buffer.length - GCM_TAG_LENGTH);
+        if (toDecipher.length) {
+          const decrypted = this._decipher.update(toDecipher);
+          if (decrypted.length) this.push(decrypted);
+        }
+      }
+      callback();
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  _flush(callback) {
+    try {
+      if (!this._decipher) {
+        return callback(new Error('Invalid encrypted backup payload'));
+      }
+      if (this._buffer.length !== GCM_TAG_LENGTH) {
+        return callback(new Error('Invalid GCM authentication tag'));
+      }
+      this._decipher.setAuthTag(this._buffer);
+      const final = this._decipher.final();
+      if (final.length) this.push(final);
+      callback();
+    } catch (err) {
+      callback(err);
+    }
+  }
+}
+
+// ─── Legacy CBC decrypt (restore compatibility) ──────────────────────────────
 
 class AES256CbcDecryptTransform extends Transform {
   constructor(key, options) {
@@ -138,11 +206,11 @@ class AES256CbcDecryptTransform extends Transform {
       this._ivChunks.push(chunk);
       this._ivBytesRead += chunk.length;
 
-      if (this._ivBytesRead >= AES_IV_LENGTH) {
+      if (this._ivBytesRead >= LEGACY_CBC_IV_LENGTH) {
         const all = Buffer.concat(this._ivChunks);
-        const iv = all.subarray(0, AES_IV_LENGTH);
-        const remainder = all.subarray(AES_IV_LENGTH);
-        this._decipher = createDecipheriv(AES_ALGORITHM, this._key, iv);
+        const iv = all.subarray(0, LEGACY_CBC_IV_LENGTH);
+        const remainder = all.subarray(LEGACY_CBC_IV_LENGTH);
+        this._decipher = createDecipheriv(LEGACY_CBC_ALGORITHM, this._key, iv);
         this._ivChunks = null;
         if (remainder.length) {
           const decrypted = this._decipher.update(remainder);
@@ -168,43 +236,163 @@ class AES256CbcDecryptTransform extends Transform {
   }
 }
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+/**
+ * Detects backup format and returns the appropriate decrypt transform.
+ * GCM backups start with magic "SGCM1"; legacy CBC backups start with a raw IV.
+ */
+export async function createDecryptTransformForFile(sourcePath, key) {
+  const fd = await (await import('fs/promises')).open(sourcePath, 'r');
+  try {
+    const probe = Buffer.alloc(GCM_MAGIC.length);
+    const { bytesRead } = await fd.read(probe, 0, GCM_MAGIC.length, 0);
+    if (bytesRead === GCM_MAGIC.length && probe.equals(GCM_MAGIC)) {
+      return new AES256GcmDecryptTransform(key);
+    }
+    return new AES256CbcDecryptTransform(key);
+  } finally {
+    await fd.close();
+  }
+}
 
-function getConfig() {
-  const hexKey = process.env.BACKUP_ENCRYPTION_KEY;
-  if (hexKey && Buffer.from(hexKey, 'hex').length !== AES_KEY_LENGTH) {
+// ─── Key management (KMS / Vault) ────────────────────────────────────────────
+
+function parseKeyBytes(raw, source) {
+  if (!raw) throw new Error(`Empty encryption key material from ${source}`);
+  let buf;
+  const trimmed = String(raw).trim();
+  if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length === AES_KEY_LENGTH * 2) {
+    buf = Buffer.from(trimmed, 'hex');
+  } else {
+    buf = Buffer.from(trimmed, 'base64');
+  }
+  if (buf.length !== AES_KEY_LENGTH) {
     throw new Error(
-      `BACKUP_ENCRYPTION_KEY must be ${AES_KEY_LENGTH * 2} hex chars (${AES_KEY_LENGTH} bytes). ` +
-        `Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+      `Encryption key from ${source} must be ${AES_KEY_LENGTH} bytes (got ${buf.length})`
     );
   }
+  return buf;
+}
+
+async function resolveKeyFromKms() {
+  const keyId = process.env.BACKUP_KMS_KEY_ID;
+  const encryptedB64 = process.env.BACKUP_KMS_ENCRYPTED_KEY_B64;
+  if (!keyId && !encryptedB64) return null;
+
+  const { KMSClient, DecryptCommand } = await import('@aws-sdk/client-kms');
+  const client = new KMSClient({ region: process.env.BACKUP_KMS_REGION || process.env.BACKUP_S3_REGION || process.env.AWS_REGION || 'us-east-1' });
+
+  if (encryptedB64) {
+    const res = await client.send(
+      new DecryptCommand({
+        CiphertextBlob: Buffer.from(encryptedB64, 'base64'),
+        KeyId: keyId || undefined,
+      })
+    );
+    if (!res.Plaintext) throw new Error('KMS Decrypt returned empty plaintext');
+    const buf = Buffer.from(res.Plaintext);
+    if (buf.length !== AES_KEY_LENGTH) {
+      throw new Error(`KMS-decrypted key must be ${AES_KEY_LENGTH} bytes`);
+    }
+    return buf;
+  }
+
+  // If only a key id is provided, generate and immediately decrypt a data key
+  // for use as process-local material (caller should prefer encrypted blobs).
+  const { GenerateDataKeyCommand } = await import('@aws-sdk/client-kms');
+  const res = await client.send(
+    new GenerateDataKeyCommand({ KeyId: keyId, KeySpec: 'AES_256' })
+  );
+  if (!res.Plaintext) throw new Error('KMS GenerateDataKey returned empty plaintext');
+  return Buffer.from(res.Plaintext);
+}
+
+async function resolveKeyFromVault() {
+  const addr = process.env.BACKUP_VAULT_ADDR;
+  const secretPath = process.env.BACKUP_VAULT_SECRET_PATH;
+  if (!addr || !secretPath) return null;
+
+  const token = process.env.BACKUP_VAULT_TOKEN;
+  const namespace = process.env.BACKUP_VAULT_NAMESPACE;
+  const field = process.env.BACKUP_VAULT_SECRET_FIELD || 'key';
+  const url = `${addr.replace(/\/$/, '')}/v1/${secretPath.replace(/^\//, '')}`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['X-Vault-Token'] = token;
+  if (namespace) headers['X-Vault-Namespace'] = namespace;
+
+  const resp = await fetch(url, { headers });
+  if (!resp.ok) {
+    throw new Error(`Vault key fetch failed (${resp.status})`);
+  }
+  const body = await resp.json();
+  const data = body?.data?.data || body?.data || {};
+  return parseKeyBytes(data[field], `Vault ${secretPath}:${field}`);
+}
+
+async function resolveEncryptionKeyMaterial({ forceRefresh = false } = {}) {
+  if (_cachedKeyMaterial && !forceRefresh) return _cachedKeyMaterial;
+
+  const kmsKey = await resolveKeyFromKms();
+  if (kmsKey) {
+    _cachedKeyMaterial = kmsKey;
+    return kmsKey;
+  }
+
+  const vaultKey = await resolveKeyFromVault();
+  if (vaultKey) {
+    _cachedKeyMaterial = vaultKey;
+    return vaultKey;
+  }
+
+  const hexKey = process.env.BACKUP_ENCRYPTION_KEY;
+  if (hexKey) {
+    logger.warn(
+      JSON.stringify({
+        level: 'warn',
+        msg: 'backup:key:insecure_env',
+        hint: 'Configure BACKUP_KMS_KEY_ID/BACKUP_KMS_ENCRYPTED_KEY_B64 or BACKUP_VAULT_ADDR+BACKUP_VAULT_SECRET_PATH for managed key storage.',
+      })
+    );
+    _cachedKeyMaterial = parseKeyBytes(hexKey, 'BACKUP_ENCRYPTION_KEY');
+    return _cachedKeyMaterial;
+  }
+
+  throw new Error(
+    'Backup encryption key is required. Configure AWS KMS (BACKUP_KMS_KEY_ID or BACKUP_KMS_ENCRYPTED_KEY_B64) or HashiCorp Vault (BACKUP_VAULT_ADDR, BACKUP_VAULT_SECRET_PATH).'
+  );
+}
+
+export function clearCachedBackupKey() {
+  _cachedKeyMaterial = null;
+}
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+export function getConfig() {
+  const retentionDaysRaw =
+    process.env.BACKUP_RETENTION_DAYS || process.env.BACKUP_RETENTION_COUNT;
+  const retentionDays = Math.max(1, parseInt(retentionDaysRaw, 10) || 30);
   return {
     s3Bucket: process.env.BACKUP_S3_BUCKET,
     s3Prefix: process.env.BACKUP_S3_PREFIX || 'sqlite-backups/',
     s3Region: process.env.BACKUP_S3_REGION || 'us-east-1',
-    encryptionKeyHex: hexKey,
     tempDir:
       process.env.BACKUP_TEMP_DIR || path.join(os.tmpdir(), 'db-backups'),
-    retentionCount: Math.max(
-      1,
-      parseInt(process.env.BACKUP_RETENTION_COUNT, 10) || 30
-    ),
+    retentionDays,
   };
 }
 
-function assertConfigComplete(cfg) {
-  const missing = [];
-  if (!cfg.s3Bucket) missing.push('BACKUP_S3_BUCKET');
-  if (!cfg.encryptionKeyHex) missing.push('BACKUP_ENCRYPTION_KEY');
-  if (missing.length) {
+function assertS3Config(cfg) {
+  if (!cfg.s3Bucket) {
     throw new Error(
-      `Backup service misconfigured — missing env vars: ${missing.join(', ')}`
+      'Backup service misconfigured — missing env var: BACKUP_S3_BUCKET'
     );
   }
 }
 
-function parseEncryptionKey(cfg) {
-  return Buffer.from(cfg.encryptionKeyHex, 'hex');
+async function getEncryptionKey(cfg) {
+  // cfg retained for API compatibility; key resolution uses secure providers.
+  void cfg;
+  return resolveEncryptionKeyMaterial();
 }
 
 // ─── Core helpers ─────────────────────────────────────────────────────────────
@@ -222,6 +410,11 @@ async function createDatabaseSnapshot(snapshotPath) {
   // VACUUM INTO creates an atomic, consistent copy that is safe in WAL mode
   // without blocking concurrent reads or writes.
   await db.run('VACUUM INTO ?', [snapshotPath]);
+  try {
+    await chmod(snapshotPath, 0o600);
+  } catch {
+    // Best-effort on platforms/filesystems that do not support POSIX modes.
+  }
 }
 
 async function streamUploadToS3(s3Client, bucket, key, bodyStream, metadata) {
@@ -233,6 +426,7 @@ async function streamUploadToS3(s3Client, bucket, key, bodyStream, metadata) {
       Body: bodyStream,
       ContentType: 'application/octet-stream',
       Metadata: metadata,
+      ServerSideEncryption: 'AES256',
     },
     queueSize: 4,
     partSize: 5 * 1024 * 1024, // 5 MB parts
@@ -247,7 +441,7 @@ async function verifyS3Object(s3Client, bucket, key) {
   return { etag: head.ETag, contentLength: head.ContentLength };
 }
 
-async function pruneOldBackups(s3Client, bucket, prefix, retentionCount) {
+async function pruneOldBackups(s3Client, bucket, prefix, retentionDays) {
   const objects = [];
   let token;
 
@@ -263,21 +457,27 @@ async function pruneOldBackups(s3Client, bucket, prefix, retentionCount) {
     token = res.NextContinuationToken;
   } while (token);
 
-  // Newest first — keep only the most recent `retentionCount` backups
-  objects.sort((a, b) => b.LastModified - a.LastModified);
-  const toDelete = objects.slice(retentionCount);
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  const toDelete = objects.filter((o) => {
+    if (!o.LastModified) return false;
+    return new Date(o.LastModified).getTime() < cutoff;
+  });
 
   if (!toDelete.length) return 0;
 
-  await s3Client.send(
-    new DeleteObjectsCommand({
-      Bucket: bucket,
-      Delete: {
-        Objects: toDelete.map((o) => ({ Key: o.Key })),
-        Quiet: true,
-      },
-    })
-  );
+  // DeleteObjects supports up to 1000 keys per request.
+  for (let i = 0; i < toDelete.length; i += 1000) {
+    const batch = toDelete.slice(i, i + 1000);
+    await s3Client.send(
+      new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: {
+          Objects: batch.map((o) => ({ Key: o.Key })),
+          Quiet: true,
+        },
+      })
+    );
+  }
 
   return toDelete.length;
 }
@@ -288,19 +488,24 @@ let _lastResult = null;
 
 export async function runBackup() {
   const cfg = getConfig();
-  assertConfigComplete(cfg);
+  assertS3Config(cfg);
 
   const timestamp = buildTimestamp();
   const snapshotFile = path.join(cfg.tempDir, `snapshot-${timestamp}.sqlite`);
   const s3Key = buildS3Key(cfg.s3Prefix, timestamp);
-  const encKey = parseEncryptionKey(cfg);
+  const encKey = await getEncryptionKey(cfg);
 
   logger.info(
     JSON.stringify({ level: 'info', msg: 'backup:start', timestamp, s3Key })
   );
 
   try {
-    await mkdir(cfg.tempDir, { recursive: true });
+    await mkdir(cfg.tempDir, { recursive: true, mode: 0o700 });
+    try {
+      await chmod(cfg.tempDir, 0o700);
+    } catch {
+      // Best-effort on non-POSIX filesystems.
+    }
 
     // 1. Point-in-time snapshot — non-blocking in WAL mode
     logger.info(
@@ -312,9 +517,9 @@ export async function runBackup() {
     );
     await createDatabaseSnapshot(snapshotFile);
 
-    // 2. tar.gz → AES-256-CBC encrypt → S3 multipart upload (fully stream-based)
+    // 2. tar.gz → AES-256-GCM encrypt → S3 multipart upload (streaming)
     const s3Client = new S3Client({ region: cfg.s3Region });
-    const encryptTransform = new AES256CbcEncryptTransform(encKey);
+    const encryptTransform = new AES256GcmEncryptTransform(encKey);
 
     const archiveStream = tar.create(
       { gzip: true, cwd: path.dirname(snapshotFile), portable: true },
@@ -330,8 +535,13 @@ export async function runBackup() {
     );
     await streamUploadToS3(s3Client, cfg.s3Bucket, s3Key, encryptTransform, {
       'backup-timestamp': timestamp,
-      'backup-algorithm': AES_ALGORITHM,
-      'backup-format': 'tar.gz.enc',
+      'backup-algorithm': GCM_ALGORITHM,
+      'backup-format': 'tar.gz.enc.sgcm1',
+      'backup-key-provider': process.env.BACKUP_KMS_KEY_ID
+        ? 'aws-kms'
+        : process.env.BACKUP_VAULT_ADDR
+          ? 'hashicorp-vault'
+          : 'env-fallback',
     });
 
     // 3. Verify the object landed in S3
@@ -350,20 +560,34 @@ export async function runBackup() {
       })
     );
 
-    // 4. Prune backups older than the retention window
+    // 4. Prune backups older than the retention window (default 30 days)
     const deleted = await pruneOldBackups(
       s3Client,
       cfg.s3Bucket,
       cfg.s3Prefix,
-      cfg.retentionCount
+      cfg.retentionDays
     );
     if (deleted > 0) {
       logger.info(
-        JSON.stringify({ level: 'info', msg: 'backup:pruned', count: deleted })
+        JSON.stringify({
+          level: 'info',
+          msg: 'backup:pruned',
+          count: deleted,
+          retentionDays: cfg.retentionDays,
+        })
       );
     }
 
-    const result = { success: true, s3Key, timestamp, etag, contentLength };
+    const result = {
+      success: true,
+      s3Key,
+      timestamp,
+      etag,
+      contentLength,
+      encrypted: true,
+      algorithm: GCM_ALGORITHM,
+      retentionDays: cfg.retentionDays,
+    };
     _lastResult = { ...result, completedAt: new Date().toISOString() };
     logger.info(
       JSON.stringify({ level: 'info', msg: 'backup:complete', ...result })
@@ -403,15 +627,10 @@ export function getLastBackupResult() {
  * @param {string} opts.destDir     Directory where the SQLite file will be extracted
  */
 export async function restoreFromFile({ sourcePath, destDir }) {
-  const cfg = getConfig();
-  if (!cfg.encryptionKeyHex) {
-    throw new Error('BACKUP_ENCRYPTION_KEY is required for restore');
-  }
-  const encKey = parseEncryptionKey(cfg);
-
+  const encKey = await resolveEncryptionKeyMaterial();
   await mkdir(destDir, { recursive: true });
 
-  const decryptTransform = new AES256CbcDecryptTransform(encKey);
+  const decryptTransform = await createDecryptTransformForFile(sourcePath, encKey);
   const sourceStream = createReadStream(sourcePath);
   const extractStream = tar.extract({ cwd: destDir });
 
@@ -426,6 +645,34 @@ export async function restoreFromFile({ sourcePath, destDir }) {
     })
   );
   return { success: true, destDir };
+}
+
+export async function verifyBackupFile({ sourcePath, destDir }) {
+  const workDir =
+    destDir || path.join(os.tmpdir(), `db-restore-verify-${Date.now()}`);
+  await mkdir(workDir, { recursive: true });
+  try {
+    await restoreFromFile({ sourcePath, destDir: workDir });
+    const { readdir } = await import('fs/promises');
+    const files = await readdir(workDir);
+    if (!files.length) {
+      throw new Error('Restore verification failed: no files extracted');
+    }
+    logger.info(
+      JSON.stringify({
+        level: 'info',
+        msg: 'restore:verify:complete',
+        sourcePath,
+        files: files.length,
+      })
+    );
+    return { success: true, files };
+  } finally {
+    if (!destDir) {
+      const { rm } = await import('fs/promises');
+      await rm(workDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
 }
 
 // ─── PostgreSQL WAL-G orchestration ───────────────────────────────────────────
@@ -625,6 +872,24 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         console.error('Restore failed:', err.message);
         process.exit(1);
       });
+  } else if (command === 'verify-restore') {
+    const sourcePath = flag('--source');
+    const destDir = flag('--destination');
+    if (!sourcePath) {
+      console.error(
+        'Usage: node backupService.js verify-restore --source <file.tar.gz.enc> [--destination <dir>]'
+      );
+      process.exit(1);
+    }
+    verifyBackupFile({ sourcePath, destDir })
+      .then((r) => {
+        console.log(JSON.stringify(r));
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('Restore verification failed:', err.message);
+        process.exit(1);
+      });
   } else if (command === 'pg-base-backup') {
     runPostgresBaseBackup()
       .then((r) => {
@@ -670,7 +935,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       });
   } else {
     console.error(
-      'Unknown command. Available commands: restore, pg-base-backup, pg-pitr, pg-restore-drill, pg-wal-lag'
+      'Unknown command. Available commands: restore, verify-restore, pg-base-backup, pg-pitr, pg-restore-drill, pg-wal-lag'
     );
     process.exit(1);
   }

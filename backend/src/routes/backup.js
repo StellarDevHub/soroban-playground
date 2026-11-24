@@ -9,6 +9,7 @@ import {
   checkWalArchiveLag as getWalGStatus,
   runPostgresPitr,
   runRestoreDrill,
+  verifyBackupFile,
 } from '../services/backupService.js';
 
 const router = Router();
@@ -99,6 +100,27 @@ router.post('/walg/restore', async (req, res) => {
 router.post('/walg/drill', async (_req, res) => {
   try {
     const result = await runRestoreDrill();
+    return res.status(200).json({ success: true, data: result });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/backup/verify-restore
+ * Verify an encrypted backup archive can be decrypted and restored.
+ * Body: { sourcePath: string, destDir?: string }
+ */
+router.post('/verify-restore', async (req, res) => {
+  const { sourcePath, destDir } = req.body || {};
+  if (!sourcePath) {
+    return res.status(400).json({
+      success: false,
+      error: 'sourcePath is required',
+    });
+  }
+  try {
+    const result = await verifyBackupFile({ sourcePath, destDir });
     return res.status(200).json({ success: true, data: result });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
