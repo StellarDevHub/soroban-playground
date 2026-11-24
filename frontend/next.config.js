@@ -31,6 +31,10 @@ function buildConfig(config) {
         'reactflow',
       ],
     },
+    images: {
+      formats: ['image/avif', 'image/webp'],
+      remotePatterns: [{ protocol: 'https', hostname: '**' }],
+    },
     webpack: /** @param {any} config */ (config, { isServer, isDev }) => {
       // Split large vendor libraries into dedicated async chunks so they do not
       // count against the first-load JS budget.

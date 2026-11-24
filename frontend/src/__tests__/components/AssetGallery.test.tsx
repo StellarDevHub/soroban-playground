@@ -23,6 +23,18 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import AssetGallery, { AssetItem } from "../../components/AssetGallery";
 
+jest.mock("next/image", () => ({
+  __esModule: true,
+  default: (props: Record<string, unknown>) => {
+    const { fill, placeholder, blurDataURL, decoding, ...imageProps } = props;
+    void fill;
+    void placeholder;
+    void blurDataURL;
+    void decoding;
+    return require("react").createElement("img", imageProps);
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -100,6 +112,30 @@ describe("AssetGallery – rendering", () => {
     const img = screen.getByTestId("asset-image-USDC:GA5Z");
     expect(img).toHaveAttribute("src", "https://example.com/usdc.png");
     expect(img).toHaveAttribute("alt", "USDC logo");
+    expect(img).toHaveAttribute(
+      "sizes",
+      "(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 25vw",
+    );
+  });
+
+  it("only mounts off-screen artwork when its virtualized row is scrolled into view", () => {
+    const manyAssets = Array.from({ length: 80 }, (_, index) => ({
+      id: `ART:${index}`,
+      symbol: `ART${index}`,
+      name: `Artwork ${index}`,
+      imageUrl: `https://example.com/art-${index}.webp`,
+    }));
+
+    render(<AssetGallery assets={manyAssets} showSearch={false} />);
+
+    expect(screen.getByTestId("asset-image-ART:0")).toBeInTheDocument();
+    expect(screen.queryByTestId("asset-image-ART:79")).not.toBeInTheDocument();
+
+    fireEvent.scroll(screen.getByTestId("asset-gallery-list"), {
+      target: { scrollTop: 5800 },
+    });
+
+    expect(screen.getByTestId("asset-image-ART:79")).toBeInTheDocument();
   });
 
   it("shows placeholder initials when imageUrl is absent", () => {
