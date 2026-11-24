@@ -1,12 +1,13 @@
-import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
+import type { RustFormatDiagnostic, RustfmtConfig } from "@/lib/rustfmtDiagnostics";
 
 export type RustFormatResult =
-  | { formatted: string }
-  | { diagnostics: RustFormatDiagnostic[] };
+  | { formatted: string; executionTimeMs?: number }
+  | { diagnostics: RustFormatDiagnostic[]; executionTimeMs?: number };
 
 interface FormatRequest {
   id: number;
   code: string;
+  config?: Partial<RustfmtConfig> | string;
 }
 
 interface FormatResponse {
@@ -14,6 +15,7 @@ interface FormatResponse {
   formatted?: string;
   diagnostics?: RustFormatDiagnostic[];
   error?: string;
+  executionTimeMs?: number;
 }
 
 interface PendingRequest {
@@ -40,9 +42,15 @@ function getWorker(): Worker {
     if (event.data.error) {
       request.reject(new Error(event.data.error));
     } else if (typeof event.data.formatted === "string") {
-      request.resolve({ formatted: event.data.formatted });
+      request.resolve({
+        formatted: event.data.formatted,
+        executionTimeMs: event.data.executionTimeMs,
+      });
     } else {
-      request.resolve({ diagnostics: event.data.diagnostics ?? [] });
+      request.resolve({
+        diagnostics: event.data.diagnostics ?? [],
+        executionTimeMs: event.data.executionTimeMs,
+      });
     }
   };
   formatterWorker.onerror = (event: ErrorEvent) => {
@@ -57,13 +65,16 @@ function getWorker(): Worker {
   return formatterWorker;
 }
 
-export function formatRustInWorker(code: string): Promise<RustFormatResult> {
+export function formatRustInWorker(
+  code: string,
+  config?: Partial<RustfmtConfig> | string,
+): Promise<RustFormatResult> {
   const formatterWorker = getWorker();
   const id = ++nextRequestId;
 
   return new Promise((resolve, reject) => {
     pendingRequests.set(id, { resolve, reject });
-    const request: FormatRequest = { id, code };
+    const request: FormatRequest = { id, code, config };
     try {
       formatterWorker.postMessage(request);
     } catch (error) {
