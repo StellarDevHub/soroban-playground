@@ -30,7 +30,7 @@ function expectSecurityHeaders(res) {
   expect(res.headers['x-frame-options']).toBe('DENY');
   expect(res.headers['x-dns-prefetch-control']).toBe('off');
   expect(res.headers['strict-transport-security']).toContain(
-    'max-age=63072000'
+    'max-age=31536000'
   );
   expect(res.headers['strict-transport-security']).toContain(
     'includeSubDomains'

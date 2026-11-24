@@ -95,7 +95,7 @@ import { compressionMiddleware } from './middleware/compressionMiddleware.js';
 
 import applyDdosProtection from './middleware/ddosMitigation.js';
 
-import applySecurityHeaders from './middleware/securityHeaders.js';
+import applySecurityHeaders from './middleware/security.js';
 
 import feeEngineRoute from './routes/feeEngine.js';
 
@@ -287,14 +287,6 @@ app.use(chaosInjector);
 // surfaces the trace ID at the HTTP layer.
 app.use(tracePropagationMiddleware());
 
-// Strict Transport Security (HSTS) headers
-app.use((req, res, next) => {
-  res.setHeader(
-    'Strict-Transport-Security',
-    'max-age=63072000; includeSubDomains; preload'
-  );
-  next();
-});
 
 // Latency tracking middleware
 app.use((req, res, next) => {
