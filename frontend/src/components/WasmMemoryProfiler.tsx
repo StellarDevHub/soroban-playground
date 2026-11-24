@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   Database,
   HardDrive,
@@ -11,6 +12,17 @@ import {
   Zap,
 } from "lucide-react";
 import type { WasmMemoryProfile } from "@/utils/wasmInspector";
+import {
+  DoubleBufferedImageData,
+  HEATMAP_CELL_PX,
+  HEATMAP_COLS,
+  HEATMAP_ROWS,
+  SOROBAN_MEMORY_CEILING_BYTES,
+  allocateCells,
+  computeSegmentUsage,
+  paintHeatmap,
+  type SegmentUsage,
+} from "@/utils/wasmMemoryHeatmap";
 
 interface WasmMemoryProfilerProps {
   profile: WasmMemoryProfile | null;
@@ -24,6 +36,58 @@ function formatBytes(value: number | null): string {
   return `${(value / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+const SEGMENT_META = [
+  { key: "data", label: "Data segment", dot: "bg-rose-500" },
+  { key: "stack", label: "Stack", dot: "bg-amber-500" },
+  { key: "heap", label: "Heap", dot: "bg-emerald-400" },
+] as const;
+
+/**
+ * Allocation heatmap drawn on a canvas. The two ImageData buffers are created
+ * once and recycled (double-buffering) so redraws never allocate new pixel
+ * arrays, and they are released on unmount.
+ */
+function MemoryHeatmapCanvas({ usage }: { usage: SegmentUsage }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const buffersRef = useRef<DoubleBufferedImageData | null>(null);
+  const width = HEATMAP_COLS * HEATMAP_CELL_PX;
+  const height = HEATMAP_ROWS * HEATMAP_CELL_PX;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    // ImageData / 2D canvas are unavailable in some environments (e.g. jsdom).
+    if (!canvas || typeof ImageData === "undefined") return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    if (!buffersRef.current || buffersRef.current.disposed) {
+      buffersRef.current = new DoubleBufferedImageData(width, height);
+    }
+    const buffers = buffersRef.current;
+    paintHeatmap(buffers.backBuffer.data, allocateCells(usage));
+    ctx.putImageData(buffers.swap(), 0, 0);
+  }, [usage, width, height]);
+
+  useEffect(
+    () => () => {
+      buffersRef.current?.dispose();
+      buffersRef.current = null;
+    },
+    [],
+  );
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      role="img"
+      aria-label={`Memory allocation heatmap: ${(usage.ratio * 100).toFixed(1)}% of the 256 KB ceiling used`}
+      className="w-full rounded border border-white/10 bg-slate-950"
+      style={{ imageRendering: "pixelated" }}
+    />
+  );
+}
+
 export default function WasmMemoryProfiler({
   profile,
   onSelectFunction,
@@ -31,8 +95,12 @@ export default function WasmMemoryProfiler({
   const [activeTab, setActiveTab] = useState<
     "sections" | "functions" | "heatmap"
   >("sections");
+  const usage = useMemo(
+    () => (profile ? computeSegmentUsage(profile) : null),
+    [profile],
+  );
 
-  if (!profile) {
+  if (!profile || !usage) {
     return (
       <div className="p-4 rounded-xl border border-white/10 bg-slate-900/60 text-slate-400 text-xs italic">
         No WASM memory profile available. Compile or upload a WASM file to
@@ -136,6 +204,55 @@ export default function WasmMemoryProfiler({
         </div>
       </div>
 
+      {/* Soroban 256 KB memory ceiling */}
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-[11px] text-slate-400">
+          <span className="font-semibold uppercase tracking-wider text-[10px]">
+            Memory vs Soroban ceiling
+          </span>
+          <span className="font-mono">
+            {formatBytes(usage.total)} / {formatBytes(SOROBAN_MEMORY_CEILING_BYTES)}{" "}
+            ({(usage.ratio * 100).toFixed(1)}%)
+          </span>
+        </div>
+        <div
+          className="h-2 w-full rounded-full overflow-hidden bg-slate-950 border border-white/10"
+          role="progressbar"
+          aria-label="Memory usage against the Soroban ceiling"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.min(100, Math.round(usage.ratio * 100))}
+        >
+          <div
+            style={{ width: `${Math.min(100, usage.ratio * 100)}%` }}
+            className={`h-full transition-all ${
+              usage.pressure === "critical"
+                ? "bg-rose-500"
+                : usage.pressure === "warning"
+                  ? "bg-amber-400"
+                  : "bg-emerald-400"
+            }`}
+          />
+        </div>
+        {usage.pressure !== "ok" && (
+          <div
+            role={usage.pressure === "critical" ? "alert" : "status"}
+            className={`flex items-start gap-2 rounded-lg border p-2 text-[11px] ${
+              usage.pressure === "critical"
+                ? "border-rose-500/40 bg-rose-500/10 text-rose-200"
+                : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+            }`}
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              {usage.pressure === "critical"
+                ? "Estimated memory meets or exceeds Soroban's 256 KB ceiling; this contract is likely to trap at runtime."
+                : "Estimated memory is above 80% of Soroban's 256 KB ceiling. Reduce static data, stack depth or initial heap before deploying."}
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Visual Memory Allocation Heatmap Bar */}
       <div className="space-y-1.5">
         <div className="flex justify-between text-[11px] text-slate-400">
@@ -205,6 +322,23 @@ export default function WasmMemoryProfiler({
         <div className="space-y-3 p-3 rounded-lg bg-slate-950/80 border border-white/5 text-xs">
           <div className="flex items-center gap-2 text-cyan-300 font-semibold">
             <BarChart3 size={14} /> Allocation Density Heatmap
+          </div>
+          <MemoryHeatmapCanvas usage={usage} />
+          <div className="grid grid-cols-3 gap-2 font-mono text-[10px]">
+            {SEGMENT_META.map(({ key, label, dot }) => (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-1 rounded bg-slate-900 px-2 py-1"
+              >
+                <span className="flex items-center gap-1.5 text-slate-300">
+                  <span className={`h-2 w-2 rounded-full ${dot}`} />
+                  {label}
+                </span>
+                <span className="text-slate-400">
+                  {formatBytes(usage[key])}
+                </span>
+              </div>
+            ))}
           </div>
           <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
             {profile.heavyFunctions
