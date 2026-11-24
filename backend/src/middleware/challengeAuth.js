@@ -18,6 +18,7 @@ import jwt from 'jsonwebtoken';
 import { randomBytes } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import redisService from '../services/redisService.js';
+import jwtRevocationService from '../services/jwtRevocationService.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -119,6 +120,7 @@ export function signAccessToken(payload) {
       role,
       permissions,
       type: 'access',
+      tokenVersion: payload.tokenVersion ?? payload.token_version ?? 0,
       ...rest,
     },
     JWT_SECRET,
@@ -150,14 +152,15 @@ export async function verifyAccessToken(token) {
     throw new Error('Token type is not an access token');
   }
 
-  // Blacklist check (logout / key-rotation revocation)
+  // Revocation check (logout / key-rotation revocation) with Bloom filter fast path.
   if (payload.jti) {
-    const revoked = await redisService.get(
-      `${TOKEN_BLACKLIST_PREFIX}${payload.jti}`
-    );
+    const revoked =
+      (await jwtRevocationService.isJtiRevoked(payload.jti)) ||
+      (await redisService.get(`${TOKEN_BLACKLIST_PREFIX}${payload.jti}`));
     if (revoked) throw new Error('Token has been revoked');
   }
 
+  await jwtRevocationService.assertTokenEpochValid(payload);
   return payload;
 }
 
@@ -167,7 +170,9 @@ export async function verifyAccessToken(token) {
 export async function revokeAccessToken(jti, exp) {
   if (!jti) return;
   const now = Math.floor(Date.now() / 1000);
-  const ttl = exp ? Math.max(1, exp - now) : ACCESS_TOKEN_TTL_S;
+  const expSeconds = exp || now + ACCESS_TOKEN_TTL_S;
+  const ttl = Math.max(1, Math.floor(expSeconds - now));
+  await jwtRevocationService.revokeJti(jti, expSeconds);
   await redisService.set(`${TOKEN_BLACKLIST_PREFIX}${jti}`, '1', ttl);
 }
 
