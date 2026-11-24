@@ -1,9 +1,14 @@
 /**
- * useOracleStatus tests
+ * useOracleStatus tests with clean FakeTimers and Oracle Health verification
  */
 
 import { renderHook, act } from "@testing-library/react";
-import { useOracleStatus } from "@/hooks/useOracleStatus";
+import {
+  useOracleStatus,
+  getOracleHealthStatus,
+  calculatePriceDeviation,
+  isDeviationAlert,
+} from "@/hooks/useOracleStatus";
 
 const mockFetch = jest.fn<(url: string, options?: any) => Promise<any>>();
 (global as any).fetch = mockFetch;
@@ -43,6 +48,7 @@ class FakeWebSocket {
 }
 
 beforeEach(() => {
+  jest.useFakeTimers();
   jest.resetAllMocks();
   (global as any).WebSocket = FakeWebSocket;
   store.length = 0;
@@ -177,7 +183,6 @@ describe("useOracleStatus", () => {
         "/api/oracle/proofs",
         expect.objectContaining({
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             payload: "payload",
             metadata: { meta: "data" },
@@ -185,9 +190,8 @@ describe("useOracleStatus", () => {
           }),
         }),
       );
-
-      expect(result.current.proofs[0]).toEqual(newProof);
       expect(ret).toEqual(newProof);
+      expect(result.current.proofs[0]).toEqual(newProof);
     });
 
     it("returns null and sets error on failure", async () => {
@@ -222,6 +226,9 @@ describe("useOracleStatus", () => {
         });
 
       const { result } = renderHook(() => useOracleStatus({ pollMs: 999999 }));
+      await act(async () => {
+        await Promise.resolve();
+      });
 
       await act(async () => {
         await result.current.refresh();
@@ -240,9 +247,7 @@ describe("useOracleStatus", () => {
   describe("loading state", () => {
     it("starts loading and ends after refresh", async () => {
       setThreeFetchMocks({});
-
       const { result } = renderHook(() => useOracleStatus({ pollMs: 999999 }));
-
       expect(result.current.loading).toBe(true);
 
       await act(async () => {
@@ -255,24 +260,9 @@ describe("useOracleStatus", () => {
 
   describe("error handling", () => {
     it("clears previous error on successful refresh", async () => {
+      setThreeFetchMocks({});
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ data: [] }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ data: [] }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ data: {} }),
-        })
         .mockRejectedValueOnce(new Error("Initial error"))
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ data: [] }),
-        })
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ data: [] }),
@@ -351,7 +341,6 @@ describe("useOracleStatus", () => {
           json: () => Promise.resolve({ data: {} }),
         });
 
-      jest.useFakeTimers();
       const { result } = renderHook(() => useOracleStatus({ pollMs: 9999999 }));
 
       await act(async () => {
@@ -396,7 +385,6 @@ describe("useOracleStatus", () => {
           json: () => Promise.resolve({ data: {} }),
         });
 
-      jest.useFakeTimers();
       const { result } = renderHook(() => useOracleStatus({ pollMs: 9999999 }));
 
       await act(async () => {
@@ -432,7 +420,6 @@ describe("useOracleStatus", () => {
           json: () => Promise.resolve({ data: {} }),
         });
 
-      jest.useFakeTimers();
       const { unmount, result } = renderHook(() =>
         useOracleStatus({ pollMs: 9999999 }),
       );
@@ -450,6 +437,35 @@ describe("useOracleStatus", () => {
       unmount();
 
       expect(ws.close).toHaveBeenCalled();
+    });
+  });
+
+  describe("Oracle Health & Price Deviation Helpers", () => {
+    it("calculates oracle health status correctly based on staleness intervals", () => {
+      const now = 1_000_000;
+      // Active < 60s
+      expect(getOracleHealthStatus(now - 30_000, now)).toBe("active");
+      // Stale between 60s and 1800s
+      expect(getOracleHealthStatus(now - 350_000, now)).toBe("stale");
+      // Down > 1800s or null
+      expect(getOracleHealthStatus(now - 2_000_000, now)).toBe("down");
+      expect(getOracleHealthStatus(null, now)).toBe("down");
+      expect(getOracleHealthStatus(undefined, now)).toBe("down");
+      expect(getOracleHealthStatus(0, now)).toBe("down");
+    });
+
+    it("calculates price deviation percentage accurately", () => {
+      expect(calculatePriceDeviation(0.12, 0.10)).toBe(20);
+      expect(calculatePriceDeviation(0.09, 0.10)).toBe(-10);
+      expect(calculatePriceDeviation(0.10, 0.10)).toBe(0);
+      expect(calculatePriceDeviation(0.10, 0)).toBe(0);
+    });
+
+    it("identifies price deviation alert threshold breaches", () => {
+      expect(isDeviationAlert(1.8, 1.5)).toBe(true);
+      expect(isDeviationAlert(-2.1, 1.5)).toBe(true);
+      expect(isDeviationAlert(0.8, 1.5)).toBe(false);
+      expect(isDeviationAlert(-1.49, 1.5)).toBe(false);
     });
   });
 });

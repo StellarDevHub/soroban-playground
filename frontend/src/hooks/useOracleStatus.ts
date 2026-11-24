@@ -7,6 +7,9 @@ export type OracleNode = {
   status: "idle" | "processing" | "error";
   processed: number;
   lastProofAt: number | null;
+  latencyMs?: number;
+  oraclePrice?: number;
+  spotPrice?: number;
 };
 
 export type OracleVote = {
@@ -46,6 +49,49 @@ export type OracleEvent = {
   submission?: unknown;
   error?: string;
 };
+
+export type OracleHealthStatus = "active" | "stale" | "down";
+
+/**
+ * Calculates oracle feed health based on staleness intervals:
+ * - Active: < 60s
+ * - Stale: 60s - 1800s (alert threshold at > 300s)
+ * - Down: > 1800s or null timestamp
+ */
+export function getOracleHealthStatus(
+  lastProofAt: number | null | undefined,
+  now: number = Date.now(),
+): OracleHealthStatus {
+  if (!lastProofAt || lastProofAt <= 0) return "down";
+  const diffMs = Math.max(0, now - lastProofAt);
+  if (diffMs < 60_000) return "active";
+  if (diffMs <= 1_800_000) return "stale";
+  return "down";
+}
+
+/**
+ * Calculates percentage price deviation between oracle feed and spot exchange:
+ * ((oraclePrice - spotPrice) / spotPrice) * 100
+ */
+export function calculatePriceDeviation(
+  oraclePrice: number,
+  spotPrice: number,
+): number {
+  if (!spotPrice || spotPrice <= 0 || isNaN(spotPrice)) return 0;
+  if (isNaN(oraclePrice)) return 0;
+  const deviation = ((oraclePrice - spotPrice) / spotPrice) * 100;
+  return Number(deviation.toFixed(4));
+}
+
+/**
+ * Checks whether price deviation exceeds safe tolerance threshold (default 1.5%)
+ */
+export function isDeviationAlert(
+  deviationPct: number,
+  thresholdPct: number = 1.5,
+): boolean {
+  return Math.abs(deviationPct) >= thresholdPct;
+}
 
 interface UseOracleStatusOptions {
   apiBase?: string;

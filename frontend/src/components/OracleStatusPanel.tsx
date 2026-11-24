@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 
 import { useOracleStatus, OracleProof } from "@/hooks/useOracleStatus";
+import { OracleStatusWidget } from "@/components/OracleStatusWidget";
 
 function formatRelative(ts: number | null | undefined): string {
   if (!ts) return "—";
@@ -64,6 +65,11 @@ export function OracleStatusPanel() {
           </div>
         )}
       </header>
+
+      {/* Real-Time Oracle Feed Latency & Price Deviation Monitor */}
+      <OracleStatusWidget
+        lastProofAt={nodes[0]?.lastProofAt ?? (proofs[0] ? Date.now() - 30_000 : null)}
+      />
 
       {error && (
         <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-300">
