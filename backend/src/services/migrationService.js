@@ -5,12 +5,114 @@ import crypto from 'crypto';
 import DatabaseService from './databaseService.js';
 import { getDatabase, saveDatabase } from './dbService.js';
 
+const IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * Mapping of SQLite column types to PostgreSQL equivalents.
+ */
+export const SQLITE_TO_PG_TYPE_MAP = Object.freeze({
+  DATETIME: 'TIMESTAMPTZ',
+  BLOB: 'BYTEA',
+});
+
+/**
+ * Validates and returns a safe SQL identifier (table or column name).
+ */
+export function sanitizeIdentifier(identifier) {
+  if (typeof identifier !== 'string' || !IDENTIFIER_PATTERN.test(identifier)) {
+    throw new Error(`Invalid SQL identifier: ${String(identifier)}`);
+  }
+  return identifier;
+}
+
+/**
+ * Sanitizes a raw SQL query string by removing null bytes and normalizing whitespace.
+ */
+export function sanitizeQueryString(sql) {
+  if (typeof sql !== 'string') {
+    throw new Error('SQL query must be a string');
+  }
+  // Strip null bytes and other non-printable control characters (preserving \t, \n, \r)
+  // eslint-disable-next-line no-control-regex
+  const cleaned = sql.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
+  if (!cleaned) {
+    throw new Error('SQL query cannot be empty');
+  }
+  return cleaned;
+}
+
+/**
+ * Converts `?` positional placeholders to PostgreSQL `$1, $2, ...` placeholders
+ * when targeting PostgreSQL.
+ */
+export function formatPlaceholdersForDialect(sql, dialect = 'sqlite3') {
+  const sanitized = sanitizeQueryString(sql);
+  if (dialect !== 'pg' && dialect !== 'postgresql') {
+    return sanitized;
+  }
+  let idx = 0;
+  return sanitized.replace(/\?/g, () => `$${++idx}`);
+}
+
+/**
+ * Maps a SQLite datatype name to its PostgreSQL equivalent.
+ */
+export function mapSqliteTypeToPostgres(sqliteType) {
+  if (typeof sqliteType !== 'string') return sqliteType;
+  const upper = sqliteType.trim().toUpperCase();
+  return SQLITE_TO_PG_TYPE_MAP[upper] || sqliteType;
+}
+
+/**
+ * Translates SQLite-flavored DDL/DML SQL strings into PostgreSQL-compatible SQL
+ * when targeting PostgreSQL. For SQLite dialects, returns the sanitized SQL unchanged.
+ */
+export function translateSQLForDialect(sql, dialect = 'sqlite3') {
+  const sanitized = sanitizeQueryString(sql);
+  if (dialect !== 'pg' && dialect !== 'postgresql') {
+    return sanitized;
+  }
+
+  let translated = sanitized;
+  // INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY
+  translated = translated.replace(
+    /\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b/gi,
+    'SERIAL PRIMARY KEY'
+  );
+  // DATETIME -> TIMESTAMPTZ
+  translated = translated.replace(/\bDATETIME\b/gi, 'TIMESTAMPTZ');
+  // BLOB -> BYTEA
+  translated = translated.replace(/\bBLOB\b/gi, 'BYTEA');
+  // datetime('now') -> CURRENT_TIMESTAMP
+  translated = translated.replace(
+    /\(\s*datetime\s*\(\s*'now'\s*\)\s*\)/gi,
+    'CURRENT_TIMESTAMP'
+  );
+  translated = translated.replace(
+    /\bdatetime\s*\(\s*'now'\s*\)/gi,
+    'CURRENT_TIMESTAMP'
+  );
+  // INSERT OR IGNORE INTO ... ; -> INSERT INTO ... ON CONFLICT DO NOTHING;
+  translated = translated.replace(
+    /\bINSERT\s+OR\s+IGNORE\s+INTO\b([\s\S]*?)(;|$)/gi,
+    (match, body, terminator) => {
+      if (/\bON\s+CONFLICT\b/i.test(body)) {
+        return `INSERT INTO${body}${terminator}`;
+      }
+      return `INSERT INTO${body} ON CONFLICT DO NOTHING${terminator}`;
+    }
+  );
+
+  return translated;
+}
+
 class MigrationService {
-  constructor(dbPath = null, migrationsPath = null) {
+  constructor(dbPath = null, migrationsPath = null, dialect = null) {
     this.dbService = new DatabaseService(dbPath);
     this.migrationsPath =
       migrationsPath || path.join(process.cwd(), 'migrations');
-    this.migrationTable = '_schema_migrations';
+    this.migrationTable = sanitizeIdentifier('_schema_migrations');
+    this.dialect = dialect || process.env.DATABASE_CLIENT || 'sqlite3';
   }
 
   async initialize() {
@@ -19,16 +121,22 @@ class MigrationService {
   }
 
   async createMigrationTable() {
-    const sql = `
-      CREATE TABLE IF NOT EXISTS ${this.migrationTable} (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    const tableName = sanitizeIdentifier(this.migrationTable);
+    const isPg = this.dialect === 'pg' || this.dialect === 'postgresql';
+    const idColumn = isPg
+      ? 'id SERIAL PRIMARY KEY'
+      : 'id INTEGER PRIMARY KEY AUTOINCREMENT';
+    const appliedAtType = isPg ? 'TIMESTAMPTZ' : 'DATETIME';
+    const sql = sanitizeQueryString(`
+      CREATE TABLE IF NOT EXISTS ${tableName} (
+        ${idColumn},
         version VARCHAR(255) NOT NULL UNIQUE,
         checksum VARCHAR(64) NOT NULL,
-        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        applied_at ${appliedAtType} DEFAULT CURRENT_TIMESTAMP,
         execution_time INTEGER NOT NULL,
         status VARCHAR(20) DEFAULT 'applied'
       )
-    `;
+    `);
     await this.dbService.run(sql);
   }
 
@@ -111,7 +219,11 @@ class MigrationService {
   }
 
   async getAppliedMigrations() {
-    const sql = `SELECT version, checksum, applied_at, execution_time, status FROM ${this.migrationTable} ORDER BY version`;
+    const tableName = sanitizeIdentifier(this.migrationTable);
+    const sql = formatPlaceholdersForDialect(
+      `SELECT version, checksum, applied_at, execution_time, status FROM ${tableName} ORDER BY version`,
+      this.dialect
+    );
     return await this.dbService.all(sql);
   }
 
@@ -138,8 +250,12 @@ class MigrationService {
     }
     const checksum = await this.calculateChecksum(content);
 
+    const tableName = sanitizeIdentifier(this.migrationTable);
     const appliedMigration = await this.dbService.get(
-      `SELECT checksum FROM ${this.migrationTable} WHERE version = ?`,
+      formatPlaceholdersForDialect(
+        `SELECT checksum FROM ${tableName} WHERE version = ?`,
+        this.dialect
+      ),
       [migrationFile.version]
     );
 
@@ -193,13 +309,18 @@ class MigrationService {
       };
     }
 
+    const translatedSql = translateSQLForDialect(content, this.dialect);
+    const tableName = sanitizeIdentifier(this.migrationTable);
     const startTime = Date.now();
 
     try {
       await this.dbService.transaction(async (db) => {
-        await db.run(content);
+        await db.run(translatedSql);
         await db.run(
-          `INSERT INTO ${this.migrationTable} (version, checksum, execution_time, status) VALUES (?, ?, ?, ?)`,
+          formatPlaceholdersForDialect(
+            `INSERT INTO ${tableName} (version, checksum, execution_time, status) VALUES (?, ?, ?, ?)`,
+            this.dialect
+          ),
           [migrationFile.version, checksum, Date.now() - startTime, 'applied']
         );
       });
@@ -248,13 +369,18 @@ class MigrationService {
       };
     }
 
+    const translatedSql = translateSQLForDialect(content, this.dialect);
+    const tableName = sanitizeIdentifier(this.migrationTable);
     const startTime = Date.now();
 
     try {
       await this.dbService.transaction(async (db) => {
-        await db.run(content);
+        await db.run(translatedSql);
         await db.run(
-          `UPDATE ${this.migrationTable} SET status = ?, execution_time = ? WHERE version = ?`,
+          formatPlaceholdersForDialect(
+            `UPDATE ${tableName} SET status = ?, execution_time = ? WHERE version = ?`,
+            this.dialect
+          ),
           ['rolled_back', Date.now() - startTime, migrationFile.version]
         );
       });
@@ -379,7 +505,7 @@ export default MigrationService;
 
 // ── Functional API (sql.js backed) ──────────────────────────────────────────
 
-const MIGRATION_TABLE = '_schema_migrations';
+const MIGRATION_TABLE = sanitizeIdentifier('_schema_migrations');
 
 function getMigrationsDir() {
   return process.env.MIGRATIONS_DIR || path.join(process.cwd(), 'migrations');
@@ -390,15 +516,18 @@ function sha256(content) {
 }
 
 async function ensureMigrationTable(db) {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE} (
+  const tableName = sanitizeIdentifier(MIGRATION_TABLE);
+  db.run(
+    sanitizeQueryString(`
+    CREATE TABLE IF NOT EXISTS ${tableName} (
       version INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
       checksum TEXT NOT NULL,
       applied_at TEXT DEFAULT (datetime('now')),
       status TEXT DEFAULT 'applied'
     )
-  `);
+  `)
+  );
   await saveDatabase();
 }
 
@@ -447,8 +576,11 @@ export async function initializeMigrationService() {
 
 export async function getAppliedMigrations() {
   const db = await getDatabase();
+  const tableName = sanitizeIdentifier(MIGRATION_TABLE);
   const result = db.exec(
-    `SELECT version, name, checksum, applied_at, status FROM ${MIGRATION_TABLE} ORDER BY version`
+    sanitizeQueryString(
+      `SELECT version, name, checksum, applied_at, status FROM ${tableName} ORDER BY version`
+    )
   );
   if (!result.length) return [];
   const [{ columns, values }] = result;
@@ -458,9 +590,17 @@ export async function getAppliedMigrations() {
 }
 
 export async function applyMigration(version, { dryRun = false } = {}) {
+  const numericVersion = Number(version);
+  if (!Number.isInteger(numericVersion) || numericVersion < 0) {
+    throw new Error(`Invalid migration version: ${String(version)}`);
+  }
+
   const files = await readMigrationFiles();
-  const file = files.find((f) => f.version === version && f.direction === 'up');
-  if (!file) throw new Error(`Migration file not found for version ${version}`);
+  const file = files.find(
+    (f) => f.version === numericVersion && f.direction === 'up'
+  );
+  if (!file)
+    throw new Error(`Migration file not found for version ${numericVersion}`);
 
   let sql;
   try {
@@ -471,31 +611,36 @@ export async function applyMigration(version, { dryRun = false } = {}) {
     );
   }
 
+  const sanitizedSql = sanitizeQueryString(sql);
   const checksum = sha256(sql);
   const db = await getDatabase();
+  const tableName = sanitizeIdentifier(MIGRATION_TABLE);
 
   const existing = db.exec(
-    `SELECT checksum FROM ${MIGRATION_TABLE} WHERE version = ${version}`
+    sanitizeQueryString(`SELECT checksum FROM ${tableName} WHERE version = ?`),
+    [numericVersion]
   );
   if (existing.length && existing[0].values.length) {
     const storedChecksum = existing[0].values[0][0];
     if (storedChecksum !== checksum) {
       throw new Error(
-        `Checksum mismatch for migration ${version}: file has been modified`
+        `Checksum mismatch for migration ${numericVersion}: file has been modified`
       );
     }
-    return { status: 'already_applied', version };
+    return { status: 'already_applied', version: numericVersion };
   }
 
-  if (dryRun) return { status: 'dry_run_success', version, sql };
+  if (dryRun) return { status: 'dry_run_success', version: numericVersion, sql };
 
-  db.run(sql);
+  db.run(sanitizedSql);
   db.run(
-    `INSERT INTO ${MIGRATION_TABLE} (version, name, checksum, status) VALUES (?, ?, ?, 'applied')`,
-    [version, file.name, checksum]
+    sanitizeQueryString(
+      `INSERT INTO ${tableName} (version, name, checksum, status) VALUES (?, ?, ?, 'applied')`
+    ),
+    [numericVersion, file.name, checksum]
   );
   await saveDatabase();
-  return { status: 'applied', version };
+  return { status: 'applied', version: numericVersion };
 }
 
 export async function applyPendingMigrations({ dryRun = false } = {}) {
@@ -524,11 +669,17 @@ export async function applyPendingMigrations({ dryRun = false } = {}) {
 }
 
 export async function rollbackMigration(version, { dryRun = false } = {}) {
+  const numericVersion = Number(version);
+  if (!Number.isInteger(numericVersion) || numericVersion < 0) {
+    throw new Error(`Invalid migration version: ${String(version)}`);
+  }
+
   const files = await readMigrationFiles();
   const file = files.find(
-    (f) => f.version === version && f.direction === 'down'
+    (f) => f.version === numericVersion && f.direction === 'down'
   );
-  if (!file) throw new Error(`Down migration not found for version ${version}`);
+  if (!file)
+    throw new Error(`Down migration not found for version ${numericVersion}`);
 
   let sql;
   try {
@@ -539,16 +690,19 @@ export async function rollbackMigration(version, { dryRun = false } = {}) {
     );
   }
 
-  if (dryRun) return { status: 'dry_run_success', version, sql };
+  if (dryRun) return { status: 'dry_run_success', version: numericVersion, sql };
 
   const db = await getDatabase();
-  db.run(sql);
+  const tableName = sanitizeIdentifier(MIGRATION_TABLE);
+  db.run(sanitizeQueryString(sql));
   db.run(
-    `UPDATE ${MIGRATION_TABLE} SET status = 'rolled_back' WHERE version = ?`,
-    [version]
+    sanitizeQueryString(
+      `UPDATE ${tableName} SET status = 'rolled_back' WHERE version = ?`
+    ),
+    [numericVersion]
   );
   await saveDatabase();
-  return { status: 'rolled_back', version };
+  return { status: 'rolled_back', version: numericVersion };
 }
 
 export async function getMigrationDashboard() {

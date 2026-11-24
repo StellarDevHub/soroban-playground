@@ -102,6 +102,55 @@ jobs:
           tests/swagger.test.js
           tests/zodOpenApi.test.js
 
+  dual-db-migration-tests:
+    name: Dual-Database Migration Tests (SQLite & PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: soroban_migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d soroban_migration_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Migration Tests on SQLite
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          DATABASE_CLIENT: sqlite3
+        run: >-
+          npx jest
+          tests/dualDatabaseMigration.test.js
+          tests/knexMigrations.test.js
+          tests/migrationService.test.js
+
+      - name: Run Migration Tests on PostgreSQL
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          DATABASE_CLIENT: pg
+          DATABASE_URL: postgres://postgres:ci_password@127.0.0.1:5432/soroban_migration_test
+        run: npx jest tests/dualDatabaseMigration.test.js
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
