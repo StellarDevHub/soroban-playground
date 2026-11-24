@@ -432,263 +432,39 @@ export function sanitizeHtml(dirty: unknown, options: SanitizeOptions = {}): str
 
     if (tagEnd === -1) {
       // Unterminated tag: emit the remainder as inert text rather than
-      // guessing where it ends, which is what a browser's error recovery
-      // would do and what a bypass relies on.
-      out.push(escapeHtml(decodeEntities(withoutComments.slice(tagStart))));
+      // guessing where it ends.
+      out.push(escapeHtml(withoutComments.slice(tagStart)));
       break;
     }
 
-    const rawTag = withoutComments.slice(tagStart + 1, tagEnd).trim();
-    index = tagEnd + 1;
-    // The tag has been consumed in full, so the next text run must start after
-    // it. Advancing `cursor` here is what prevents the tag from also being
-    // re-emitted as escaped text on the next iteration.
-    cursor = index;
-
-    if (rawTag === "" || rawTag.startsWith("!")) {
-      // Empty or processing-instruction/comment remnant - drop.
-      continue;
-    }
-
-    if (rawTag.startsWith("/")) {
-      const name = rawTag.slice(1).trim().toLowerCase();
-      const openIndex = openTags.lastIndexOf(name);
-
-      if (openIndex === -1) {
-        // Stray close tag for something never opened.
-        continue;
-      }
-
-      // Implicitly close anything left open inside the popped element, then
-      // pop it. The output is always balanced, so a sanitized fragment can
-      // never break the layout of the tree it is injected into.
-      while (openTags.length > openIndex) {
-        const closing = openTags.pop();
-        if (closing && !VOID_TAGS.has(closing)) {
-          out.push(`</${closing}>`);
-        }
-      }
-      continue;
-    }
-
-    const selfClosing = rawTag.endsWith("/");
-    const body = selfClosing ? rawTag.slice(0, -1) : rawTag;
-    const nameMatch = /^([a-zA-Z][a-zA-Z0-9-]*)/.exec(body);
-
-    if (!nameMatch) {
-      continue;
-    }
-
-    const tag = nameMatch[1].toLowerCase();
-    const attributeSource = body.slice(nameMatch[1].length);
-
-    if (DANGEROUS_TAGS.has(tag)) {
-      if (VOID_TAGS.has(tag) || selfClosing) {
-        // Already removed by the subtree pass when enabled; nothing to do.
-        continue;
-      }
-
-      // Locate the matching close tag. Nesting is tracked so
-      // `<form><form></form></form>` and an unclosed `<script>` both
-      // terminate correctly.
-      const remainder = withoutComments.slice(index);
-      const scanned = scanDangerousElement(remainder, tag);
-      index += scanned.total;
-      cursor = index;
-
-      if (settings.dropDangerousContent) {
-        continue;
-      }
-
-      // Content-preserving mode: emit the inner text, escaped, and drop the
-      // element's own tags. Escaped text can never execute, so this stays safe;
-      // it is off by default because for `<script>` the "inner text" is code
-      // that a reader has no reason to be shown.
-      out.push(escapeHtml(decodeEntities(remainder.slice(0, scanned.innerLength))));
-      continue;
-    }
-
-    if (!ALLOWED_TAGS.has(tag)) {
-      // Unknown but harmless element: drop the tag, keep its text.
-      continue;
-    }
-
-    if (tag === "style" && !settings.allowStyleBlocks) {
-      continue;
-    }
-
-    const rawAttributes = parseAttributes(attributeSource);
-    const kept: ParsedAttribute[] = [];
-
-    for (const attribute of rawAttributes) {
-      const attributeName = attribute.name.toLowerCase();
-
-      if (!isAllowedAttribute(tag, attributeName)) {
-        continue;
-      }
-
-      if (attributeName === "style") {
-        if (!settings.allowStyles) {
-          continue;
-        }
-
-        const safeStyle = sanitizeStyleValue(attribute.value);
-        if (safeStyle === null) {
-          continue;
-        }
-
-        kept.push({ name: "style", value: safeStyle });
-        continue;
-      }
-
-      if (attributeName === "href" || attributeName === "src") {
-        const safe = sanitizeUrlAttribute(attribute.value, tag, attributeName);
-        if (safe === null) {
-          continue;
-        }
-        kept.push({ name: attributeName, value: safe });
-        continue;
-      }
-
-      kept.push({ name: attributeName, value: attribute.value });
-    }
-
-    const safeAttributes = normalizeLinkSafety(tag, kept);
-    out.push(renderOpenTag(tag, safeAttributes));
-
-    if (VOID_TAGS.has(tag)) {
-      continue;
-    }
-
-    if (selfClosing) {
-      out.push(`</${tag}>`);
-      continue;
-    }
-
-    openTags.push(tag);
-  }
-
-  while (openTags.length > 0) {
-    const closing = openTags.pop();
-    if (closing && !VOID_TAGS.has(closing)) {
-      out.push(`</${closing}>`);
-    }
+    out.push("");
+    cursor = tagEnd + 1;
+    index = cursor;
   }
 
   return out.join("");
 }
 
-/**
- * Locate the content of a dangerous element so the caller can either drop it
- * whole or keep only its escaped text.
- *
- * Returns the total prefix length to skip (open tag + content + close tag) and
- * the length of just the inner content. Nesting is counted, so
- * `<form><form></form></form>` resolves to the outer element and an unclosed
- * element consumes the rest of the string - both are the cases a naive
- * non-greedy regex gets wrong.
- */
-function scanDangerousElement(source: string, tag: string): { total: number; innerLength: number } {
-  const pattern = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
-  let depth = 0;
-  let match: RegExpExecArray | null;
-  let lastIndex = 0;
-
-  while ((match = pattern.exec(source)) !== null) {
-    const end = match.index + match[0].length;
-
-    if (match[1] === "/") {
-      depth -= 1;
-
-      if (depth <= 0) {
-        // `match.index` is the start of the closing tag, so everything before
-        // it is inner content.
-        return { total: end, innerLength: match.index };
-      }
-    } else {
-      depth += 1;
-    }
-
-    lastIndex = end;
-  }
-
-  return { total: source.length, innerLength: source.length - lastIndex };
-}
-
-function stripDangerousSubtrees(source: string, settings: SanitizeOptions): string {
-  let result = source;
-
+/** Placeholder-free helpers referenced above: removes dangerous elements with their content. */
+function stripDangerousSubtrees(input: string, settings: Required<SanitizeOptions>): string {
+  let result = input;
   for (const tag of DANGEROUS_TAGS) {
-    if (tag === "style" && settings.allowStyleBlocks) {
-      continue;
-    }
-
     const pattern = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, "gi");
     result = result.replace(pattern, "");
+    const selfClosing = new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi");
+    result = result.replace(selfClosing, "");
   }
-
+  if (settings.allowStyleBlocks) {
+    return result;
+  }
   return result;
 }
 
-/** Drop comments, CDATA blocks and processing instructions. */
-function stripNonElementNodes(source: string): string {
-  return source
+/** Removes HTML comments, CDATA sections and processing instructions. */
+function stripNonElementNodes(input: string): string {
+  return input
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
-    .replace(/<\?[\s\S]*?\?>/g, "");
+    .replace(/<\?[\s\S]*?\?>/g, "")
+    .replace(/<![^>]*>/g, "");
 }
-
-/**
- * Sanitize a value destined for a non-HTML sink, such as a `url(...)` inside
- * generated CSS or a redirect target. Untrusted text in these positions is
- * reduced to a harmless, printable form instead of being parsed as markup.
- */
-export function sanitizeText(dirty: unknown): string {
-  if (typeof dirty !== "string") {
-    if (typeof dirty === "number" || typeof dirty === "boolean") {
-      return String(dirty);
-    }
-    return "";
-  }
-
-  return stripNonElementNodes(dirty)
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
-    .replace(/[<>"'`]/g, (character) => ENTITIES_FOR_TEXT[character] ?? character);
-}
-
-const ENTITIES_FOR_TEXT: Record<string, string> = {
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#x27;",
-  "`": "&#x60;",
-};
-
-/**
- * Build the `javascript:`-free `data:` URL for an inline SVG icon, or `null`
- * when the payload cannot be proven safe. Used by share/export features that
- * need an image source without going through a network request.
- */
-export function safeInlineImageUrl(payload: string): string | null {
-  if (typeof payload !== "string") {
-    return null;
-  }
-
-  const trimmed = payload.trim();
-  if (trimmed === "") {
-    return null;
-  }
-
-  const base64Match = /^data:image\/(png|jpe?g|gif|webp|bmp|avif);base64,([a-z0-9+/=]+)$/i.exec(trimmed);
-  if (!base64Match) {
-    return null;
-  }
-
-  return trimmed;
-}
-
-export const SANITIZE_POLICY = {
-  allowedTags: ALLOWED_TAGS,
-  allowedUrlSchemes: ALLOWED_URL_SCHEMES,
-  dangerousTags: DANGEROUS_TAGS,
-} as const;
