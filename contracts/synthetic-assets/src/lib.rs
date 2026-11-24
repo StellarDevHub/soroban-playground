@@ -981,7 +981,7 @@ mod test {
 
         // Mint collateral to staker
         let col_client = StellarAssetClient::new(&env, &col_addr);
-        col_client.mint(&staker, &1_000_000_000_0); // 10 000 units (7 dp)
+        col_client.mint(&staker, &10_000_000_000); // 1,000 units (7 dp)
 
         (env, contract_id, admin, staker)
     }
@@ -1021,10 +1021,8 @@ mod test {
         // price: $1.00 with 7 dp = 10_000_000
         client.update_price(&oracle, &String::from_str(&env, "sXLM"), &10_000_000);
 
-        // Mint 10 sXLM (10 * 10_000_000 = 100_000_000 synth units, 7dp)
-        // At $1 each = $10 USD debt
-        // At 400% CR we need $40 collateral
-        let synth_amount = 1_000_000_0_i128; // 1 unit (7dp)
+        // Mint one sXLM at $1; the 400% target requires $4 collateral.
+        let synth_amount = 10_000_000_i128; // 1 unit (7dp)
         let synth_usd = synth_amount; // price is $1 so usd = synth_amount
         let collateral = synth_usd * 4; // 400% CR
 
