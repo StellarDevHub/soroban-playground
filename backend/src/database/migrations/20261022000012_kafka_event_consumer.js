@@ -8,7 +8,15 @@
  * the table free of duplicates.
  */
 
+// Disable transaction wrapping so PostgreSQL can execute CREATE/DROP INDEX CONCURRENTLY.
+export const config = { transaction: false };
+
 export async function up(knex) {
+  const isPg = knex.client.dialect === 'postgresql';
+  if (isPg) {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
+
   await knex.schema.alterTable('contract_events', (table) => {
     table.string('event_key', 64).nullable();
     table.string('kafka_topic', 255).nullable();
@@ -16,17 +24,33 @@ export async function up(knex) {
     table.string('kafka_offset', 255).nullable();
   });
 
-  await knex.raw(
-    'CREATE UNIQUE INDEX IF NOT EXISTS idx_ce_event_key ON contract_events(event_key)'
-  );
-  await knex.raw(
-    'CREATE INDEX IF NOT EXISTS idx_ce_kafka_position ON contract_events(kafka_topic, kafka_partition, kafka_offset)'
-  );
+  if (isPg) {
+    await knex.raw(
+      'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_ce_event_key ON contract_events(event_key)'
+    );
+    await knex.raw(
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ce_kafka_position ON contract_events(kafka_topic, kafka_partition, kafka_offset)'
+    );
+  } else {
+    await knex.raw(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_ce_event_key ON contract_events(event_key)'
+    );
+    await knex.raw(
+      'CREATE INDEX IF NOT EXISTS idx_ce_kafka_position ON contract_events(kafka_topic, kafka_partition, kafka_offset)'
+    );
+  }
 }
 
 export async function down(knex) {
-  await knex.raw('DROP INDEX IF EXISTS idx_ce_kafka_position');
-  await knex.raw('DROP INDEX IF EXISTS idx_ce_event_key');
+  const isPg = knex.client.dialect === 'postgresql';
+  if (isPg) {
+    await knex.raw("SET lock_timeout = '3s'");
+    await knex.raw('DROP INDEX CONCURRENTLY IF EXISTS idx_ce_kafka_position');
+    await knex.raw('DROP INDEX CONCURRENTLY IF EXISTS idx_ce_event_key');
+  } else {
+    await knex.raw('DROP INDEX IF EXISTS idx_ce_kafka_position');
+    await knex.raw('DROP INDEX IF EXISTS idx_ce_event_key');
+  }
   await knex.schema.alterTable('contract_events', (table) => {
     table.dropColumn('kafka_offset');
     table.dropColumn('kafka_partition');

@@ -102,6 +102,10 @@ jobs:
           tests/swagger.test.js
           tests/zodOpenApi.test.js
 
+      - name: Validate Database Migrations & Rollbacks
+        working-directory: backend
+        run: npx jest tests/knexMigrations.test.js tests/migrationRollback.test.js
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest

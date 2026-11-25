@@ -10,6 +10,9 @@
  */
 
 export async function up(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   if (!(await knex.schema.hasTable('cors_whitelist'))) {
     await knex.schema.createTable('cors_whitelist', (table) => {
       table.increments('id').primary();
@@ -68,6 +71,9 @@ export async function up(knex) {
 }
 
 export async function down(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   await knex.schema.dropTableIfExists('webhook_deliveries');
   await knex.schema.dropTableIfExists('webhook_subscriptions');
   await knex.schema.dropTableIfExists('cors_whitelist');

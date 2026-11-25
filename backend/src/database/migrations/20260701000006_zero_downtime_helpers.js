@@ -15,6 +15,9 @@
  */
 
 export async function up(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   const hasColumn = await knex.schema.hasColumn('knex_migrations', 'phase');
   if (!hasColumn) {
     await knex.schema.table('knex_migrations', (table) => {
@@ -24,6 +27,9 @@ export async function up(knex) {
 }
 
 export async function down(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   const isPg = knex.client.config.client === 'pg';
 
   if (isPg) {

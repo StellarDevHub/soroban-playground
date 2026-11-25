@@ -11,6 +11,9 @@
  */
 
 export async function up(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   // Organizations table — must exist before api_keys references it
   if (!(await knex.schema.hasTable('organizations'))) {
     await knex.schema.createTable('organizations', (table) => {
@@ -191,6 +194,9 @@ export async function up(knex) {
 }
 
 export async function down(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   await knex.schema.dropTableIfExists('audit_log');
   await knex.schema.dropTableIfExists('rate_limit_usage');
   await knex.schema.dropTableIfExists('tier_limits');

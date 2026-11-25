@@ -10,6 +10,9 @@
  */
 
 export async function up(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   const exists = await knex.schema.hasTable('workspace_snapshots');
   if (exists) return;
 
@@ -55,5 +58,8 @@ export async function up(knex) {
 }
 
 export async function down(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   await knex.schema.dropTableIfExists('workspace_snapshots');
 }

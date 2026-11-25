@@ -6,6 +6,9 @@ const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
 
 export async function up(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   const schemaPath = path.join(_dirname, '..', 'schema.sql');
   let schema = fs.readFileSync(schemaPath, 'utf8');
 
@@ -30,6 +33,9 @@ export async function up(knex) {
 }
 
 export async function down(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   const tables = [
     'sync_logs',
     'webhook_deliveries',

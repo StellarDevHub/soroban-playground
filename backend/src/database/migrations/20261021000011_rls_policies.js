@@ -2,6 +2,7 @@ const RLS_TABLES = ['projects', 'api_keys', 'audit_log'];
 
 export async function up(knex) {
   if (knex.client.dialect !== 'postgresql') return;
+  await knex.raw("SET lock_timeout = '3s'");
 
   await knex.raw(`
     CREATE OR REPLACE FUNCTION app_current_tenant() RETURNS text
@@ -39,6 +40,7 @@ export async function up(knex) {
 
 export async function down(knex) {
   if (knex.client.dialect !== 'postgresql') return;
+  await knex.raw("SET lock_timeout = '3s'");
   for (const t of RLS_TABLES) {
     if (!(await knex.schema.hasTable(t))) continue;
     await knex.raw(`DROP POLICY IF EXISTS tenant_isolation ON ${t}`);

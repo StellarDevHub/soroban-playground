@@ -28,6 +28,9 @@ async function addTenantId(knex, tableName) {
 }
 
 export async function up(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   // Add tenant_id to each affected table
   const tables = [
     'files',
@@ -206,6 +209,9 @@ export async function up(knex) {
 }
 
 export async function down(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   // Drop tenant-scoped indexes first
   const indexDrops = [
     { table: 'projects', name: 'idx_projects_tenant' },

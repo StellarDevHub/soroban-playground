@@ -70,45 +70,72 @@ function resolveConnection(client, sqliteFallbackFile) {
   return { filename };
 }
 
+const DEFAULT_LOCK_TIMEOUT = process.env.DATABASE_LOCK_TIMEOUT || '3s';
+
+/**
+ * Build Knex pool configuration. For PostgreSQL clients, configures an
+ * `afterCreate` hook that sets `lock_timeout` (default: 3s) on every new
+ * connection so migrations and DDL statements fail fast instead of queueing
+ * behind live traffic and causing production downtime.
+ */
+function resolvePool(client, basePool = {}) {
+  if (client !== 'pg') {
+    return basePool;
+  }
+  return {
+    ...basePool,
+    afterCreate(conn, done) {
+      conn.query(`SET lock_timeout = '${DEFAULT_LOCK_TIMEOUT}'`, (err) => {
+        done(err, conn);
+      });
+    },
+  };
+}
+
 const migrationsDir = path.join(_dirname, 'src', 'database', 'migrations');
+
+const devClient = resolveClient('sqlite3');
+const testClient = resolveClient('sqlite3');
+const prodClient = resolveClient('pg');
 
 export default {
   development: {
-    client: resolveClient('sqlite3'),
-    connection: resolveConnection(resolveClient('sqlite3'), 'database.sqlite'),
+    client: devClient,
+    connection: resolveConnection(devClient, 'database.sqlite'),
     useNullAsDefault: true,
-    pool: {
+    pool: resolvePool(devClient, {
       min: 1,
       max: 10,
-    },
+    }),
     migrations: {
       directory: migrationsDir,
     },
   },
 
   test: {
-    client: resolveClient('sqlite3'),
+    client: testClient,
     // For SQLite in-memory testing, we skip the DATABASE_URL override so that
     // the test suite always gets a clean, isolated in-memory DB.  When
     // DATABASE_CLIENT=pg the value of DATABASE_URL is used for the PG connection.
     connection:
-      resolveClient('sqlite3') === 'pg'
+      testClient === 'pg'
         ? resolveConnection('pg', ':memory:')
         : { filename: ':memory:' },
     useNullAsDefault: true,
+    pool: resolvePool(testClient, {}),
     migrations: {
       directory: migrationsDir,
     },
   },
 
   production: {
-    client: resolveClient('pg'),
-    connection: resolveConnection(resolveClient('pg'), 'database.sqlite'),
+    client: prodClient,
+    connection: resolveConnection(prodClient, 'database.sqlite'),
     useNullAsDefault: true,
-    pool: {
+    pool: resolvePool(prodClient, {
       min: 2,
       max: 20,
-    },
+    }),
     migrations: {
       directory: migrationsDir,
     },

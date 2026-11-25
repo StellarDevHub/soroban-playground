@@ -49,6 +49,7 @@ END $$;`;
 
 export async function up(knex) {
   if (knex.client.dialect !== 'postgresql') return;
+  await knex.raw("SET lock_timeout = '3s'");
   if (!(await knex.schema.hasTable('audit_log'))) return;
 
   await knex.raw(ENSURE_FN);
@@ -103,6 +104,7 @@ export async function up(knex) {
 
 export async function down(knex) {
   if (knex.client.dialect !== 'postgresql') return;
+  await knex.raw("SET lock_timeout = '3s'");
   if (await knex.schema.hasTable('audit_log')) {
     if ((await relkind(knex)) === 'p') {
       await knex.raw(

@@ -6,6 +6,9 @@
  */
 
 export async function up(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   await knex.schema.createTable('contract_verification', (table) => {
     table.string('id', 36).primary().comment('UUID');
     table.string('contract_id', 255).notNullable();
@@ -36,5 +39,8 @@ export async function up(knex) {
 }
 
 export async function down(knex) {
+  if (knex.client.dialect === 'postgresql') {
+    await knex.raw("SET lock_timeout = '3s'");
+  }
   await knex.schema.dropTableIfExists('contract_verification');
 }
