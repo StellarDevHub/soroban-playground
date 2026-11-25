@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * The offline engine (issue #1525).
+ * The offline engine (issue #1525, #2037).
  *
  * One object that owns connectivity detection, the durable outbox and the
  * conflict ledger, and exposes a single `enqueue` → `drain` pipeline:
  *
- * 1. the caller enqueues a mutation (it is persisted immediately, so nothing is
- *    lost if the tab dies mid-flight);
+ * 1. the caller enqueues a mutation (it is persisted immediately to IndexedDB
+ *    and localStorage, so nothing is lost if the tab dies mid-flight);
  * 2. if the network is up, a drain pass runs right away;
  * 3. otherwise the operation waits, and the pass replays automatically the
  *    moment connectivity returns, on app focus, or on an explicit `flush()`.
@@ -33,11 +33,11 @@ import {
   EMPTY_OUTBOX_STATE,
   INITIAL_CONNECTIVITY_STATE,
   type Conflict,
-  type ConnectivityState,
   type ConnectivityStatus,
   type OfflineEngineState,
   type OutboxOperation,
 } from "./types";
+import { threeWayMerge } from "./conflict";
 
 /**
  * Delivers one queued operation. Resolve on success; throw to leave the
@@ -55,6 +55,8 @@ export interface OfflineEngineOptions
   backoffBaseMs?: number;
   /** Drain automatically when the tab regains focus. Defaults to `true`. */
   drainOnFocus?: boolean;
+  /** Optional batching wrapper (e.g. React.startTransition or unstable_batchedUpdates). */
+  batchUpdates?: (fn: () => void) => void;
 }
 
 export interface OfflineEngine {
@@ -75,11 +77,24 @@ export interface OfflineEngine {
   /** Re-run the conflict ledger from a caller-supplied merge result. */
   recordConflicts: (conflicts: Conflict[]) => void;
   clearConflicts: () => void;
+  /** Compute backoff delay for current failure count. */
+  getBackoffDelayMs: () => number;
+  /** Three-way merge reconciliation helper. */
+  reconcile: typeof threeWayMerge;
   start: () => void;
   destroy: () => void;
 }
 
-const DEFAULT_BACKOFF_BASE_MS = 1000;
+export const DEFAULT_BACKOFF_BASE_MS = 1000;
+
+export function computeBackoffDelay(
+  failures: number,
+  baseMs: number = DEFAULT_BACKOFF_BASE_MS,
+  ceilingMs: number = DRAIN_BACKOFF_CEILING_MS,
+): number {
+  if (failures <= 0) return 0;
+  return Math.min(ceilingMs, baseMs * 2 ** (failures - 1));
+}
 
 export function createOfflineEngine(
   options: OfflineEngineOptions = {},
@@ -89,6 +104,7 @@ export function createOfflineEngine(
     now = () => Date.now(),
     backoffBaseMs = DEFAULT_BACKOFF_BASE_MS,
     drainOnFocus = true,
+    batchUpdates,
     ...connectivityOptions
   } = options;
 
@@ -113,14 +129,50 @@ export function createOfflineEngine(
 
   const emit = (patch: Partial<OfflineEngineState>): OfflineEngineState => {
     state = { ...state, ...patch };
-    for (const listener of listeners) listener(state);
+    const notifyListeners = () => {
+      for (const listener of listeners) {
+        try {
+          listener(state);
+        } catch {
+          // Prevent listener error from interrupting other subscribers
+        }
+      }
+    };
+
+    if (batchUpdates) {
+      batchUpdates(notifyListeners);
+    } else {
+      notifyListeners();
+    }
+
     return state;
+  };
+
+  const clearRetry = (): void => {
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+  };
+
+  const scheduleRetry = (): void => {
+    clearRetry();
+    if (destroyed || consecutiveFailures <= 0) return;
+    const delay = computeBackoffDelay(consecutiveFailures, backoffBaseMs, DRAIN_BACKOFF_CEILING_MS);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      void flush();
+    }, delay);
   };
 
   connectivity.subscribe((next) => {
     emit({ connectivity: next });
     if (next.status === "online" || next.status === "degraded") {
-      if (outbox.pending().length > 0) void flush();
+      if (outbox.pending().length > 0) {
+        if (consecutiveFailures > 0) {
+          scheduleRetry();
+        } else {
+          void flush();
+        }
+      }
     }
   });
 
@@ -133,24 +185,6 @@ export function createOfflineEngine(
     return () => {
       if (handlers.get(kind) === handler) handlers.delete(kind);
     };
-  };
-
-  const clearRetry = (): void => {
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = null;
-  };
-
-  const scheduleRetry = (): void => {
-    clearRetry();
-    if (destroyed || consecutiveFailures <= 0) return;
-    const delay = Math.min(
-      DRAIN_BACKOFF_CEILING_MS,
-      backoffBaseMs * 2 ** (consecutiveFailures - 1),
-    );
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      void flush();
-    }, delay);
   };
 
   const drainOnce = async (): Promise<OfflineEngineState> => {
@@ -241,11 +275,14 @@ export function createOfflineEngine(
 
   const start = (): void => {
     connectivity.start();
+    void outbox.hydrateFromIndexedDb().then(() => {
+      if (outbox.pending().length > 0 && state.connectivity.status !== "offline") {
+        void flush();
+      }
+    });
+
     if (drainOnFocus && typeof document !== "undefined") {
       document.addEventListener("visibilitychange", handleVisibility);
-    }
-    if (outbox.pending().length > 0 && state.connectivity.status !== "offline") {
-      void flush();
     }
   };
 
@@ -277,6 +314,9 @@ export function createOfflineEngine(
     conflicts: () => state.conflicts,
     recordConflicts,
     clearConflicts,
+    getBackoffDelayMs: () =>
+      computeBackoffDelay(consecutiveFailures, backoffBaseMs, DRAIN_BACKOFF_CEILING_MS),
+    reconcile: threeWayMerge,
     start,
     destroy,
   };
