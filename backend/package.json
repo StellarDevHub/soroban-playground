@@ -30,6 +30,7 @@
     "migrate:latest": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
     "persisted-query:warm": "node scripts/warm-persisted-queries.js",
+    "openapi:validate": "node scripts/validate-openapi.js",
     "load:http": "k6 run load-tests/http.js",
     "load:ws": "k6 run load-tests/websocket.js",
     "dlq": "node scripts/dl.js"

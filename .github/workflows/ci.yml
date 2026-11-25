@@ -102,6 +102,10 @@ jobs:
           tests/swagger.test.js
           tests/zodOpenApi.test.js
 
+      - name: Validate OpenAPI 3.1 Specification
+        working-directory: backend
+        run: npm run openapi:validate
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest

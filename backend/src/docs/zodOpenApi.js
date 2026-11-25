@@ -1,12 +1,12 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-// Live OpenAPI generation from the Zod schemas routes actually validate with.
+// Live OpenAPI 3.1.0 generation from the Zod schemas routes actually validate with.
 //
 // `validateRequest(schemas, docs)` (middleware/validation.js) tags the
 // middleware it returns with `openapi` metadata. `collectZodOperations(app)`
 // walks the mounted Express router tree, recovers each route's full path and
-// turns the attached schemas into OpenAPI 3.0 operations, so the published
+// turns the attached schemas into OpenAPI 3.1.0 operations, so the published
 // spec can never drift from the validation that runs in production.
 
 const HTTP_METHODS = new Set([
@@ -70,12 +70,18 @@ function numberSchema(def) {
         out.type = 'integer';
         break;
       case 'min':
-        out.minimum = check.value;
-        if (!check.inclusive) out.exclusiveMinimum = true;
+        if (check.inclusive) {
+          out.minimum = check.value;
+        } else {
+          out.exclusiveMinimum = check.value;
+        }
         break;
       case 'max':
-        out.maximum = check.value;
-        if (!check.inclusive) out.exclusiveMaximum = true;
+        if (check.inclusive) {
+          out.maximum = check.value;
+        } else {
+          out.exclusiveMaximum = check.value;
+        }
         break;
       case 'multipleOf':
         out.multipleOf = check.value;
@@ -106,8 +112,8 @@ function objectSchema(schema) {
 }
 
 /**
- * Convert a Zod (v3) schema to an OpenAPI 3.0 schema object describing the
- * accepted *input*.
+ * Convert a Zod (v3) schema to an OpenAPI 3.1.0 (JSON Schema 2020-12) schema
+ * object describing the accepted *input*.
  */
 export function zodToOpenApi(schema) {
   if (!schema?._def) return {};
@@ -153,7 +159,7 @@ export function zodToOpenApi(schema) {
           type: 'array',
           minItems: def.items.length,
           maxItems: def.items.length,
-          items: { oneOf: def.items.map(zodToOpenApi) },
+          prefixItems: def.items.map(zodToOpenApi),
         },
         schema
       );
@@ -177,11 +183,22 @@ export function zodToOpenApi(schema) {
       );
     case 'ZodOptional':
       return withDescription(zodToOpenApi(def.innerType), schema);
-    case 'ZodNullable':
-      return withDescription(
-        { ...zodToOpenApi(def.innerType), nullable: true },
-        schema
-      );
+    case 'ZodNullable': {
+      const inner = zodToOpenApi(def.innerType);
+      if (typeof inner.type === 'string') {
+        return withDescription(
+          { ...inner, type: [inner.type, 'null'] },
+          schema
+        );
+      }
+      if (Array.isArray(inner.type)) {
+        const types = inner.type.includes('null')
+          ? inner.type
+          : [...inner.type, 'null'];
+        return withDescription({ ...inner, type: types }, schema);
+      }
+      return withDescription({ anyOf: [inner, { type: 'null' }] }, schema);
+    }
     case 'ZodDefault':
       return withDescription(
         { ...zodToOpenApi(def.innerType), default: def.defaultValue() },
@@ -343,6 +360,84 @@ function buildOperation(meta) {
     422: VALIDATION_ERROR_RESPONSE,
   };
   return operation;
+}
+
+/**
+ * Walk the app's router tree and return every registered route with its
+ * normalized OpenAPI path, HTTP method, and optional Zod `openapi` metadata.
+ */
+export function collectRegisteredRoutes(app) {
+  const routes = [];
+  const stack = app?._router?.stack;
+  walk(stack, '', (fullPath, layer) => {
+    const meta =
+      layer.route.stack.find((l) => l.handle?.openapi)?.handle.openapi || null;
+    const methods = Object.keys(layer.route.methods).filter((m) =>
+      HTTP_METHODS.has(m)
+    );
+    const openApiPath = toOpenApiPath(fullPath);
+    for (const method of methods) {
+      routes.push({
+        path: openApiPath,
+        method,
+        hasZodValidation: Boolean(meta),
+        openapi: meta,
+      });
+    }
+  });
+  return routes;
+}
+
+/**
+ * Recursively normalize legacy OpenAPI 3.0 schema keywords (such as
+ * `nullable: true` and boolean `exclusiveMinimum`/`exclusiveMaximum`) into
+ * valid OpenAPI 3.1.0 / JSON Schema 2020-12 constructs.
+ */
+export function normalizeSchemaToOpenApi31(node) {
+  if (Array.isArray(node)) {
+    return node.map(normalizeSchemaToOpenApi31);
+  }
+  if (!node || typeof node !== 'object') {
+    return node;
+  }
+
+  const out = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'nullable') continue;
+    out[key] = normalizeSchemaToOpenApi31(value);
+  }
+
+  if (node.nullable === true) {
+    if (typeof out.type === 'string') {
+      out.type = [out.type, 'null'];
+    } else if (Array.isArray(out.type)) {
+      if (!out.type.includes('null')) out.type = [...out.type, 'null'];
+    } else if (out.$ref || out.oneOf || out.anyOf || out.allOf) {
+      const inner = { ...out };
+      for (const k of Object.keys(out)) delete out[k];
+      out.anyOf = [inner, { type: 'null' }];
+    }
+  }
+
+  if (typeof node.exclusiveMinimum === 'boolean') {
+    if (node.exclusiveMinimum && typeof out.minimum === 'number') {
+      out.exclusiveMinimum = out.minimum;
+      delete out.minimum;
+    } else {
+      delete out.exclusiveMinimum;
+    }
+  }
+
+  if (typeof node.exclusiveMaximum === 'boolean') {
+    if (node.exclusiveMaximum && typeof out.maximum === 'number') {
+      out.exclusiveMaximum = out.maximum;
+      delete out.maximum;
+    } else {
+      delete out.exclusiveMaximum;
+    }
+  }
+
+  return out;
 }
 
 /**

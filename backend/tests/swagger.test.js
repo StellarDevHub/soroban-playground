@@ -3,14 +3,21 @@
 
 import express from 'express';
 import request from 'supertest';
+import { z } from 'zod';
 import {
   setupSwagger,
   swaggerSpec,
+  buildLiveSpec,
   cloneOperation,
   clonePathItem,
   isVersionablePath,
   withVersionedDocumentation,
 } from '../src/docs/swagger.js';
+import {
+  validateOpenApi31Spec,
+  validateRouteCoverage,
+} from '../src/docs/openapiValidator.js';
+import { validateRequest } from '../src/middleware/validation.js';
 
 jest.mock('../src/services/compileService.js', () => ({
   getCompileStats: jest.fn(),
@@ -31,13 +38,18 @@ describe('Swagger / OAS Documentation', () => {
     setupSwagger(app);
   });
 
-  it('serves the OAS JSON spec at /api-docs/spec.json', async () => {
-    const res = await request(app).get('/api-docs/spec.json');
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toMatch(/application\/json/);
-    const spec = res.body;
-    expect(spec.openapi).toMatch(/^3\./);
-    expect(spec.info.title).toBe('Soroban Playground API');
+  it('serves the OAS 3.1.0 JSON spec at /docs/openapi.json and /api-docs/spec.json', async () => {
+    const [canonical, legacy] = await Promise.all([
+      request(app).get('/docs/openapi.json'),
+      request(app).get('/api-docs/spec.json'),
+    ]);
+    for (const res of [canonical, legacy]) {
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toMatch(/application\/json/);
+      expect(res.body.openapi).toBe('3.1.0');
+      expect(res.body.info.title).toBe('Soroban Playground API');
+    }
+    expect(legacy.body).toEqual(canonical.body);
   });
 
   it('serves the Swagger UI HTML at /api-docs', async () => {
@@ -52,11 +64,58 @@ describe('Swagger / OAS Documentation', () => {
     expect(Object.keys(swaggerSpec.paths).length).toBeGreaterThan(0);
   });
 
-  it('spec passes OAS 3.0 structural validation', () => {
-    expect(swaggerSpec.openapi).toBeDefined();
+  it('spec passes OpenAPI 3.1.0 structural validation without warnings', () => {
+    const result = validateOpenApi31Spec(swaggerSpec);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toEqual([]);
+    expect(result.valid).toBe(true);
+    expect(swaggerSpec.openapi).toBe('3.1.0');
     expect(swaggerSpec.info).toBeDefined();
     expect(swaggerSpec.info.version).toBeDefined();
     expect(swaggerSpec.components).toBeDefined();
+  });
+
+  it('validates that registered Zod routes have accurate OpenAPI 3.1.0 coverage', () => {
+    const routeApp = express();
+    routeApp.use(express.json());
+    routeApp.post(
+      '/api/widgets/:id',
+      validateRequest(
+        {
+          params: z.object({ id: z.string().uuid() }),
+          query: z.object({ verbose: z.coerce.boolean().optional() }),
+          body: z.object({ label: z.string().min(1) }),
+        },
+        { summary: 'Create widget', tags: ['Widgets'] }
+      ),
+      (_req, res) => res.json({ ok: true })
+    );
+    setupSwagger(routeApp);
+
+    const liveSpec = buildLiveSpec(routeApp);
+    const specResult = validateOpenApi31Spec(liveSpec);
+    expect(specResult.valid).toBe(true);
+    expect(specResult.errors).toEqual([]);
+    expect(specResult.warnings).toEqual([]);
+
+    const coverage = validateRouteCoverage(routeApp, liveSpec);
+    expect(coverage.valid).toBe(true);
+    expect(coverage.missing).toEqual([]);
+    expect(coverage.mismatches).toEqual([]);
+    expect(coverage.documentedRoutes).toBe(coverage.totalRoutes);
+  });
+
+  it('detects undocumented routes in coverage validation', () => {
+    const routeApp = express();
+    routeApp.get('/api/undocumented-endpoint', (_req, res) =>
+      res.json({ ok: true })
+    );
+    setupSwagger(routeApp);
+
+    const liveSpec = buildLiveSpec(routeApp);
+    const coverage = validateRouteCoverage(routeApp, liveSpec);
+    expect(coverage.valid).toBe(false);
+    expect(coverage.missing).toContain('GET /api/undocumented-endpoint');
   });
 
   it('spec includes security scheme definition', () => {

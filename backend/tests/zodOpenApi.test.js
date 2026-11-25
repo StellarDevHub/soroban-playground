@@ -51,16 +51,15 @@ describe('zodToOpenApi', () => {
     expect(zodToOpenApi(z.string().url()).format).toBe('uri');
   });
 
-  it('maps number checks, including coercion and exclusivity', () => {
+  it('maps number checks, including coercion and OAS 3.1 numeric exclusivity', () => {
     expect(zodToOpenApi(z.coerce.number().int().positive().max(100))).toEqual({
       type: 'integer',
-      minimum: 0,
-      exclusiveMinimum: true,
+      exclusiveMinimum: 0,
       maximum: 100,
     });
   });
 
-  it('marks optional and defaulted fields as not required', () => {
+  it('marks optional and defaulted fields as not required and uses OAS 3.1 nullable type arrays', () => {
     const schema = z.object({
       a: z.string(),
       b: z.string().optional(),
@@ -71,7 +70,7 @@ describe('zodToOpenApi', () => {
     expect(out.required).toEqual(['a', 'd']);
     expect(out.properties.b).toEqual({ type: 'string' });
     expect(out.properties.c).toEqual({ type: 'number', default: 5 });
-    expect(out.properties.d).toEqual({ type: 'string', nullable: true });
+    expect(out.properties.d).toEqual({ type: ['string', 'null'] });
   });
 
   it('handles strict objects, arrays, enums, unions and effects', () => {

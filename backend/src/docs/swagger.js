@@ -4,7 +4,11 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import { versions } from '../config/versions.js';
-import { collectZodOperations, mergeZodOperations } from './zodOpenApi.js';
+import {
+  collectZodOperations,
+  mergeZodOperations,
+  normalizeSchemaToOpenApi31,
+} from './zodOpenApi.js';
 
 const versionedRoutePrefixes = [
   '/compile',
@@ -16,7 +20,8 @@ const versionedRoutePrefixes = [
 
 const options = {
   definition: {
-    openapi: '3.0.0',
+    openapi: '3.1.0',
+    jsonSchemaDialect: 'https://spec.openapis.org/oas/3.1/dialect/base',
     info: {
       title: 'Soroban Playground API',
       version: '1.0.0',
@@ -139,8 +144,8 @@ const options = {
             contractId: { type: 'string' },
             network: { type: 'string' },
             sourceHash: { type: 'string' },
-            wasmHash: { type: 'string', nullable: true },
-            onChainWasmHash: { type: 'string', nullable: true },
+            wasmHash: { type: ['string', 'null'] },
+            onChainWasmHash: { type: ['string', 'null'] },
             status: {
               type: 'string',
               enum: ['pending', 'verified', 'mismatch', 'failed'],
@@ -243,7 +248,42 @@ export function withVersionedDocumentation(spec) {
   return documentedSpec;
 }
 
-const baseSpec = swaggerJsdoc(options);
+const HTTP_METHODS = new Set([
+  'get',
+  'put',
+  'post',
+  'delete',
+  'patch',
+  'head',
+  'options',
+  'trace',
+]);
+
+function ensureOperationResponses(spec) {
+  const paths = {};
+  for (const [pathKey, pathItem] of Object.entries(spec.paths || {})) {
+    const normalizedItem = { ...pathItem };
+    for (const [method, operation] of Object.entries(normalizedItem)) {
+      if (
+        HTTP_METHODS.has(method) &&
+        operation &&
+        typeof operation === 'object' &&
+        (!operation.responses || Object.keys(operation.responses).length === 0)
+      ) {
+        normalizedItem[method] = {
+          ...operation,
+          responses: { 200: { description: 'Successful response' } },
+        };
+      }
+    }
+    paths[pathKey] = normalizedItem;
+  }
+  return { ...spec, paths };
+}
+
+const baseSpec = ensureOperationResponses(
+  normalizeSchemaToOpenApi31(swaggerJsdoc(options))
+);
 
 // Static JSDoc-only spec (no live routes). Kept for callers that need the
 // spec without an app instance.
@@ -255,8 +295,10 @@ export const swaggerSpec = withVersionedDocumentation(baseSpec);
  * the live router tree, so it always matches what the server validates.
  */
 export function buildLiveSpec(app) {
-  return withVersionedDocumentation(
-    mergeZodOperations(baseSpec, collectZodOperations(app))
+  return normalizeSchemaToOpenApi31(
+    withVersionedDocumentation(
+      mergeZodOperations(baseSpec, collectZodOperations(app))
+    )
   );
 }
 
