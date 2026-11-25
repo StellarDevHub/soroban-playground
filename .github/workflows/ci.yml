@@ -44,6 +44,9 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      - name: Enforce 200KB initial JS bundle budget
+        run: npm run check:bundle --workspace=frontend
+
       - name: Verify runner Chrome
         run: google-chrome --version
 

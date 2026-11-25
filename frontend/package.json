@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
+    "check:bundle": "node scripts/check-bundle-budget.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "node ../node_modules/jest/bin/jest.js --runInBand",

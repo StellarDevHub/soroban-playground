@@ -67,11 +67,20 @@ import { MediaCollaborationPanel } from "@/collaboration/MediaCollaborationPanel
 import { announceToScreenReader } from "@/lib/accessibility";
 import BranchConflictResolver from "@/components/Git/BranchConflictResolver";
 import DeploymentShaderCanvas from "@/components/Celebration/DeploymentShaderCanvas";
-import ThreeWayDiffViewer from "@/components/Diff/ThreeWayDiffViewer";
+const ThreeWayDiffViewer = dynamic(
+  () => import("@/components/Diff/ThreeWayDiffViewer"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-2xl border border-white/8 bg-white/5 p-4 text-xs text-slate-400">
+        Loading diff viewer…
+      </div>
+    ),
+  },
+);
 import CallPanel from "@/components/CallPanel";
 import StateMachineModeler from "@/components/Visualizer/StateMachineModeler";
 import StorageViewer from "@/components/StorageViewer";
-import TransactionCallGraph from "@/components/TransactionCallGraph";
 import StorageTimeline from "@/components/StorageTimeline";
 import PredictionMarketPanel, {
   MarketData,
@@ -2913,7 +2922,7 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
-                <TransactionCallGraph
+                <TransactionCallGraphPanel
                   graph={transactionGraph}
                   selectedNodeId={selectedGraphNodeId}
                   onNodeSelect={handleGraphNodeSelect}

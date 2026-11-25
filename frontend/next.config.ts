@@ -70,7 +70,7 @@ const nextConfig: NextConfig = {
           cacheGroups: {
             ...config.optimization?.splitChunks?.cacheGroups,
             monacoEditor: {
-              test: /[\\/]node_modules[\\/](@monaco-editor|monaco-editor)[\\/]/,
+              test: /[\\/]node_modules[\\/](@monaco-editor|monaco-editor|monaco-languageclient)[\\/]/,
               name: "monaco-editor",
               chunks: "all",
               priority: 30,
@@ -88,6 +88,20 @@ const nextConfig: NextConfig = {
               name: "reactflow",
               chunks: "all",
               priority: 29,
+              enforce: true,
+            },
+            stellarSdk: {
+              test: /[\\/]node_modules[\\/]@stellar[\\/]stellar-sdk[\\/]/,
+              name: "stellar-sdk",
+              chunks: "all",
+              priority: 28,
+              enforce: true,
+            },
+            stellarWalletsKit: {
+              test: /[\\/]node_modules[\\/]@creit\.tech[\\/]stellar-wallets-kit[\\/]/,
+              name: "stellar-wallets-kit",
+              chunks: "all",
+              priority: 28,
               enforce: true,
             },
           },

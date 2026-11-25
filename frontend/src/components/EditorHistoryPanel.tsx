@@ -1,8 +1,20 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { DiffEditor } from "@monaco-editor/react";
+import dynamic from "next/dynamic";
 import { AlertCircle, GitBranch, History, RotateCcw } from "lucide-react";
+
+const DiffEditor = dynamic(
+  () => import("@monaco-editor/react").then((mod) => mod.DiffEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-60 items-center justify-center rounded border border-white/10 text-xs text-slate-500">
+        Loading diff editor…
+      </div>
+    ),
+  },
+);
 import {
   getSnapshotDepth,
   type EditorConflict,
