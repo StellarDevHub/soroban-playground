@@ -29,8 +29,14 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import MobileEditor from "@/components/MobileEditor";
+import EditorTabs from "@/components/EditorTabs";
 import { preloadMonacoEditor } from "@/lib/editorLoadScheduler";
 import { findTemplate } from "@/lib/templates";
+import {
+  flushEmergencyWorkspaceDump,
+  readEmergencyWorkspaceDump,
+  scheduleEmergencyWorkspaceDump,
+} from "@/state/workspaceStore";
 
 const Editor = dynamic(() => import("@/components/Editor"), {
   ssr: false,
@@ -319,7 +325,49 @@ export default function Home() {
     return preloadMonacoEditor();
   }, []);
 
-  const [code, setCode] = useState(DEFAULT_CODE);
+  const [fileBuffers, setFileBuffers] = useState<Record<string, string>>({
+    "src/lib.rs": DEFAULT_CODE,
+  });
+  const [activeFile, setActiveFile] = useState("src/lib.rs");
+  const code = fileBuffers[activeFile] ?? "";
+  const setCode = useCallback(
+    (nextCode: string) => {
+      setFileBuffers((current) => ({ ...current, [activeFile]: nextCode }));
+    },
+    [activeFile],
+  );
+  const workspaceDumpRef = useRef({ files: fileBuffers, activeFile });
+  workspaceDumpRef.current = { files: fileBuffers, activeFile };
+
+  useEffect(() => {
+    const recovered = readEmergencyWorkspaceDump();
+    if (recovered) {
+      setFileBuffers(recovered.files);
+      setActiveFile(recovered.activeFile);
+    }
+  }, []);
+
+  useEffect(() => {
+    scheduleEmergencyWorkspaceDump({ files: fileBuffers, activeFile });
+  }, [activeFile, fileBuffers]);
+
+  useEffect(() => {
+    const flush = () => flushEmergencyWorkspaceDump(workspaceDumpRef.current);
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
+
+  const createSourceFile = useCallback(() => {
+    let suffix = 1;
+    let path = `src/new-file-${suffix}.rs`;
+    while (fileBuffers[path] !== undefined) {
+      suffix += 1;
+      path = `src/new-file-${suffix}.rs`;
+    }
+    setFileBuffers((current) => ({ ...current, [path]: "" }));
+    setActiveFile(path);
+  }, [fileBuffers]);
+
   const [loadedTemplateId, setLoadedTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -2690,9 +2738,17 @@ export default function Home() {
                     />
                   </div>
                 </div>
+                <EditorTabs
+                  files={Object.keys(fileBuffers)}
+                  activeFile={activeFile}
+                  onSelect={setActiveFile}
+                  onCreate={createSourceFile}
+                />
                 <Editor
                   code={code}
                   setCode={setCode}
+                  modelKey={activeFile}
+                  viewStateKey={`playground/${activeFile}`}
                   onFormat={handleFormat}
                   formatDiagnostics={formatDiagnostics}
                 />
