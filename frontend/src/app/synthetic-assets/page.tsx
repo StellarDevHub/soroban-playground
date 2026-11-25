@@ -1,5 +1,5 @@
 "use client";
-import WarrantyPanel from "@/components/WarrantyPanel";
+import SyntheticPositionRadar from "@/components/SyntheticPositionRadar";
 import * as freighterApiModule from "@stellar/freighter-api";
 
 import {
@@ -1140,6 +1140,23 @@ export default function Home() {
             </div>
           </Panel>
 
+          {/* Synthetic Position Health Factor Radar & Liquidation Stress Testing */}
+          <SyntheticPositionRadar
+            positions={filteredPositions.map((pos) => {
+              const asset = assetFor(assets, pos.assetSymbol);
+              return {
+                id: pos.id,
+                assetSymbol: pos.assetSymbol,
+                collateral: pos.collateral,
+                minted: pos.minted,
+                assetPrice: asset?.price || 1,
+                liquidationThreshold: LIQUIDATION_THRESHOLD,
+                minCollateralRatio: MIN_COLLATERAL_RATIO,
+                volatilityPct: 25,
+              };
+            })}
+          />
+
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <Panel title="Collateral Positions" eyebrow="Health monitor">
               <div className="space-y-3">
@@ -1150,6 +1167,13 @@ export default function Home() {
                     const asset = assetFor(assets, position.assetSymbol);
                     const ratio = collateralRatio(position, asset);
                     const liquidatable = ratio <= LIQUIDATION_THRESHOLD;
+                    const hf = (ratio / LIQUIDATION_THRESHOLD).toFixed(2);
+                    const proximityToLiq =
+                      ratio > LIQUIDATION_THRESHOLD
+                        ? (((ratio - LIQUIDATION_THRESHOLD) / ratio) * 100).toFixed(1)
+                        : "0.0";
+                    const isNearLiquidation =
+                      !liquidatable && ratio <= LIQUIDATION_THRESHOLD * 1.15;
 
                     return (
                       <div
@@ -1167,29 +1191,35 @@ export default function Home() {
                             </p>
                           </div>
                           <span
-                            className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                               liquidatable
-                                ? "bg-rose-400/10 text-rose-200"
-                                : ratio < MIN_COLLATERAL_RATIO + 20
-                                  ? "bg-amber-300/10 text-amber-100"
-                                  : "bg-emerald-400/10 text-emerald-200"
+                                ? "bg-rose-400/10 text-rose-300 border border-rose-500/30"
+                                : ratio < MIN_COLLATERAL_RATIO
+                                  ? "bg-amber-300/10 text-amber-200 border border-amber-500/30"
+                                  : "bg-emerald-400/10 text-emerald-200 border border-emerald-500/30"
                             }`}
                           >
-                            {liquidatable ? "Liquidatable" : "Healthy"}
+                            {liquidatable
+                              ? "Danger (HF < 1.0)"
+                              : ratio < MIN_COLLATERAL_RATIO
+                                ? `Warning · ${hf} HF`
+                                : `Safe · ${hf} HF`}
                           </span>
                         </div>
 
                         <div className="mt-4">
                           <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
                             <span>Collateral ratio</span>
-                            <span>{ratio.toFixed(1)}%</span>
+                            <span className="font-semibold text-slate-200">
+                              {ratio.toFixed(1)}% ({hf} HF)
+                            </span>
                           </div>
                           <div className="h-2 rounded-full bg-slate-900">
                             <div
                               className={`h-2 rounded-full ${
                                 liquidatable
                                   ? "bg-rose-400"
-                                  : ratio < MIN_COLLATERAL_RATIO + 20
+                                  : ratio < MIN_COLLATERAL_RATIO
                                     ? "bg-amber-300"
                                     : "bg-emerald-400"
                               }`}
@@ -1198,8 +1228,20 @@ export default function Home() {
                           </div>
                           <div className="mt-2 flex justify-between text-[11px] uppercase tracking-[0.18em] text-slate-500">
                             <span>Liquidation {LIQUIDATION_THRESHOLD}%</span>
+                            <span>Proximity: {proximityToLiq}% margin</span>
                             <span>Minimum {MIN_COLLATERAL_RATIO}%</span>
                           </div>
+
+                          {isNearLiquidation ? (
+                            <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200">
+                              ⚠️ Warning: Position is within 15% of liquidation margin ({proximityToLiq}% drop to liquidation).
+                            </div>
+                          ) : null}
+                          {liquidatable ? (
+                            <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200">
+                              🚨 Danger: Position collateral ratio has breached the {LIQUIDATION_THRESHOLD}% threshold and can be liquidated.
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     );
