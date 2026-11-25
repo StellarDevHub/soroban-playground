@@ -7,10 +7,19 @@ import React, {
   useEffect,
   useCallback,
   useRef,
+  useReducer,
   ReactNode,
 } from "react";
 import type { ModuleInterface } from "@creit.tech/stellar-wallets-kit/types";
 import { walletRegistry } from "@/lib/wallets";
+import {
+  INITIAL_WALLET_MACHINE_STATE,
+  isUserRejection,
+  toLegacyStatus,
+  walletConnectionReducer,
+  type WalletConnectionEvent,
+  type WalletConnectionState,
+} from "@/lib/wallets/connectionMachine";
 
 export type WalletType =
   "freighter" | "albedo" | "xbull" | "hana" | "walletconnect" | "ledger";
@@ -301,7 +310,11 @@ export interface WalletContextType {
   activeAccount: string | null;
   address: string | null; // Alias for activeAccount
   allAccounts: WalletAccount[];
+  /** Legacy status string, derived from `connectionState`. */
   status: ConnectionStatus;
+  /** DISCONNECTED -> CONNECTING -> CONNECTED -> SIGNING, or ERROR (#2035). */
+  connectionState: WalletConnectionState;
+  isSigning: boolean;
   network: string | null;
   networkPassphrase: string;
   error: string | null;
@@ -332,7 +345,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [activeWallet, setActiveWallet] = useState<WalletType | null>(null);
   const [activeAccount, setActiveAccount] = useState<string | null>(null);
   const [allAccounts, setAllAccounts] = useState<WalletAccount[]>([]);
-  const [status, setStatus] = useState<ConnectionStatus>("idle");
+  const [machine, dispatch] = useReducer(
+    walletConnectionReducer,
+    INITIAL_WALLET_MACHINE_STATE,
+  );
+  const status: ConnectionStatus = toLegacyStatus(machine);
   const [network, setNetwork] = useState<string | null>(null);
   const [networkPassphrase, setNetworkPassphrase] =
     useState(TESTNET_PASSPHRASE);
@@ -351,6 +368,36 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [lastAttemptedWallet, setLastAttemptedWallet] =
     useState<WalletType | null>(null);
   const lastActivityWriteRef = useRef(0);
+  // #2035 — lifecycle guards. `isMountedRef` stops any async step from setting
+  // state after unmount, and `attemptRef` numbers each connect attempt so a
+  // wallet that answers after the user switched wallets or disconnected is
+  // ignored instead of overwriting the newer session.
+  const isMountedRef = useRef(false);
+  const attemptRef = useRef(0);
+  // Kept in step with the reducer by `send`, so callbacks read the current
+  // state synchronously (a second sign in the same tick sees SIGNING).
+  const machineRef = useRef(INITIAL_WALLET_MACHINE_STATE);
+  const send = useCallback((event: WalletConnectionEvent) => {
+    machineRef.current = walletConnectionReducer(machineRef.current, event);
+    dispatch(event);
+  }, []);
+  const activeWalletRef = useRef<WalletType | null>(null);
+  useEffect(() => {
+    activeWalletRef.current = activeWallet;
+  }, [activeWallet]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      attemptRef.current += 1;
+    };
+  }, []);
+
+  const isCurrentAttempt = useCallback(
+    (attempt: number) => isMountedRef.current && attempt === attemptRef.current,
+    [],
+  );
 
   const isWalletDetected = useCallback(
     (type: WalletType) => detectedWallets.has(type),
@@ -374,31 +421,38 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    setDetectedWallets(detected);
+    if (isMountedRef.current) setDetectedWallets(detected);
     return detected;
   }, []);
 
   const requireReauthentication = useCallback((wallet: WalletType) => {
+    attemptRef.current += 1;
     removePersistedSession();
     setActiveWallet(null);
     setActiveAccount(null);
     setAllAccounts([]);
     setNetwork(null);
     setNetworkPassphrase(TESTNET_PASSPHRASE);
-    setStatus("idle");
+    send({ type: "DISCONNECT" });
     setSessionValidation("idle");
     setHorizonSignerKeys([]);
     setReauthenticationWallet(wallet);
     setReauthenticationRequired(true);
     setLastAttemptedWallet(null);
-  }, []);
+  }, [send]);
 
   const connect = useCallback(
     async (type: WalletType, auto = false) => {
       if (typeof window === "undefined") return;
+      if (machineRef.current.state === "SIGNING") {
+        setError("Finish or cancel the open signing request before switching wallets.");
+        return;
+      }
 
+      const attempt = ++attemptRef.current;
+      const previousWallet = activeWalletRef.current;
       setLastAttemptedWallet(type);
-      setStatus("connecting");
+      send({ type: "CONNECT" });
       setError(null);
 
       try {
@@ -406,9 +460,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         try {
           kit = await initializeWalletKit();
         } catch (kitErr) {
+          if (!isCurrentAttempt(attempt)) return;
           const adapter = walletRegistry.get(type as any);
           if (adapter) {
             const res = await adapter.connect(auto);
+            if (!isCurrentAttempt(attempt)) return;
             setActiveWallet(type);
             setActiveAccount(res.address);
             setAllAccounts(
@@ -418,7 +474,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             );
             setNetwork(res.network || "TESTNET");
             setNetworkPassphrase(TESTNET_PASSPHRASE);
-            setStatus("connected");
+            send({ type: "CONNECTED" });
             setLastAttemptedWallet(null);
             if (typeof window !== "undefined") {
               try {
@@ -432,22 +488,32 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         }
 
         const availableWallets = await refreshWallets();
+        if (!isCurrentAttempt(attempt)) return;
 
         if (!availableWallets.has(type)) {
           if (auto) {
-            setStatus("idle");
+            send({ type: "DISCONNECT" });
             setLastAttemptedWallet(null);
             return;
           }
-          setStatus("unavailable");
+          send({ type: "FAIL", kind: "unavailable" });
           setError(`${type} wallet is not available in this browser.`);
           return;
+        }
+
+        // Switching wallets: release the previous module (its listeners and,
+        // for Ledger, the open HID transport) before selecting the new one.
+        if (previousWallet && previousWallet !== type) {
+          try {
+            void Promise.resolve(kit.disconnect()).catch(() => {});
+          } catch {}
         }
 
         kit.setWallet(WALLET_MODULE_IDS[type]);
         if (auto) {
           try {
             const { address } = await kit.getAddress();
+            if (!isCurrentAttempt(attempt)) return;
             if (address) {
               const activityTime = Date.now();
               setActiveWallet(type);
@@ -459,18 +525,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
               lastActivityWriteRef.current = activityTime;
               setReauthenticationRequired(false);
               setReauthenticationWallet(null);
-              setStatus("connected");
+              send({ type: "CONNECTED" });
             } else {
-              setStatus("idle");
+              send({ type: "DISCONNECT" });
             }
           } catch {
-            setStatus("idle");
+            if (!isCurrentAttempt(attempt)) return;
+            send({ type: "DISCONNECT" });
           }
           setLastAttemptedWallet(null);
           return;
         }
 
         const { address } = await kit.fetchAddress();
+        if (!isCurrentAttempt(attempt)) return;
         if (!address) throw new Error("Wallet returned no account address.");
 
         const configuredNetwork = getConfiguredNetwork();
@@ -479,6 +547,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (type !== "ledger") {
           try {
             const networkInfo = await kit.getNetwork();
+            if (!isCurrentAttempt(attempt)) return;
             net = networkInfo.network;
             passphrase = networkInfo.networkPassphrase;
           } catch {}
@@ -490,7 +559,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setNetwork(net);
         setNetworkPassphrase(passphrase);
         setHorizonSignerKeys([]);
-        setStatus("connected");
+        send({ type: "CONNECTED" });
         setSessionValidation("checking");
         setReauthenticationRequired(false);
         setReauthenticationWallet(null);
@@ -503,16 +572,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           window.localStorage.setItem("preferred_wallet", type);
         } catch {}
       } catch (err) {
-        const msg = walletErrorMessage(err, "Failed to connect wallet");
-        setStatus("error");
+        if (!isCurrentAttempt(attempt)) return;
+        const rejected = isUserRejection(err);
+        const msg = rejected
+          ? "The connection request was rejected in the wallet."
+          : walletErrorMessage(err, "Failed to connect wallet");
+        send({ type: "FAIL", kind: rejected ? "rejected" : "failed" });
         setError(msg);
-        console.error("Wallet connection error:", msg);
+        if (!rejected) console.error("Wallet connection error:", msg);
       }
     },
-    [refreshWallets],
+    [refreshWallets, isCurrentAttempt, send],
   );
 
   const disconnect = useCallback(() => {
+    // Cancels any connect attempt or session restore still in flight.
+    attemptRef.current += 1;
     if (activeWallet) {
       void initializeWalletKit()
         .then((kit) => kit.disconnect())
@@ -523,7 +598,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setAllAccounts([]);
     setNetwork(null);
     setNetworkPassphrase(TESTNET_PASSPHRASE);
-    setStatus("idle");
+    send({ type: "DISCONNECT" });
     setSessionValidation("idle");
     setHorizonSignerKeys([]);
     setReauthenticationRequired(false);
@@ -537,7 +612,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       } catch {}
       removePersistedSession();
     }
-  }, [activeWallet]);
+  }, [activeWallet, send]);
 
   const reauthenticate = useCallback(async () => {
     if (reauthenticationWallet) await connect(reauthenticationWallet);
@@ -559,13 +634,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const signTransaction = useCallback(
     async (xdr: string): Promise<string | null> => {
-      if (!activeWallet || status !== "connected") {
+      if (machineRef.current.state === "SIGNING") {
+        setError("A signing request is already open in your wallet.");
+        return null;
+      }
+      if (!activeWallet || machineRef.current.state !== "CONNECTED") {
         const errMsg = "No wallet connected";
         setError(errMsg);
         console.error(errMsg);
         return null;
       }
 
+      const attempt = attemptRef.current;
+      send({ type: "SIGN_START" });
       let timeoutId: number | undefined;
       let kit: WalletKit | null = null;
       try {
@@ -587,6 +668,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
                 }),
               ])
             : await signingRequest;
+        if (!isCurrentAttempt(attempt)) return null;
         if (
           result.signerAddress &&
           activeAccount &&
@@ -596,8 +678,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setError("The wallet account changed. Reconnect to continue signing.");
           return null;
         }
+        send({ type: "SIGN_DONE" });
         return result.signedTxXdr || null;
       } catch (err) {
+        if (!isCurrentAttempt(attempt)) return null;
         if (
           activeWallet === "ledger" &&
           err instanceof Error &&
@@ -608,8 +692,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setError("Ledger confirmation timed out. Reconnect your device and try again.");
           return null;
         }
-        const errMsg =
-          err instanceof Error ? err.message : "Transaction signing failed";
+        send({ type: "SIGN_FAIL" });
+        if (isUserRejection(err)) {
+          setError("The transaction was rejected in the wallet.");
+          return null;
+        }
+        const errMsg = walletErrorMessage(err, "Transaction signing failed");
         setError(errMsg);
         console.error("Transaction signing error:", errMsg);
         return null;
@@ -620,9 +708,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [
       activeWallet,
       activeAccount,
-      status,
       networkPassphrase,
       requireReauthentication,
+      isCurrentAttempt,
+      send,
     ],
   );
 
@@ -661,6 +750,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (!adapter) return;
 
     const unsubAccount = adapter.onAccountChange?.((address) => {
+      if (!isMountedRef.current) return;
       setActiveAccount(address);
       try {
         window.localStorage.setItem("preferred_account", address);
@@ -668,6 +758,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
 
     const unsubNetwork = adapter.onNetworkChange?.((net) => {
+      if (!isMountedRef.current) return;
       setNetwork(net);
     });
 
@@ -705,9 +796,50 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setLastActivityAt(session.lastActivityAt);
     setHorizonSignerKeys(session.signerKeys);
     lastActivityWriteRef.current = session.lastActivityAt;
-    setSessionValidation("checking");
-    setStatus("connected");
-  }, []);
+
+    // #2035 — auto-reconnect: a cached session is only trusted once the wallet
+    // itself confirms it still exposes the same account. Until then the
+    // provider is CONNECTING, so nothing can sign with a stale session.
+    const attempt = ++attemptRef.current;
+    send({ type: "CONNECT" });
+
+    const adopt = () => {
+      if (!isCurrentAttempt(attempt)) return;
+      setSessionValidation("checking");
+      send({ type: "CONNECTED" });
+    };
+
+    if (session.wallet === "ledger") {
+      // A hardware wallet cannot be queried without a user gesture; the
+      // device is re-checked when it signs and Horizon validates the account.
+      adopt();
+      return;
+    }
+
+    void (async () => {
+      try {
+        const kit = await initializeWalletKit();
+        if (!isCurrentAttempt(attempt)) return;
+        kit.setWallet(WALLET_MODULE_IDS[session.wallet]);
+        const { address } = await kit.getAddress();
+        if (!isCurrentAttempt(attempt)) return;
+        if (address === session.address) {
+          adopt();
+          return;
+        }
+        requireReauthentication(session.wallet);
+        setError(
+          address
+            ? "Your wallet is now on a different account. Reconnect to continue."
+            : "Your wallet is locked or no longer connected. Reconnect to continue.",
+        );
+      } catch {
+        if (!isCurrentAttempt(attempt)) return;
+        requireReauthentication(session.wallet);
+        setError("Your wallet could not be reached. Reconnect to continue.");
+      }
+    })();
+  }, [isCurrentAttempt, requireReauthentication, send]);
 
   useEffect(() => {
     if (
@@ -779,7 +911,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        setHorizonSignerKeys(snapshot.signerKeys);
+        // Keep the previous array when the signers are unchanged: a fresh
+        // array would re-run this effect and re-query Horizon in a loop.
+        setHorizonSignerKeys((current) =>
+          JSON.stringify(current) === JSON.stringify(snapshot.signerKeys)
+            ? current
+            : snapshot.signerKeys,
+        );
         setSessionValidation("verified");
       } catch {
         if (isMounted) setSessionValidation("unavailable");
@@ -878,6 +1016,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         address: activeAccount,
         allAccounts,
         status,
+        connectionState: machine.state,
+        isSigning: machine.state === "SIGNING",
         network,
         networkPassphrase,
         error,
