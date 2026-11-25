@@ -4,6 +4,8 @@ import knexLib from 'knex';
 import { withTenant } from '../src/database/tenantContext.js';
 import { up as applyPartitioning } from '../src/database/migrations/20261021000010_partition_audit_log.js';
 import { up as applyRls } from '../src/database/migrations/20261021000011_rls_policies.js';
+import { up as applyIntegrityChaining } from '../src/database/migrations/20261125000013_audit_log_integrity_chaining.js';
+import { AuditService } from '../src/services/auditService.js';
 
 const enabled =
   process.env.DATABASE_CLIENT === 'pg' && process.env.DATABASE_URL;
@@ -116,5 +118,47 @@ suite('audit_log monthly partitioning', () => {
   test('concurrent partition creation does not error or deadlock', async () => {
     await Promise.all(Array.from({ length: 5 }, () => ensure(0, 8)));
     expect(await ensure(0, 8)).toBe(0);
+  });
+
+  test('altering any historical chained record invalidates the audit chain', async () => {
+    await applyIntegrityChaining(db);
+    const auditService = new AuditService(db);
+
+    const t1 = new Date(thisMonth.getTime() + 1000);
+    const t2 = new Date(thisMonth.getTime() + 2000);
+
+    const first = await auditService.log({
+      tenant_id: 'user:1',
+      user_id: 1,
+      actor: 'user:1',
+      action: 'contract.deploy',
+      timestamp: t1,
+      metadata: { contractId: 'C_PARTITION_TEST' },
+    });
+    await auditService.log({
+      tenant_id: 'user:1',
+      user_id: 1,
+      actor: 'user:1',
+      action: 'contract.invoke',
+      timestamp: t2,
+      metadata: { fn: 'transfer' },
+    });
+
+    const validResult = await auditService.verifyChain({
+      startTime: thisMonth,
+      endTime: nextMonth,
+    });
+    expect(validResult.valid).toBe(true);
+
+    await db('audit_log')
+      .where({ id: first.id, timestamp: first.timestamp })
+      .update({ action: 'contract.deploy_tampered' });
+
+    const tamperedResult = await auditService.verifyChain({
+      startTime: thisMonth,
+      endTime: nextMonth,
+    });
+    expect(tamperedResult.valid).toBe(false);
+    expect(tamperedResult.reason).toMatch(/Hash mismatch/i);
   });
 });
