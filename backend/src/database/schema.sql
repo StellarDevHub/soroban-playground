@@ -472,4 +472,40 @@ INSERT OR IGNORE INTO templates (dir_name, name, description, category, complexi
 ('counter', 'Counter', 'Simple counter with state management', 'Utilities', 'Beginner', 'Testnet', '["state","storage"]', '[]', '["Basic","State Management"]', '["State persistence"]'),
 ('stablecoin', 'Stablecoin', 'Algorithmic stablecoin with collateral', 'DeFi', 'Advanced', 'Production', '["defi","collateral"]', '[{"name":"soroban-sdk","version":"^21.0"}]', '["Token Operations","Advanced"]', '["Minting","Burning","Price feed"]');
 
+-- Collaborative workspace documents synchronized with Yjs CRDT updates.
+CREATE TABLE IF NOT EXISTS yjs_documents (
+    project_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    snapshot TEXT NOT NULL DEFAULT '',
+    state_vector TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (project_id, document_id)
+);
+
+CREATE TABLE IF NOT EXISTS yjs_document_updates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    update_data TEXT NOT NULL,
+    state_vector TEXT NOT NULL DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_yjs_document_updates_room
+    ON yjs_document_updates(project_id, document_id, id);
+
+-- Multi-file collaborative workspace backing store.
+CREATE TABLE IF NOT EXISTS workspace_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT 'rust',
+    content TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_files_project
+    ON workspace_files(project_id, path);
+
 

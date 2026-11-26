@@ -24,6 +24,35 @@ function WalletProbe() {
 
 const VALID_ADDRESS = "GB3KJPLFUYN5VL6R3GU3EGCGVCJAFDSDVBBER5SNLZHTMFK3STCQHI4X";
 
+// #2035 — a restored session is confirmed with the wallet before it is
+// trusted, so the wallet kit reports the stored account here.
+jest.mock("@creit.tech/stellar-wallets-kit/sdk", () => ({
+  StellarWalletsKit: {
+    init: jest.fn(),
+    setWallet: jest.fn(),
+    refreshSupportedWallets: jest.fn().mockResolvedValue([]),
+    getAddress: jest.fn().mockResolvedValue({
+      address: "GB3KJPLFUYN5VL6R3GU3EGCGVCJAFDSDVBBER5SNLZHTMFK3STCQHI4X",
+    }),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+  },
+}), { virtual: true });
+jest.mock("@creit.tech/stellar-wallets-kit/types", () => ({
+  Networks: { TESTNET: "Test SDF Network ; September 2015" },
+}), { virtual: true });
+jest.mock("@creit.tech/stellar-wallets-kit/modules/albedo", () => ({ AlbedoModule: class {} }), { virtual: true });
+jest.mock("@creit.tech/stellar-wallets-kit/modules/freighter", () => ({ FreighterModule: class {} }), { virtual: true });
+jest.mock("@creit.tech/stellar-wallets-kit/modules/hana", () => ({ HanaModule: class {} }), { virtual: true });
+jest.mock("@creit.tech/stellar-wallets-kit/modules/xbull", () => ({ xBullModule: class {} }), { virtual: true });
+jest.mock("@creit.tech/stellar-wallets-kit/modules/ledger", () => ({ LedgerModule: class {} }), { virtual: true });
+jest.mock("@ledgerhq/hw-transport-webhid", () => ({
+  default: { isSupported: jest.fn().mockResolvedValue(false) },
+}), { virtual: true });
+jest.mock("@ledgerhq/hw-transport-webusb", () => ({
+  default: { isSupported: jest.fn().mockResolvedValue(false) },
+}), { virtual: true });
+jest.mock("buffer", () => ({ Buffer: class MockBuffer {} }), { virtual: true });
+
 function persistSession() {
   window.localStorage.setItem(
     "stellar_wallet_session",

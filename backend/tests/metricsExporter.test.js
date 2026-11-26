@@ -110,37 +110,50 @@ describe('Metrics Exporter', () => {
   // ── recordHttpRequest ─────────────────────────────────────────────────────
 
   describe('recordHttpRequest', () => {
-    it('increments request count with correct labels', () => {
-      const before = requestCount.hashMap['GET|/test|200']?.value ?? 0;
+    const getMetricValue = async (metric, labels) => {
+      const data = await metric.get();
+      const entry = data.values.find((v) =>
+        Object.entries(labels).every(([k, val]) => v.labels[k] === val)
+      );
+      return entry?.value ?? 0;
+    };
+
+    it('increments request count with correct labels', async () => {
+      const labels = { method: 'GET', route: '/test', status: 200 };
+      const before = await getMetricValue(requestCount, labels);
       recordHttpRequest('GET', '/test', 200);
-      const after = requestCount.hashMap['GET|/test|200']?.value ?? 0;
+      const after = await getMetricValue(requestCount, labels);
       expect(after).toBe(before + 1);
     });
 
-    it('increments error count for 4xx responses', () => {
-      const before = httpErrorsTotal.hashMap['POST|/err|404']?.value ?? 0;
+    it('increments error count for 4xx responses', async () => {
+      const labels = { method: 'POST', route: '/err', status: 404 };
+      const before = await getMetricValue(httpErrorsTotal, labels);
       recordHttpRequest('POST', '/err', 404);
-      const after = httpErrorsTotal.hashMap['POST|/err|404']?.value ?? 0;
+      const after = await getMetricValue(httpErrorsTotal, labels);
       expect(after).toBe(before + 1);
     });
 
-    it('increments error count for 5xx responses', () => {
-      const before = httpErrorsTotal.hashMap['GET|/fail|500']?.value ?? 0;
+    it('increments error count for 5xx responses', async () => {
+      const labels = { method: 'GET', route: '/fail', status: 500 };
+      const before = await getMetricValue(httpErrorsTotal, labels);
       recordHttpRequest('GET', '/fail', 500);
-      const after = httpErrorsTotal.hashMap['GET|/fail|500']?.value ?? 0;
+      const after = await getMetricValue(httpErrorsTotal, labels);
       expect(after).toBe(before + 1);
     });
 
-    it('does not increment error count for 2xx responses', () => {
-      const before = httpErrorsTotal.hashMap['GET|/ok|200']?.value ?? 0;
+    it('does not increment error count for 2xx responses', async () => {
+      const labels = { method: 'GET', route: '/ok', status: 200 };
+      const before = await getMetricValue(httpErrorsTotal, labels);
       recordHttpRequest('GET', '/ok', 200);
-      const after = httpErrorsTotal.hashMap['GET|/ok|200']?.value ?? 0;
+      const after = await getMetricValue(httpErrorsTotal, labels);
       expect(after).toBe(before);
     });
 
-    it('updates request rate gauge', () => {
+    it('updates request rate gauge', async () => {
       recordHttpRequest('GET', '/rate-test', 200);
-      expect(typeof requestRate.hashMap['']?.value).toBe('number');
+      const data = await requestRate.get();
+      expect(typeof data.values[0]?.value).toBe('number');
     });
   });
 
@@ -170,82 +183,84 @@ describe('Metrics Exporter', () => {
   describe('Custom metric registration', () => {
     it('rateLimitHits is a Counter with correct labels', () => {
       expect(rateLimitHits).toBeDefined();
-      expect(rateLimitHits.config.name).toBe('rate_limit_hits_total');
-      expect(rateLimitHits.config.labelNames).toContain('endpoint');
-      expect(rateLimitHits.config.labelNames).toContain('status');
+      expect(rateLimitHits.name).toBe('rate_limit_hits_total');
+      expect(rateLimitHits.labelNames).toContain('endpoint');
+      expect(rateLimitHits.labelNames).toContain('status');
     });
 
     it('cacheHitsTotal is a Counter', () => {
       expect(cacheHitsTotal).toBeDefined();
-      expect(cacheHitsTotal.config.name).toBe('soroban_cache_hits_total');
+      expect(cacheHitsTotal.name).toBe('soroban_cache_hits_total');
     });
 
     it('cacheMissesTotal is a Counter', () => {
       expect(cacheMissesTotal).toBeDefined();
-      expect(cacheMissesTotal.config.name).toBe('soroban_cache_misses_total');
+      expect(cacheMissesTotal.name).toBe('soroban_cache_misses_total');
     });
 
     it('cacheEvictionsTotal is a Counter', () => {
       expect(cacheEvictionsTotal).toBeDefined();
-      expect(cacheEvictionsTotal.config.name).toBe(
-        'soroban_cache_evictions_total'
-      );
+      expect(cacheEvictionsTotal.name).toBe('soroban_cache_evictions_total');
     });
 
     it('cacheEntryCount is a Gauge', () => {
       expect(cacheEntryCount).toBeDefined();
-      expect(cacheEntryCount.config.name).toBe('soroban_cache_entry_count');
+      expect(cacheEntryCount.name).toBe('soroban_cache_entry_count');
     });
 
     it('cacheVersionGauge is a Gauge with namespace label', () => {
       expect(cacheVersionGauge).toBeDefined();
-      expect(cacheVersionGauge.config.name).toBe('soroban_cache_version');
-      expect(cacheVersionGauge.config.labelNames).toContain('namespace');
+      expect(cacheVersionGauge.name).toBe('soroban_cache_version');
+      expect(cacheVersionGauge.labelNames).toContain('namespace');
     });
 
     it('requestLatency is a Histogram with buckets', () => {
       expect(requestLatency).toBeDefined();
-      expect(requestLatency.config.name).toBe('http_request_duration_seconds');
-      expect(requestLatency.config.buckets).toEqual([0.1, 0.5, 1, 2, 5]);
+      expect(requestLatency.name).toBe('http_request_duration_seconds');
+      expect(requestLatency.upperBounds).toEqual([0.1, 0.5, 1, 2, 5]);
     });
 
     it('activeCompilationJobs is a Gauge', () => {
       expect(activeCompilationJobs).toBeDefined();
-      expect(activeCompilationJobs.config.name).toBe('active_compilation_jobs');
+      expect(activeCompilationJobs.name).toBe('active_compilation_jobs');
     });
 
     it('oracleTasksEnqueued is a Counter', () => {
       expect(oracleTasksEnqueued).toBeDefined();
-      expect(oracleTasksEnqueued.config.name).toBe(
-        'oracle_tasks_enqueued_total'
-      );
+      expect(oracleTasksEnqueued.name).toBe('oracle_tasks_enqueued_total');
     });
 
     it('oracleTasksProcessed is a Counter with status label', () => {
       expect(oracleTasksProcessed).toBeDefined();
-      expect(oracleTasksProcessed.config.labelNames).toContain('status');
+      expect(oracleTasksProcessed.labelNames).toContain('status');
     });
 
     it('oracleQueueDepth is a Gauge', () => {
       expect(oracleQueueDepth).toBeDefined();
-      expect(oracleQueueDepth.config.name).toBe('oracle_queue_depth');
+      expect(oracleQueueDepth.name).toBe('oracle_queue_depth');
     });
 
     it('eventQuarantineSize is a Gauge', () => {
       expect(eventQuarantineSize).toBeDefined();
-      expect(eventQuarantineSize.config.name).toBe('event_quarantine_size');
+      expect(eventQuarantineSize.name).toBe('event_quarantine_size');
     });
 
     it('eventSchemaBreakingChangesTotal is a Counter', () => {
       expect(eventSchemaBreakingChangesTotal).toBeDefined();
-      expect(eventSchemaBreakingChangesTotal.config.labelNames).toContain(
+      expect(eventSchemaBreakingChangesTotal.name).toBe(
+        'event_schema_breaking_changes_total'
+      );
+      expect(eventSchemaBreakingChangesTotal.labelNames).toContain(
         'event_type'
       );
     });
 
     it('oracleProofDeadLetterTotal is a Counter with reason label', () => {
       expect(oracleProofDeadLetterTotal).toBeDefined();
-      expect(oracleProofDeadLetterTotal.config.labelNames).toContain('reason');
+      expect(oracleProofDeadLetterTotal.name).toBe(
+        'oracle_proof_dead_letter_total'
+      );
+      expect(oracleProofDeadLetterTotal.labelNames).toContain('reason');
     });
   });
 

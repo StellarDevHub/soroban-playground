@@ -62,7 +62,13 @@ function safeStringify(payload) {
 // Broadcast a message to all connected clients on this instance.
 function broadcastLocal(message) {
   if (!message) return;
+  let payload = null;
+  try { payload = typeof message === 'string' ? JSON.parse(message) : null; } catch (_) {}
   for (const socket of clients) {
+    if (payload?.type === 'collaboration-yjs-update') {
+      if (String(socket.projectId) === String(payload.projectId)) safeSend(socket, message);
+      continue;
+    }
     safeSend(socket, message);
   }
 }
@@ -127,6 +133,17 @@ export function broadcastTerminalLog(logData) {
   broadcastCluster(REDIS_WS_CHANNELS.TERMINAL_LOGS, message);
 }
 
+export function broadcastProjectRoom(projectId, payload) {
+  if (!projectId || !payload) return;
+  const message = safeStringify({
+    type: 'collaboration-yjs-update',
+    projectId: String(projectId),
+    ...payload,
+  });
+  if (!message) return;
+  broadcastCluster(`ws:channel:project:${String(projectId)}`, message);
+}
+
 let wssInstance = null;
 let activeHeartbeatTimer = null;
 
@@ -166,6 +183,12 @@ export function setupWebSocketServer(httpServer) {
       }
       redisSubscriber.on('message', (channel, message) => {
         if (subscribedChannels.includes(channel)) {
+          broadcastLocal(message);
+        }
+      });
+      redisSubscriber.psubscribe('ws:channel:project:*').catch(() => {});
+      redisSubscriber.on('pmessage', (_pattern, channel, message) => {
+        if (channel.startsWith('ws:channel:project:')) {
           broadcastLocal(message);
         }
       });
@@ -262,6 +285,7 @@ export function setupWebSocketServer(httpServer) {
           payload.type === 'collaboration-cursor'
         ) {
           socket.docId = payload.docId || 'default-doc';
+          socket.projectId = payload.projectId ? String(payload.projectId) : null;
           if (payload.user) {
             socket.collaboratorName = payload.user.name;
             socket.collaboratorColor = payload.user.color;

@@ -8,8 +8,8 @@ import {
   deleteSubscription,
   enqueueEvent,
   listDeliveries,
+  verifyInboundSignature,
 } from '../services/webhookService.js';
-import { verifySignature } from '../services/webhookUtils.js';
 import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
 import { requireTenantContext } from '../middleware/tenantContext.js';
 
@@ -73,7 +73,7 @@ router.post(
     }
     const payloadStr =
       typeof payload === 'string' ? payload : JSON.stringify(payload);
-    const valid = verifySignature(payloadStr, secret, signature);
+    const valid = verifyInboundSignature(payloadStr, secret, signature);
     res.json({ success: true, valid });
   })
 );

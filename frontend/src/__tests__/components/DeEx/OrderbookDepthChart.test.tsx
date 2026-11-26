@@ -396,4 +396,143 @@ describe("OrderbookDepthChart UI Component", () => {
       screen.getByText(/cumulative depth/i, { selector: "div:not(.sr-only)" }),
     ).toBeInTheDocument();
   });
+
+  it("throttles canvas redraws to RAF: 35 rapid rerenders queue at most one pending frame", () => {
+    // Replace global requestAnimationFrame with a manual spy that never fires
+    // the callback — this lets us count how many unique frames were queued
+    // without any of them actually executing.
+    const rafSpy = jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => {
+        // Return a unique non-zero handle each time so cancelAnimationFrame
+        // can be called without errors, but never invoke the callback.
+        return Math.random() * 1e9;
+      });
+
+    const { rerender } = render(
+      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />,
+    );
+
+    rafSpy.mockClear(); // Discard calls from initial mount
+
+    act(() => {
+      for (let i = 0; i < 35; i++) {
+        rerender(
+          <OrderbookDepthChart
+            bids={[{ price: 1.25 + i * 0.0001, quantity: 100 + i }]}
+            asks={[{ price: 1.26 + i * 0.0001, quantity: 150 + i }]}
+          />,
+        );
+      }
+    });
+
+    // scheduleFrame() skips scheduling when rafIdRef.current !== null, so the
+    // 35 rerenders must have queued exactly 1 frame (the first), not 35.
+    expect(rafSpy.mock.calls.length).toBe(1);
+
+    rafSpy.mockRestore();
+  });
+
+  it("sets canvas physical pixels to logical size × devicePixelRatio on mount", () => {
+    // Simulate a 2× Retina display
+    Object.defineProperty(window, "devicePixelRatio", {
+      value: 2,
+      writable: true,
+      configurable: true,
+    });
+
+    // Provide ResizeObserver with a known container width by firing its
+    // callback synchronously via the global mock jsdom sets up.
+    let capturedCallback: ResizeObserverCallback | null = null;
+    const originalRO = global.ResizeObserver;
+    global.ResizeObserver = class {
+      constructor(cb: ResizeObserverCallback) {
+        capturedCallback = cb;
+      }
+      observe() {
+        // Fire immediately with a 400 px logical width
+        if (capturedCallback) {
+          capturedCallback(
+            [
+              {
+                contentRect: { width: 400, height: 440 } as DOMRectReadOnly,
+                target: document.createElement("div"),
+                borderBoxSize: [],
+                contentBoxSize: [],
+                devicePixelContentBoxSize: [],
+              },
+            ],
+            this as unknown as ResizeObserver,
+          );
+        }
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+
+    const { container } = render(
+      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} height={440} />,
+    );
+
+    const canvas = container.querySelector("canvas");
+    if (!canvas) throw new Error("Expected chart canvas");
+
+    // Physical backing store must be 400 × 2 = 800 px wide and 440 × 2 = 880 px tall
+    expect(canvas.width).toBe(800);
+    expect(canvas.height).toBe(880);
+
+    // CSS logical size stays at the original dimensions
+    expect(canvas.style.width).toBe("400px");
+    expect(canvas.style.height).toBe("440px");
+
+    // Restore globals
+    global.ResizeObserver = originalRO;
+    Object.defineProperty(window, "devicePixelRatio", {
+      value: 1,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it("crosshair tooltip is queryable by data-testid and shows price and depth", () => {
+    const { container } = render(
+      <OrderbookDepthChart bids={sampleBids} asks={sampleAsks} />,
+    );
+    const canvas = container.querySelector("canvas");
+    if (!canvas) throw new Error("Expected chart canvas");
+
+    jest.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 600,
+      height: 440,
+      right: 600,
+      bottom: 440,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    // Before hover, the tooltip must not be in the DOM
+    expect(
+      container.querySelector("[data-testid='depth-chart-crosshair-tooltip']"),
+    ).toBeNull();
+
+    // Hover over the bid side (left quarter of a 600 px canvas,
+    // well inside the bid price range for XLM/USDC at 1.25)
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 200 });
+
+    const tooltip = screen.getByTestId("depth-chart-crosshair-tooltip");
+    expect(tooltip).toBeInTheDocument();
+
+    // Tooltip text must reference a price value and cumulative depth
+    expect(tooltip.textContent).toMatch(/price\s+\d+\.\d+/i);
+    expect(tooltip.textContent).toMatch(/cumulative depth/i);
+
+    // After mouse leaves the canvas, the tooltip must disappear
+    fireEvent.mouseLeave(canvas);
+    expect(
+      container.querySelector("[data-testid='depth-chart-crosshair-tooltip']"),
+    ).toBeNull();
+  });
 });

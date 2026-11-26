@@ -37,6 +37,24 @@ export class HorizonService {
     this.logger = logger;
     this.pollIntervalMs = pollIntervalMs;
     this.maxRetries = maxRetries;
+    this.healthTimer = null;
+    this.healthIntervalMs = Number.parseInt(
+      process.env.RPC_HEALTH_CHECK_INTERVAL_MS || '10000',
+      10
+    );
+    this.maxLedgerLag = Number.parseInt(
+      process.env.RPC_MAX_LEDGER_LAG || '50',
+      10
+    );
+    this.endpoints = this.horizonUrls.map((url) => ({
+      url,
+      isHealthy: true,
+      rateLimitedUntil: null,
+      backoffAttempt: 0,
+      latestLedger: null,
+      latencyEmaMs: null,
+      lastHealthyAt: null,
+    }));
 
     this.timer = null;
     this.cursor = null;
@@ -145,7 +163,16 @@ export class HorizonService {
   async fetchTransactions({ cursor, limit = 50, order = 'asc' } = {}) {
     let lastError = null;
 
-    for (const baseUrl of this.horizonUrls) {
+    const activeEndpoints = this.endpoints.filter(
+      (endpoint) =>
+        endpoint.isHealthy &&
+        (!endpoint.rateLimitedUntil || endpoint.rateLimitedUntil <= Date.now())
+    );
+    const orderedEndpoints =
+      activeEndpoints.length > 0 ? activeEndpoints : this.endpoints;
+
+    for (const endpoint of orderedEndpoints) {
+      const baseUrl = endpoint.url;
       const cleanBase = baseUrl.replace(/\/$/, '');
       const cursorParam =
         cursor && cursor !== 'now'
@@ -168,6 +195,11 @@ export class HorizonService {
           });
 
           if (response.status === 429) {
+            endpoint.backoffAttempt = Math.min(endpoint.backoffAttempt + 1, 6);
+            endpoint.rateLimitedUntil =
+              Date.now() +
+              Math.min(1000 * Math.pow(2, endpoint.backoffAttempt - 1), 60000);
+            endpoint.isHealthy = false;
             this.logger.warn?.(
               `Horizon rate limit hit on ${baseUrl}, backing off (attempt ${attempt + 1})`
             );
@@ -182,6 +214,9 @@ export class HorizonService {
 
           const data = await response.json();
           const records = data?._embedded?.records || [];
+          endpoint.isHealthy = true;
+          endpoint.backoffAttempt = 0;
+          endpoint.rateLimitedUntil = null;
           return records;
         } catch (err) {
           lastError = err;
@@ -393,6 +428,7 @@ export class HorizonService {
   start({ intervalMs = this.pollIntervalMs } = {}) {
     if (this.timer) return this.timer;
     this.status.running = true;
+    this.startHealthChecks();
 
     const poll = () => {
       this.synchronizeOnce().catch((err) => {
@@ -415,7 +451,108 @@ export class HorizonService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this.stopHealthChecks();
     this.status.running = false;
+  }
+
+  async checkEndpointHealth(endpoint) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const start = Date.now();
+    try {
+      const baseUrl = endpoint.url.replace(/\/$/, '');
+      const response = await this.fetchImpl(`${baseUrl}/health`, {
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (response.status === 429) {
+        const error = new Error('HTTP 429 Too Many Requests');
+        error.status = 429;
+        throw error;
+      }
+      if (!response.ok) {
+        throw new Error(`Horizon health HTTP ${response.status}`);
+      }
+
+      let ledger = null;
+      try {
+        const payload = await response.json();
+        ledger =
+          payload?.current_ledger ??
+          payload?.core_latest_ledger ??
+          payload?.ledger ??
+          null;
+      } catch {
+        // A 200 from /health is sufficient when the provider omits ledger fields.
+      }
+
+      const elapsed = Date.now() - start;
+      endpoint.latencyEmaMs =
+        endpoint.latencyEmaMs === null
+          ? elapsed
+          : 0.25 * elapsed + 0.75 * endpoint.latencyEmaMs;
+      endpoint.latestLedger =
+        Number.isFinite(Number(ledger)) && Number(ledger) > 0
+          ? Number(ledger)
+          : endpoint.latestLedger;
+      endpoint.isHealthy = true;
+      endpoint.backoffAttempt = 0;
+      endpoint.rateLimitedUntil = null;
+      endpoint.lastHealthyAt = Date.now();
+      return true;
+    } catch (err) {
+      endpoint.isHealthy = false;
+      endpoint.lastHealthyAt = endpoint.lastHealthyAt || null;
+      if (err?.status === 429) {
+        endpoint.backoffAttempt = Math.min(endpoint.backoffAttempt + 1, 6);
+        endpoint.rateLimitedUntil =
+          Date.now() +
+          Math.min(1000 * Math.pow(2, endpoint.backoffAttempt - 1), 60000);
+      }
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async runHealthChecks() {
+    await Promise.all(
+      this.endpoints.map((endpoint) => this.checkEndpointHealth(endpoint))
+    );
+
+    const ledgers = this.endpoints
+      .map((endpoint) => Number(endpoint.latestLedger))
+      .filter((ledger) => Number.isFinite(ledger) && ledger > 0);
+    if (ledgers.length === 0) return;
+    const referenceLedger = Math.max(...ledgers);
+    for (const endpoint of this.endpoints) {
+      const ledger = Number(endpoint.latestLedger);
+      if (
+        endpoint.isHealthy &&
+        ledger > 0 &&
+        referenceLedger - ledger > this.maxLedgerLag
+      ) {
+        endpoint.isHealthy = false;
+        this.logger.warn?.(
+          `Evicting lagging Horizon endpoint ${endpoint.url}: ledger ${ledger}, reference ${referenceLedger}`
+        );
+      }
+    }
+  }
+
+  startHealthChecks() {
+    if (this.healthTimer || this.endpoints.length === 0) return;
+    this.runHealthChecks().catch(() => {});
+    this.healthTimer = setInterval(
+      () => this.runHealthChecks().catch(() => {}),
+      this.healthIntervalMs
+    );
+    this.healthTimer.unref?.();
+  }
+
+  stopHealthChecks() {
+    if (this.healthTimer) clearInterval(this.healthTimer);
+    this.healthTimer = null;
   }
 }
 

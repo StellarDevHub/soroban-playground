@@ -3,7 +3,7 @@
 
 use soroban_sdk::{contracterror, contracttype, Address};
 
-/// Aggregation strategy used when combining multiple source prices.
+/// Legacy ABI strategy variants; only Median is accepted for consensus.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -42,7 +42,7 @@ pub struct AggregatedPrice {
     pub price: i128,
     /// Number of sources that contributed
     pub num_sources: u32,
-    /// Ledger timestamp of this aggregation
+    /// Oldest valid candidate round timestamp (conservative freshness)
     pub timestamp: u64,
 }
 
@@ -68,6 +68,7 @@ pub enum InstanceKey {
     CircuitBreakerBps,
     /// Asset symbol this feed tracks (e.g. "XLM/USD")
     Asset,
+    PriceBounds,
 }
 
 #[contracttype]
@@ -94,4 +95,16 @@ pub enum Error {
     OutlierDetected = 11,
     CircuitBreakerTripped = 12,
     InvalidParameter = 13,
+    PriceBoundsNotSet = 14,
+    PriceOutOfBounds = 15,
+    DuplicateReporter = 16,
+    MaxSourcesReached = 17,
+}
+
+/// Inclusive price limits in the asset's native price scale.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PriceBounds {
+    pub min: i128,
+    pub max: i128,
 }

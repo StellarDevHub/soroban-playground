@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Index behind the global command palette (issue #1527).
+ * Index behind the global command palette (issue #1527, #2053).
  *
  * The palette answers four kinds of question in one box:
  *
- *  - *"where do I go?"*      → every route in `@/lib/navigation`
- *  - *"what can I run?"*     → local actions (theme, sync, export, …)
+ *  - *"where do I go?"*      → every route in `@/lib/navigation` and documentation quick-links
+ *  - *"what can I run?"*     → local actions (theme, sync, export, contract deployment actions)
  *  - *"what did I open?"*    → recent routes/templates from `useRecentFiles`
  *  - *"where is my contract?"*→ contracts deployed from this browser
  *
@@ -31,6 +31,10 @@ import type { DeployedContract } from "@/hooks/useDeployedContracts";
 import { shortenContractId } from "@/hooks/useDeployedContracts";
 import type { RecentFile } from "@/hooks/useRecentFiles";
 import type { TemplateMetadata } from "@/types/template";
+import {
+  requestPlaygroundCompile,
+  requestPlaygroundDeploy,
+} from "@/state/compileStore";
 
 /** Which bucket a result came from — drives the group heading and icon. */
 export type CommandSource =
@@ -148,7 +152,7 @@ function recentToItem(entry: RecentFile): CommandItem {
     subtitle: entry.detail,
     source: "recent",
     href,
-    keywords: [entry.id, entry.kind],
+    keywords: [entry.id, entry.kind, "recent"],
     at: entry.at,
   };
 }
@@ -182,6 +186,44 @@ function actionToItem(action: PaletteAction): CommandItem {
   };
 }
 
+/** Built-in contract deployment actions for global command palette. */
+export const BUILTIN_PALETTE_ACTIONS: PaletteAction[] = [
+  {
+    id: "build.compile",
+    label: "Compile contract",
+    description: "Build the current Soroban source to WASM",
+    keywords: ["compile", "build", "cargo", "wasm", "rust", "artifact"],
+    shortcut: "⇧⌘B",
+    run: () => requestPlaygroundCompile(),
+  },
+  {
+    id: "deploy.artifact",
+    label: "Deploy compiled contract",
+    description: "Deploy the last pre-flight artifact to the network",
+    keywords: ["deploy", "publish", "install", "testnet", "artifact", "contract"],
+    shortcut: "⇧⌘D",
+    run: () => requestPlaygroundDeploy(),
+  },
+];
+
+/** Documentation quick-links for quick reference access. */
+export const DOCUMENTATION_QUICK_LINKS: NavigationItem[] = [
+  {
+    name: "Docs: Soroban SDK Reference",
+    href: "/docs?section=sdk",
+    icon: "book",
+    description: "Smart contract guides, SDK reference and developer tutorials.",
+    keywords: ["docs", "documentation", "guide", "sdk", "soroban", "quick-link"],
+  },
+  {
+    name: "Docs: Stellar XDR Encodings",
+    href: "/docs?section=xdr",
+    icon: "file-code",
+    description: "XDR wire specifications and payload decoding reference.",
+    keywords: ["docs", "xdr", "quick-link", "encoding", "wire", "reference"],
+  },
+];
+
 /** Build the full candidate list. Pure and cheap — safe to call per render. */
 export function buildCommandIndex(
   inputs: CommandPaletteInputs = {},
@@ -200,7 +242,11 @@ export function buildCommandIndex(
   for (const entry of recents) items.push(recentToItem(entry));
   for (const contract of contracts) items.push(contractToItem(contract));
   for (const template of templates) items.push(templateToItem(template));
+
+  const seenHrefs = new Set<string>();
   for (const route of ALL_ROUTES) {
+    if (seenHrefs.has(route.href)) continue;
+    seenHrefs.add(route.href);
     // Never offer "navigate to the page you are already on".
     if (currentPath && route.href === currentPath) continue;
     items.push(routeToItem(route));

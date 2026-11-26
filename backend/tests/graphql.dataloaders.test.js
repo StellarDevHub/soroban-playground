@@ -190,6 +190,20 @@ describe('GraphQL DataLoader batching (issue #724)', () => {
     await initializeDatabase();
     app = express();
     app.use(express.json());
+    // Inject a mock authenticated user into req.user so GraphQL context
+    // bypasses DB-backed auth lookups that would pollute the SQL query counter
+    // and satisfies project ownership / RLS checks.
+    app.use((req, _res, next) => {
+      req.user = {
+        id: 1,
+        username: 'admin',
+        email: 'admin@example.com',
+        role: 'admin',
+        roles: ['admin'],
+        permissions: ['project:read'],
+      };
+      next();
+    });
     await setupGraphQL(app);
     installQueryCounter();
   });

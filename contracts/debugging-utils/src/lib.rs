@@ -4,10 +4,10 @@
 //! # Debugging Utilities Contract
 //!
 //! Collection of debugging utilities for Soroban smart contracts:
-//! - DebugLogger: Log messages with sanitization
+//! - DebugLogger: Log messages with sanitization and host diagnostics
 //! - StateInspector: Inspect and compare contract state
-//! - ExecutionTracer: Trace execution steps
-//! - GasProfiler: Profile function gas costs
+//! - ExecutionTracer: Trace execution steps with host diagnostic logging
+//! - GasProfiler: Profile function execution timers and costs
 //! - ErrorDebugger: Capture and format errors
 
 #![no_std]
@@ -15,13 +15,14 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, symbol_short, Address, Env, Map, String, Symbol, Val,
-    Vec,
+    contract, contracterror, contractimpl, symbol_short, Address, Env, IntoVal, Map, String,
+    Symbol, Val, Vec,
 };
 
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const LOGS: Symbol = symbol_short!("LOGS");
 const MAX_LOG_LEN: usize = 512;
+const MAX_KEY_LEN: u32 = 128;
 const MAX_TRACE_STEPS: u32 = 200;
 const MAX_ERROR_HISTORY: u32 = 100;
 
@@ -35,22 +36,33 @@ pub enum Error {
     CapExceeded = 4,
 }
 
-fn get_admin(env: &Env) -> Result<Address, Error> {
-    env.storage()
-        .instance()
-        .get(&ADMIN)
-        .ok_or(Error::Unauthorized)
-}
-
 fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&ADMIN, admin);
 }
 
-fn sanitize_message(_env: &Env, msg: &String) -> Result<String, Error> {
-    if msg.is_empty() {
+fn sanitize_message(env: &Env, msg: &String) -> Result<String, Error> {
+    let len = msg.len() as usize;
+    if len == 0 {
         return Err(Error::InvalidInput);
     }
-    Ok(msg.clone())
+    let mut raw = [0u8; 1024];
+    let to_read = len.min(1024);
+    msg.copy_into_slice(&mut raw[..to_read]);
+
+    let mut sanitized = [0u8; MAX_LOG_LEN];
+    let mut out_len = 0;
+    for &b in raw[..to_read].iter() {
+        if (32..=126).contains(&b) {
+            if out_len < MAX_LOG_LEN {
+                sanitized[out_len] = b;
+                out_len += 1;
+            }
+        }
+    }
+    if out_len == 0 {
+        return Err(Error::InvalidInput);
+    }
+    Ok(String::from_bytes(env, &sanitized[..out_len]))
 }
 
 fn ensure_initialized(env: &Env) -> Result<(), Error> {
@@ -60,15 +72,67 @@ fn ensure_initialized(env: &Env) -> Result<(), Error> {
     Ok(())
 }
 
-fn make_diff_string(env: &Env, _key: &String, _val_a: &Val, val_b: &Option<Val>) -> String {
+fn make_diff_string(
+    env: &Env,
+    _key: &String,
+    _val_a: &Option<Val>,
+    val_b: &Option<Val>,
+) -> String {
     match val_b {
         Some(_) => String::from_str(env, "k: A -> B"),
         None => String::from_str(env, "k: A -> None"),
     }
 }
 
-fn format_error_internal(env: &Env, _code: u32, _context: &String, _ledger: u32) -> String {
-    String::from_str(env, "[ERR]")
+fn write_u32_to_buf(mut n: u32, buf: &mut [u8]) -> usize {
+    if n == 0 {
+        buf[0] = b'0';
+        return 1;
+    }
+    let mut tmp = [0u8; 10];
+    let mut len = 0;
+    while n > 0 {
+        tmp[len] = b'0' + (n % 10) as u8;
+        n /= 10;
+        len += 1;
+    }
+    for i in 0..len {
+        buf[i] = tmp[len - 1 - i];
+    }
+    len
+}
+
+fn format_error_internal(env: &Env, code: u32, context: &String, ledger: u32) -> String {
+    let mut buf = [0u8; 1024];
+    let mut pos = 0;
+
+    let prefix = b"[ERROR-";
+    buf[pos..pos + prefix.len()].copy_from_slice(prefix);
+    pos += prefix.len();
+
+    pos += write_u32_to_buf(code, &mut buf[pos..]);
+
+    let mid = b"] ";
+    buf[pos..pos + mid.len()].copy_from_slice(mid);
+    pos += mid.len();
+
+    let ctx_len = context.len() as usize;
+    let ctx_to_copy = ctx_len.min(buf.len().saturating_sub(pos + 30));
+    context.copy_into_slice(&mut buf[pos..pos + ctx_to_copy]);
+    pos += ctx_to_copy;
+
+    let ledger_prefix = b" @ ledger:";
+    buf[pos..pos + ledger_prefix.len()].copy_from_slice(ledger_prefix);
+    pos += ledger_prefix.len();
+
+    pos += write_u32_to_buf(ledger, &mut buf[pos..]);
+
+    String::from_bytes(env, &buf[..pos])
+}
+
+fn get_execution_timer(env: &Env) -> u64 {
+    // Non-intrusive execution timer compatible with both testnet and local mock environments
+    env.ledger().timestamp()
 }
 
 #[contract]
@@ -85,6 +149,7 @@ impl DebuggingUtils {
         env.storage()
             .instance()
             .set(&LOGS, &Vec::<String>::new(&env));
+        env.logs().add("init", &[admin.to_val()]);
         Ok(())
     }
 
@@ -98,12 +163,13 @@ impl DebuggingUtils {
             .instance()
             .get(&LOGS)
             .unwrap_or_else(|| Vec::<String>::new(&env));
-        logs.push_back(sanitized);
+        logs.push_back(sanitized.clone());
         env.storage().instance().set(&LOGS, &logs);
         env.events().publish(
             (symbol_short!("LogEmit"), symbol_short!("debug")),
-            message.clone(),
+            sanitized.clone(),
         );
+        env.logs().add("debug_log", &[sanitized.to_val()]);
         Ok(())
     }
 
@@ -115,12 +181,13 @@ impl DebuggingUtils {
             .instance()
             .get(&LOGS)
             .unwrap_or_else(|| Vec::<String>::new(&env));
-        logs.push_back(sanitized);
+        logs.push_back(sanitized.clone());
         env.storage().instance().set(&LOGS, &logs);
         env.events().publish(
             (symbol_short!("LogEmit"), symbol_short!("warn")),
-            message.clone(),
+            sanitized.clone(),
         );
+        env.logs().add("warn_log", &[sanitized.to_val()]);
         Ok(())
     }
 
@@ -132,12 +199,13 @@ impl DebuggingUtils {
             .instance()
             .get(&LOGS)
             .unwrap_or_else(|| Vec::<String>::new(&env));
-        logs.push_back(sanitized);
+        logs.push_back(sanitized.clone());
         env.storage().instance().set(&LOGS, &logs);
         env.events().publish(
             (symbol_short!("LogEmit"), symbol_short!("error")),
-            message.clone(),
+            sanitized.clone(),
         );
+        env.logs().add("error_log", &[sanitized.to_val()]);
         Ok(())
     }
 
@@ -160,13 +228,17 @@ impl DebuggingUtils {
 
     // ── StateInspector ─────────────────────────────────────────────────────────────
 
-    pub fn snapshot_state(_env: Env, keys: Vec<String>) -> Result<Map<String, Val>, Error> {
+    pub fn snapshot_state(env: Env, keys: Vec<String>) -> Result<Map<String, Val>, Error> {
+        let mut map: Map<String, Val> = Map::new(&env);
         for key in keys.iter() {
-            if key.is_empty() {
+            if key.is_empty() || key.len() > MAX_KEY_LEN {
                 return Err(Error::InvalidInput);
             }
+            if let Some(val) = env.storage().instance().get::<String, Val>(&key) {
+                map.set(key, val);
+            }
         }
-        Ok(Map::new(&_env))
+        Ok(map)
     }
 
     pub fn compare_states(
@@ -182,22 +254,41 @@ impl DebuggingUtils {
                 (None, _) => false,
             };
             if !is_same {
-                let diff = make_diff_string(&env, &key, &val_a, &val_b);
+                let diff = make_diff_string(&env, &key, &Some(val_a), &val_b);
+                diffs.push_back(diff);
+            }
+        }
+        for (key, val_b) in snapshot_b.iter() {
+            if !snapshot_a.contains_key(key.clone()) {
+                let diff = make_diff_string(&env, &key, &None, &Some(val_b));
                 diffs.push_back(diff);
             }
         }
         Ok(diffs)
     }
 
+    pub fn validate_state(env: Env, key: String, expected_value: Val) -> Result<bool, Error> {
+        if key.is_empty() || key.len() > MAX_KEY_LEN {
+            return Err(Error::InvalidInput);
+        }
+        let current: Option<Val> = env.storage().instance().get(&key);
+        match current {
+            Some(v) => Ok(v.get_payload() == expected_value.get_payload()),
+            None => Ok(false),
+        }
+    }
+
     // ── ExecutionTracer ─────────────────────────────────────────────────────────────
 
     pub fn start_trace(env: Env, trace_id: String) -> Result<(), Error> {
+        ensure_initialized(&env)?;
         if trace_id.is_empty() {
             return Err(Error::InvalidInput);
         }
-        let trace_key: Symbol = symbol_short!("trace");
+        let trace_key = (symbol_short!("tr"), trace_id.clone());
         let empty_vec: Vec<String> = Vec::new(&env);
         env.storage().persistent().set(&trace_key, &empty_vec);
+        env.logs().add("trace_start", &[trace_id.to_val()]);
         Ok(())
     }
 
@@ -205,7 +296,7 @@ impl DebuggingUtils {
         if trace_id.is_empty() || step.is_empty() {
             return Err(Error::InvalidInput);
         }
-        let trace_key: Symbol = symbol_short!("trace");
+        let trace_key = (symbol_short!("tr"), trace_id.clone());
         let mut trace: Vec<String> = env
             .storage()
             .persistent()
@@ -214,8 +305,10 @@ impl DebuggingUtils {
         if trace.len() >= MAX_TRACE_STEPS {
             return Err(Error::CapExceeded);
         }
-        trace.push_back(step);
+        trace.push_back(step.clone());
         env.storage().persistent().set(&trace_key, &trace);
+        env.logs()
+            .add("trace_step", &[trace_id.to_val(), step.to_val()]);
         Ok(())
     }
 
@@ -223,12 +316,13 @@ impl DebuggingUtils {
         if trace_id.is_empty() {
             return Err(Error::NotFound);
         }
-        let trace_key: Symbol = symbol_short!("trace");
+        let trace_key = (symbol_short!("tr"), trace_id.clone());
         let trace: Vec<String> = env
             .storage()
             .persistent()
             .get(&trace_key)
             .ok_or(Error::NotFound)?;
+        env.logs().add("trace_end", &[trace_id.to_val()]);
         Ok(trace)
     }
 
@@ -236,7 +330,7 @@ impl DebuggingUtils {
         if trace_id.is_empty() {
             return Err(Error::NotFound);
         }
-        let trace_key: Symbol = symbol_short!("trace");
+        let trace_key = (symbol_short!("tr"), trace_id.clone());
         Ok(env
             .storage()
             .persistent()
@@ -247,36 +341,60 @@ impl DebuggingUtils {
     // ── GasProfiler ───────────────────────────────────────────────────────────────
 
     pub fn start_profile(env: Env, fn_name: String) -> Result<(), Error> {
-        let key: Symbol = symbol_short!("ps");
-        let count: u64 = 0;
-        env.storage().instance().set(&key, &count);
+        if fn_name.is_empty() {
+            return Err(Error::InvalidInput);
+        }
+        let key = (symbol_short!("ps"), fn_name.clone());
+        let start_time = get_execution_timer(&env);
+        env.storage().instance().set(&key, &start_time);
+        env.logs().add("profile_start", &[fn_name.to_val()]);
         Ok(())
     }
 
     pub fn end_profile(env: Env, fn_name: String) -> Result<u64, Error> {
-        let key: Symbol = symbol_short!("ps");
-        let start: u64 = env.storage().instance().get(&key).ok_or(Error::NotFound)?;
-        let cost = 0u64;
-        let result_key: Symbol = symbol_short!("p");
-        let existing: u64 = env.storage().instance().get(&result_key).unwrap_or(0);
-        env.storage()
+        if fn_name.is_empty() {
+            return Err(Error::NotFound);
+        }
+        let key = (symbol_short!("ps"), fn_name.clone());
+        let start_time: u64 = env.storage().instance().get(&key).ok_or(Error::NotFound)?;
+        let current_time = get_execution_timer(&env);
+        let elapsed = current_time.saturating_sub(start_time);
+
+        let rep_key: Symbol = symbol_short!("prep");
+        let mut report: Map<String, u64> = env
+            .storage()
             .instance()
-            .set(&result_key, &(existing + cost));
+            .get(&rep_key)
+            .unwrap_or_else(|| Map::new(&env));
+        let existing = report.get(fn_name.clone()).unwrap_or(0);
+        report.set(fn_name.clone(), existing + elapsed);
+        env.storage().instance().set(&rep_key, &report);
         env.storage().instance().remove(&key);
-        Ok(cost)
+
+        env.logs()
+            .add("profile_end", &[fn_name.to_val(), elapsed.into_val(&env)]);
+        Ok(elapsed)
     }
 
-    pub fn get_profile_report(_env: Env) -> Result<Map<String, u64>, Error> {
-        Ok(Map::new(&_env))
+    pub fn get_profile_report(env: Env) -> Result<Map<String, u64>, Error> {
+        let rep_key: Symbol = symbol_short!("prep");
+        Ok(env
+            .storage()
+            .instance()
+            .get(&rep_key)
+            .unwrap_or_else(|| Map::new(&env)))
     }
 
-    pub fn reset_profiles(_env: Env) -> Result<(), Error> {
+    pub fn reset_profiles(env: Env) -> Result<(), Error> {
+        let rep_key: Symbol = symbol_short!("prep");
+        env.storage().instance().remove(&rep_key);
         Ok(())
     }
 
     // ── ErrorDebugger ─────────────────────────────────────────────────────────────
 
     pub fn capture_error(env: Env, code: u32, context: String) -> Result<String, Error> {
+        ensure_initialized(&env)?;
         let ledger = env.ledger().sequence();
         let formatted = format_error_internal(&env, code, &context, ledger);
         let mut history: Vec<String> = env
@@ -289,6 +407,8 @@ impl DebuggingUtils {
         }
         history.push_back(formatted.clone());
         env.storage().instance().set(&symbol_short!("EH"), &history);
+        env.logs()
+            .add("error_captured", &[code.into_val(&env), context.to_val()]);
         Ok(formatted)
     }
 

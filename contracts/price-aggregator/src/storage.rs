@@ -3,7 +3,9 @@
 
 use soroban_sdk::{Address, Env, String};
 
-use crate::types::{AggregationStrategy, DataKey, Error, InstanceKey, PriceEntry, Source};
+use crate::types::{
+    AggregationStrategy, DataKey, Error, InstanceKey, PriceBounds, PriceEntry, Source,
+};
 
 // ── Instance (contract-global) ────────────────────────────────────────────────
 
@@ -55,7 +57,8 @@ pub fn get_max_price_age(env: &Env) -> u64 {
     env.storage()
         .instance()
         .get(&InstanceKey::MaxPriceAge)
-        .unwrap_or(3600)
+        .unwrap_or(3600u64)
+        .min(3600)
 }
 pub fn set_max_price_age(env: &Env, v: u64) {
     env.storage().instance().set(&InstanceKey::MaxPriceAge, &v);
@@ -87,7 +90,8 @@ pub fn get_min_sources(env: &Env) -> u32 {
     env.storage()
         .instance()
         .get(&InstanceKey::MinSources)
-        .unwrap_or(1)
+        .unwrap_or(3u32)
+        .max(3)
 }
 pub fn set_min_sources(env: &Env, v: u32) {
     env.storage().instance().set(&InstanceKey::MinSources, &v);
@@ -120,12 +124,12 @@ pub fn set_authorized(env: &Env, source_id: u32, v: bool) {
 pub fn set_price(env: &Env, source_id: u32, asset: &String, entry: &PriceEntry) {
     env.storage()
         .persistent()
-        .set(&DataKey::Price(source_id, asset.clone()), entry);
+        .set(&DataKey::VerifiedPrice(source_id, asset.clone()), entry);
 }
 pub fn get_price(env: &Env, source_id: u32, asset: &String) -> Option<PriceEntry> {
     env.storage()
         .persistent()
-        .get(&DataKey::Price(source_id, asset.clone()))
+        .get(&DataKey::VerifiedPrice(source_id, asset.clone()))
 }
 
 pub fn set_last_aggregated(env: &Env, asset: &String, price: i128) {
@@ -137,4 +141,24 @@ pub fn get_last_aggregated(env: &Env, asset: &String) -> Option<i128> {
     env.storage()
         .persistent()
         .get(&DataKey::LastAggregated(asset.clone()))
+}
+
+pub fn get_reporter(env: &Env, id: u32) -> Option<Address> {
+    env.storage().persistent().get(&DataKey::Reporter(id))
+}
+pub fn set_reporter(env: &Env, id: u32, reporter: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Reporter(id), reporter);
+}
+pub fn get_price_bounds(env: &Env, asset: &String) -> Result<PriceBounds, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PriceBounds(asset.clone()))
+        .ok_or(Error::PriceBoundsNotSet)
+}
+pub fn set_price_bounds(env: &Env, asset: &String, bounds: &PriceBounds) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::PriceBounds(asset.clone()), bounds);
 }

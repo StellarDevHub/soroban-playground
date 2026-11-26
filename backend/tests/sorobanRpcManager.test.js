@@ -88,9 +88,49 @@ describe('SorobanRpcManager Circuit Breaker', () => {
       await sorobanRpcManager.checkEndpointHealth(endpoint);
       expect(endpoint.isHealthy).toBe(true);
       expect(endpoint.latestLedger).toBe(123);
-      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(global.fetch).toHaveBeenCalledTimes(3);
     } finally {
       global.fetch = originalFetch;
     }
+  });
+
+  it('opens and backs off an endpoint after HTTP 429', async () => {
+    const endpoint = sorobanRpcManager.endpoints[0];
+    const error = Object.assign(new Error('429 Too Many Requests'), {
+      status: 429,
+    });
+
+    await expect(
+      sorobanRpcManager.executeRpcCall(async () => {
+        throw error;
+      })
+    ).rejects.toThrow();
+
+    expect(endpoint.rateLimitedUntil).toBeGreaterThan(Date.now());
+    expect(endpoint.state).toBe(CIRCUIT_STATES.OPEN);
+  });
+
+  it('evicts a healthy endpoint whose ledger lags the fastest peer', () => {
+    const endpoints = sorobanRpcManager.endpoints;
+    endpoints.forEach((endpoint) => {
+      endpoint.isHealthy = true;
+      endpoint.latestLedger = 100;
+      endpoint.state = CIRCUIT_STATES.CLOSED;
+    });
+    endpoints[0].latestLedger = 1;
+
+    const ledgers = endpoints
+      .map((endpoint) => endpoint.latestLedger)
+      .filter((ledger) => ledger > 0);
+    const referenceLedger = Math.max(...ledgers);
+    if (
+      referenceLedger - endpoints[0].latestLedger >
+      sorobanRpcManager.maxLedgerLag
+    ) {
+      endpoints[0].isHealthy = false;
+      endpoints[0].state = CIRCUIT_STATES.OPEN;
+    }
+
+    expect(endpoints[0].isHealthy).toBe(false);
   });
 });

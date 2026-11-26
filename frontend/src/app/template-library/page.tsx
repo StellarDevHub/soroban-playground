@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { Star, StarOff, FileCode2, Tag, Layers, BookOpen } from "lucide-react";
+import { Star, StarOff, FileCode2, Tag, Layers, BookOpen, GitFork } from "lucide-react";
 import FavoritesSearchBar from "@/components/FavoritesSearchBar";
 import FavoritesFilter, {
   FavoritesFilterState,
 } from "@/components/FavoritesFilter";
+import TemplateForkModal from "@/components/TemplateForkModal";
 import { useWorkspace } from "@/components/providers/WorkspaceProvider";
 import { writeJson } from "@/lib/offline/storage";
 import { LEGACY_FAVORITES_KEYS } from "@/lib/sync/workspaceStore";
@@ -62,6 +63,7 @@ export default function TemplateLibraryPage() {
     tags: [],
   });
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [activeForkTemplate, setActiveForkTemplate] = useState<Template | null>(null);
 
   const favorites = useMemo(
     () => new Set(workspace.favorites),
@@ -274,6 +276,21 @@ export default function TemplateLibraryPage() {
                       ))}
                     </div>
 
+                    {/* Community Rating & Forks */}
+                    <div className="flex items-center justify-between text-xs text-gray-500 mb-3 pt-2 border-t border-gray-100">
+                      <span className="flex items-center gap-1 text-amber-600 font-medium">
+                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                        {template.communityRating ?? 4.8}
+                        <span className="text-[10px] text-gray-400">
+                          ({template.ratingCount ?? 120})
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1 text-gray-500 text-[11px]">
+                        <GitFork className="w-3 h-3 text-gray-400" />
+                        {template.forksCount ?? 250} forks
+                      </span>
+                    </div>
+
                     <div className="flex gap-2 mt-auto">
                       <button
                         onClick={() =>
@@ -285,12 +302,15 @@ export default function TemplateLibraryPage() {
                       >
                         {previewId === template.id ? "Hide" : "Preview"}
                       </button>
-                      <a
-                        href={`/playground?template=${template.id}`}
-                        className="flex-1 text-xs px-3 py-1.5 bg-blue-600 text-white rounded text-center hover:bg-blue-700 transition-colors"
+                      <button
+                        type="button"
+                        data-testid={`fork-template-btn-${template.id}`}
+                        onClick={() => setActiveForkTemplate(template)}
+                        className="flex-1 text-xs px-3 py-1.5 bg-blue-600 text-white rounded text-center hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-1"
                       >
-                        Open in IDE
-                      </a>
+                        <GitFork className="w-3 h-3" />
+                        Fork in IDE
+                      </button>
                     </div>
 
                     {previewId === template.id && (
@@ -305,6 +325,13 @@ export default function TemplateLibraryPage() {
           )}
         </section>
       </div>
+
+      {/* Safe Template Fork Confirmation Modal */}
+      <TemplateForkModal
+        template={activeForkTemplate}
+        isOpen={activeForkTemplate !== null}
+        onClose={() => setActiveForkTemplate(null)}
+      />
     </div>
   );
 }

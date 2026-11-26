@@ -13,6 +13,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   CloudDownload,
   CloudUpload,
+  GitBranch,
+  GitPullRequest,
   KeyRound,
   LoaderCircle,
   Trash2,
@@ -29,6 +31,8 @@ import {
   fetchAccount,
   type GitHubAccount,
   type GitHubClient,
+  type PullRequestDraft,
+  type PullRequestResult,
 } from "@/lib/git/github";
 import type { GitRemoteConfig } from "@/lib/git/types";
 
@@ -47,6 +51,14 @@ export interface GitHubRemotePanelProps {
   onPush?: (client: GitHubClient, remote: GitRemoteConfig) => Promise<void>;
   /** Pull the current branch. */
   onPull?: (client: GitHubClient, remote: GitRemoteConfig) => Promise<void>;
+  /** Publish a feature branch and open a pull request. */
+  onPublishPR?: (
+    client: GitHubClient,
+    remote: GitRemoteConfig,
+    draft: PullRequestDraft,
+  ) => Promise<PullRequestResult>;
+  /** Url of the most recently created pull request. */
+  prUrl?: string | null;
   /** `true` while a push/pull is running. */
   busy?: boolean;
 }
@@ -61,11 +73,17 @@ const GitHubRemotePanel: React.FC<GitHubRemotePanelProps> = ({
   branch,
   onPush,
   onPull,
+  onPublishPR,
+  prUrl = null,
   busy = false,
 }) => {
   const [token, setToken] = useState("");
   const [owner, setOwner] = useState(remote?.owner ?? "");
   const [repo, setRepo] = useState(remote?.repo ?? "");
+  const [prBranch, setPrBranch] = useState("");
+  const [prTitle, setPrTitle] = useState("");
+  const [prBase, setPrBase] = useState("main");
+  const [prBody, setPrBody] = useState("");
   const [account, setAccount] = useState<GitHubAccount | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -226,6 +244,37 @@ const GitHubRemotePanel: React.FC<GitHubRemotePanelProps> = ({
     }
   }, [remote, onPull]);
 
+  const handlePublishPR = useCallback(async () => {
+    if (!remote || !onPublishPR) return;
+    setError(null);
+    setStatus(null);
+    setIsWorking(true);
+    try {
+      const stored = await loadToken();
+      if (!stored) {
+        setError("Store a GitHub personal access token first.");
+        return;
+      }
+      const client = await createGitHubClient(stored);
+      const result = await onPublishPR(client, remote, {
+        branch: prBranch,
+        title: prTitle,
+        base: prBase,
+        body: prBody,
+      });
+      setStatus(`Created pull request #${result.number}.`);
+      setPrBranch("");
+      setPrTitle("");
+      setPrBody("");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "The pull request failed.",
+      );
+    } finally {
+      setIsWorking(false);
+    }
+  }, [remote, onPublishPR, prBranch, prTitle, prBase, prBody]);
+
   const working = busy || isWorking;
 
   return (
@@ -378,6 +427,74 @@ const GitHubRemotePanel: React.FC<GitHubRemotePanelProps> = ({
             <CloudDownload size={13} />
             Pull {branch}
           </button>
+        </div>
+
+        <div className="rounded-xl border border-white/8 bg-slate-950/40 p-3">
+          <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            <GitBranch size={11} />
+            Feature branch &amp; pull request
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input
+              data-testid="pr-branch-input"
+              value={prBranch}
+              onChange={(event) => setPrBranch(event.target.value)}
+              placeholder="feature/my-change"
+              aria-label="Feature branch name"
+              className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 font-mono text-xs text-slate-200 outline-none focus:border-teal-400/50"
+            />
+            <input
+              data-testid="pr-title-input"
+              value={prTitle}
+              onChange={(event) => setPrTitle(event.target.value)}
+              placeholder="Pull request title"
+              aria-label="Pull request title"
+              className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-teal-400/50"
+            />
+            <input
+              data-testid="pr-base-input"
+              value={prBase}
+              onChange={(event) => setPrBase(event.target.value)}
+              placeholder="main"
+              aria-label="Base branch"
+              className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 font-mono text-xs text-slate-200 outline-none focus:border-teal-400/50"
+            />
+            <input
+              data-testid="pr-body-input"
+              value={prBody}
+              onChange={(event) => setPrBody(event.target.value)}
+              placeholder="Description (optional)"
+              aria-label="Pull request description"
+              className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-teal-400/50"
+            />
+          </div>
+          <button
+            type="button"
+            data-testid="github-create-pr"
+            onClick={() => void handlePublishPR()}
+            disabled={
+              !remote ||
+              !onPublishPR ||
+              working ||
+              prBranch.trim().length === 0 ||
+              prTitle.trim().length === 0
+            }
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-400/10 px-3 py-1.5 text-xs font-medium text-violet-200 transition hover:bg-violet-400/20 disabled:opacity-40"
+          >
+            <GitPullRequest size={13} />
+            Create feature branch &amp; PR
+          </button>
+          {prUrl && (
+            <a
+              data-testid="github-pr-link"
+              href={prUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 block break-all text-xs text-cyan-300 underline"
+            >
+              {prUrl}
+            </a>
+          )}
         </div>
 
         {status && (

@@ -300,6 +300,24 @@ describe("SpotlightModal — keyboard navigation", () => {
       .filter((option) => option.getAttribute("aria-selected") === "true");
     expect(selected).toHaveLength(1);
   });
+
+  it("toggles action preview with Tab key without closing or executing", () => {
+    const onOpenChange = jest.fn();
+    renderSpotlight({ onOpenChange });
+    const input = screen.getByRole("combobox");
+
+    expect(screen.queryByTestId("action-preview")).not.toBeInTheDocument();
+
+    // Tab opens action preview
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(screen.getByTestId("action-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("action-preview")).toHaveTextContent(/Action Preview:/i);
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    // Second Tab dismisses preview
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(screen.queryByTestId("action-preview")).not.toBeInTheDocument();
+  });
 });
 
 describe("SpotlightModal — configurable shortcuts", () => {
@@ -381,11 +399,8 @@ describe("SpotlightModal — configurable shortcuts", () => {
     ).toContain("KeyJ");
 
     fireEvent.change(input, { target: { value: "reset all spotlight shortcuts" } });
-    const resetRow = screen
-      .getByText("Restore the default keybindings")
-      .closest("li");
-    expect(resetRow).not.toBeNull();
-    fireEvent.click(resetRow as HTMLElement);
+    const resetRow = findRow("Restore the default keybindings");
+    fireEvent.click(resetRow);
     expect(
       window.localStorage.getItem("sp:spotlight-keybindings"),
     ).toContain("{}");

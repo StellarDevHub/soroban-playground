@@ -28,6 +28,7 @@ import {
   ArrowDownToLine,
   CheckCircle2,
   ChevronRight,
+  Database,
   FileCode2,
   Loader2,
   Rocket,
@@ -39,11 +40,14 @@ import {
   XCircle,
 } from "lucide-react";
 import { parseSorobanMetadata } from "@/utils/sorobanMetadata";
+import { profileWasm } from "@/workers/wasmOptCore";
 import type {
+  BytecodeProfile,
   WasmOptPasses,
   WasmOptPassResult,
   WasmOptRequest,
   WasmOptResponse,
+  WasmSectionProfile,
 } from "@/workers/wasmOpt.worker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -80,6 +84,11 @@ interface AnalysisResult {
   specIdentifiers: string[];
 }
 
+interface OptProgress {
+  percent: number;
+  stage: string;
+}
+
 interface OptResult {
   originalBytes: number;
   optimizedBytes: number;
@@ -89,6 +98,7 @@ interface OptResult {
   output: Uint8Array;
   sorobanSections: string[];
   specIdentifiers: string[];
+  profile: BytecodeProfile;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -135,6 +145,18 @@ const SECTION_TEXT_COLOR: Record<number, string> = {
   10: "text-cyan-200",
   11: "text-rose-300",
 };
+
+const PROFILE_CATEGORIES: Array<{
+  key: keyof WasmSectionProfile["categories"];
+  label: string;
+  color: string;
+}> = [
+  { key: "code", label: "Code", color: "bg-cyan-500" },
+  { key: "data", label: "Data", color: "bg-rose-400" },
+  { key: "types", label: "Types", color: "bg-blue-400" },
+  { key: "custom", label: "Custom / Spec", color: "bg-purple-500" },
+  { key: "other", label: "Other", color: "bg-slate-500" },
+];
 
 const DEFAULT_PASSES: WasmOptPasses = {
   stripDebugNames: true,
@@ -287,10 +309,17 @@ function PassToggle({
 interface TreemapProps {
   sections: SectionEntry[];
   totalBytes: number;
+  testId?: string;
 }
 
-function SectionTreemap({ sections, totalBytes }: TreemapProps) {
-  if (sections.length === 0) return null;
+function SectionTreemap({ sections, totalBytes, testId = "section-treemap" }: TreemapProps) {
+  if (sections.length === 0) {
+    return (
+      <div data-testid={testId} className="text-[10px] text-slate-500">
+        No sections to display
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2" aria-label="WASM section treemap">
@@ -310,7 +339,8 @@ function SectionTreemap({ sections, totalBytes }: TreemapProps) {
       {/* Treemap blocks */}
       <div
         className="w-full h-20 flex flex-wrap gap-0.5 rounded-lg overflow-hidden bg-slate-950/60 border border-white/5 p-1"
-        data-testid="section-treemap"
+          data-testid={testId}
+
       >
         {sections.map((sec) => {
           const pct = totalBytes > 0 ? (sec.sizeBytes / totalBytes) * 100 : 0;
@@ -385,6 +415,85 @@ function DeltaCard({ label, value, sub, accent = "cyan" }: DeltaCardProps) {
         {value}
       </div>
       {sub && <div className="mt-0.5 text-[10px] text-slate-500">{sub}</div>}
+    </div>
+  );
+}
+
+interface BytecodeProfilePanelProps {
+  profile: BytecodeProfile;
+}
+
+function BytecodeProfilePanel({ profile }: BytecodeProfilePanelProps) {
+  const totalDelta = profile.after.totalBytes - profile.before.totalBytes;
+  const totalPct =
+    profile.before.totalBytes > 0
+      ? ((Math.abs(totalDelta) / profile.before.totalBytes) * 100).toFixed(1)
+      : "0.0";
+
+  return (
+    <div className="space-y-2" data-testid="bytecode-memory-profile">
+      <div className="flex items-center gap-2 text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
+        <Database size={12} className="text-cyan-400" />
+        Bytecode Memory Profile
+        <span className="text-slate-500 normal-case tracking-normal font-normal">
+          (before / after optimisation)
+        </span>
+      </div>
+      <div className="rounded-lg border border-white/5 bg-slate-950/50 overflow-hidden">
+        <div className="grid grid-cols-4 gap-2 px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500 border-b border-white/5">
+          <span>Section</span>
+          <span className="text-right">Before</span>
+          <span className="text-right">After</span>
+          <span className="text-right">Delta</span>
+        </div>
+        {PROFILE_CATEGORIES.map((category) => {
+          const before = profile.before.categories[category.key];
+          const after = profile.after.categories[category.key];
+          const delta = after - before;
+          return (
+            <div
+              key={category.key}
+              className="grid grid-cols-4 gap-2 px-3 py-1.5 text-[11px] font-mono odd:bg-white/[0.01]"
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <span
+                  className={`w-2 h-2 rounded-sm shrink-0 ${category.color}`}
+                />
+                <span className="truncate text-slate-300">{category.label}</span>
+              </div>
+              <span className="text-right text-slate-400">
+                {formatBytes(before)}
+              </span>
+              <span className="text-right text-slate-200">
+                {formatBytes(after)}
+              </span>
+              <span
+                className={`text-right ${
+                  delta < 0
+                    ? "text-emerald-400"
+                    : delta > 0
+                      ? "text-rose-400"
+                      : "text-slate-500"
+                }`}
+              >
+                {delta === 0
+                  ? "—"
+                  : `${delta > 0 ? "+" : "-"}${formatBytes(Math.abs(delta))}`}
+              </span>
+            </div>
+          );
+        })}
+        <div className="grid grid-cols-4 gap-2 px-3 py-2 text-[11px] font-mono font-semibold border-t border-white/10">
+          <span className="text-slate-300">Total</span>
+          <span className="text-right text-slate-400">
+            {formatBytes(profile.before.totalBytes)}
+          </span>
+          <span className="text-right text-emerald-300">
+            {formatBytes(profile.after.totalBytes)}
+          </span>
+          <span className="text-right text-emerald-400">{totalPct}%</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -519,9 +628,11 @@ export default function WasmOptConfig({
   const [inputFilename, setInputFilename] = useState(filename);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [optResult, setOptResult] = useState<OptResult | null>(null);
+  const [progress, setProgress] = useState<OptProgress | null>(null);
 
   const workerRef = useRef<Worker | null>(null);
   const reqIdRef = useRef(0);
+  const inputBytesRef = useRef<Uint8Array | null>(inputBytes ?? null);
 
   // ── Load initial bytes ─────────────────────────────────────────────────
   useEffect(() => {
@@ -529,6 +640,10 @@ export default function WasmOptConfig({
       setInputBytes(initialBytes);
     }
   }, [initialBytes]);
+
+  useEffect(() => {
+    inputBytesRef.current = inputBytes;
+  }, [inputBytes]);
 
   // ── Analyse on input change ────────────────────────────────────────────
   useEffect(() => {
@@ -562,7 +677,14 @@ export default function WasmOptConfig({
 
     worker.onmessage = (e: MessageEvent<WasmOptResponse>) => {
       const msg = e.data;
+      if (msg.type === "progress") {
+        if (msg.id === reqIdRef.current) {
+          setProgress({ percent: msg.percent, stage: msg.stage });
+        }
+        return;
+      }
       if (msg.type === "error") {
+        setProgress(null);
         setPhase("error");
         setErrorMsg(msg.message);
         return;
@@ -577,12 +699,20 @@ export default function WasmOptConfig({
           output: msg.optimized,
           sorobanSections: msg.sorobanSections,
           specIdentifiers: msg.specIdentifiers,
+          profile:
+            msg.profile ??
+            {
+              before: profileWasm(inputBytesRef.current ?? new Uint8Array()),
+              after: profileWasm(msg.optimized),
+            },
         });
+        setProgress(null);
         setPhase("done");
       }
     };
 
     worker.onerror = (e) => {
+      setProgress(null);
       setPhase("error");
       setErrorMsg(e.message ?? "Worker error");
     };
@@ -601,6 +731,7 @@ export default function WasmOptConfig({
     setInputFilename(name);
     setOptResult(null);
     setErrorMsg(null);
+    setProgress(null);
   }, []);
 
   const handleOptimise = useCallback(() => {
@@ -608,6 +739,7 @@ export default function WasmOptConfig({
     setPhase("running");
     setErrorMsg(null);
     setOptResult(null);
+    setProgress({ percent: 0, stage: "Queued" });
 
     const id = ++reqIdRef.current;
     const workerBytes = inputBytes.slice();
@@ -646,6 +778,7 @@ export default function WasmOptConfig({
     setOptResult(null);
     setPhase("idle");
     setErrorMsg(null);
+    setProgress(null);
   }, []);
 
   const togglePass = useCallback(
@@ -657,17 +790,13 @@ export default function WasmOptConfig({
 
   // ── Derived values ─────────────────────────────────────────────────────
 
-  const treemapSections = useMemo(
-    () =>
-      optResult
-        ? analyseBinary(optResult.output).sections
-        : (analysis?.sections ?? []),
-    [analysis, optResult],
-  );
+  const treemapSections = useMemo(() => analysis?.sections ?? [], [analysis]);
+  const treemapTotal = analysis?.sizeBytes ?? 0;
 
-  const treemapTotal = optResult
-    ? optResult.optimizedBytes
-    : (analysis?.sizeBytes ?? 0);
+  const afterTreemapSections = useMemo(
+    () => (optResult ? analyseBinary(optResult.output).sections : []),
+    [optResult],
+  );
 
   const appliedPassCount = useMemo(
     () => optResult?.passResults.filter((p) => p.applied).length ?? 0,
@@ -767,19 +896,35 @@ export default function WasmOptConfig({
               </div>
             )}
 
-            {/* Section treemap */}
+            {/* Section treemaps — before / after */}
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
                 <SquareCode size={12} className="text-cyan-400" />
                 Binary Composition
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                    Before optimisation
+                  </div>
+                  <SectionTreemap
+                    sections={treemapSections}
+                    totalBytes={treemapTotal}
+                  />
+                </div>
                 {optResult && (
-                  <span className="text-slate-500">(after optimisation)</span>
+                  <div className="space-y-2">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                      After optimisation
+                    </div>
+                    <SectionTreemap
+                      sections={afterTreemapSections}
+                      totalBytes={optResult.optimizedBytes}
+                      testId="section-treemap-after"
+                    />
+                  </div>
                 )}
               </div>
-              <SectionTreemap
-                sections={treemapSections}
-                totalBytes={treemapTotal}
-              />
             </div>
 
             {/* Pass configuration */}
@@ -859,11 +1004,34 @@ export default function WasmOptConfig({
               </button>
             )}
 
-            {/* Running state */}
+            {/* Running state — streamed worker progress */}
             {phase === "running" && (
-              <div className="flex items-center justify-center gap-2 py-4 text-cyan-400 text-sm">
-                <Loader2 size={18} className="animate-spin" />
-                <span>Running optimisation passes…</span>
+              <div className="space-y-2 py-2" data-testid="optimizer-progress">
+                <div className="flex items-center justify-between gap-2 text-cyan-400 text-sm">
+                  <span className="flex items-center gap-2">
+                    <Loader2 size={18} className="animate-spin" />
+                    Running optimisation passes…
+                  </span>
+                  <span className="font-mono font-bold tabular-nums text-xs">
+                    {progress?.percent ?? 0}%
+                  </span>
+                </div>
+                <div
+                  className="h-2 w-full rounded-full overflow-hidden bg-slate-950 border border-white/10"
+                  role="progressbar"
+                  aria-label="Optimisation progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progress?.percent ?? 0}
+                >
+                  <div
+                    className="h-full bg-cyan-500 transition-all duration-200"
+                    style={{ width: `${progress?.percent ?? 0}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  {progress?.stage ?? "Queued"}
+                </p>
               </div>
             )}
 
@@ -894,6 +1062,8 @@ export default function WasmOptConfig({
                     accent="cyan"
                   />
                 </div>
+
+                <BytecodeProfilePanel profile={optResult.profile} />
 
                 {/* Pass results breakdown */}
                 <div className="space-y-1.5">

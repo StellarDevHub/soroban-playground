@@ -20,7 +20,6 @@ import {
   ChevronDown,
   Code2,
   Coins,
-  Compass,
   Database,
   FileText,
   Fingerprint,
@@ -135,9 +134,8 @@ export default function ResponsiveNav({
   );
   const drawerRef = useRef<HTMLDivElement>(null);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
-  // `matchMedia` is absent in older browsers and in bare jsdom, so the motion
-  // preference is read defensively. A `false` default is safe: the CSS layer in
-  // `globals.css` independently honours `prefers-reduced-motion`.
+  const triggerRef = useRef<HTMLElement | null>(null);
+
   const prefersReducedMotion = () =>
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
@@ -180,10 +178,29 @@ export default function ResponsiveNav({
     [pathname],
   );
 
+  const openDrawer = useCallback((trigger?: HTMLElement | null) => {
+    triggerRef.current = trigger ?? hamburgerRef.current;
+    setIsOpen(true);
+  }, []);
+
   const closeDrawer = useCallback(() => {
     setIsOpen(false);
-    hamburgerRef.current?.focus();
+    triggerRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (isOpen && drawerRef.current) {
+      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length > 0) {
+        const closeBtn = drawerRef.current.querySelector<HTMLElement>(
+          'button[aria-label="Close navigation"]',
+        );
+        (closeBtn || focusable[0])?.focus();
+      }
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -390,22 +407,29 @@ export default function ResponsiveNav({
         />
       )}
 
-      {/* Mobile Sidebar Drawer */}
+      {/* Mobile Sidebar / Bottom Sheet Drawer */}
       <aside
+        id="mobile-navigation-drawer"
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-label="Navigation"
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950/90 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col md:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] bg-slate-950/95 border-r border-slate-800/80 backdrop-blur-2xl flex flex-col md:hidden shadow-2xl ${
           reducedMotion
             ? isOpen
               ? "translate-x-0"
               : "-translate-x-full"
-            : `transition-transform duration-300 ${
+            : `transition-transform duration-300 ease-in-out ${
                 isOpen ? "translate-x-0" : "-translate-x-full"
               }`
         }`}
       >
+        {/* Mobile bottom-sheet pull handle */}
+        <div
+          className="w-10 h-1 bg-slate-700/80 rounded-full mx-auto my-2 shrink-0 md:hidden"
+          aria-hidden="true"
+        />
+
         <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800/60">
           <Link
             href="/"
@@ -422,8 +446,9 @@ export default function ResponsiveNav({
           </Link>
           <button
             onClick={closeDrawer}
-            className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:bg-white/5"
+            className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:bg-white/5 transition-colors"
             aria-label="Close navigation"
+            aria-controls="mobile-navigation-drawer"
           >
             <X size={18} />
           </button>
@@ -504,10 +529,11 @@ export default function ResponsiveNav({
           <div className="flex items-center gap-3">
             <button
               ref={hamburgerRef}
-              onClick={() => setIsOpen(true)}
+              onClick={() => openDrawer(hamburgerRef.current)}
               className="flex items-center justify-center min-w-[44px] min-h-[44px] -ml-2 rounded-lg text-slate-400 hover:bg-white/5 md:hidden"
               aria-label="Open navigation"
               aria-expanded={isOpen}
+              aria-controls="mobile-navigation-drawer"
             >
               <Menu size={20} />
             </button>
@@ -562,8 +588,79 @@ export default function ResponsiveNav({
         </header>
 
         {/* Dynamic Children Panel */}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 pb-16 md:pb-0">{children}</main>
+
+        {/* Mobile Bottom-Bar Navigation */}
+        <nav
+          role="navigation"
+          aria-label="Mobile bottom navigation"
+          className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-slate-950/95 border-t border-slate-800/80 backdrop-blur-xl px-2 py-1 flex items-center justify-around pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-lg"
+        >
+          <Link
+            href="/playground"
+            className={`flex flex-col items-center justify-center min-w-[44px] min-h-[44px] px-2 py-1 rounded-xl text-[10px] font-medium transition-colors ${
+              isActive("/playground")
+                ? "text-teal-300 bg-teal-500/10"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+            aria-label="IDE Playground"
+          >
+            <Code2
+              size={18}
+              className={isActive("/playground") ? "text-teal-400" : "text-slate-400"}
+            />
+            <span className="mt-0.5">Editor</span>
+          </Link>
+
+          <Link
+            href="/compile-dashboard"
+            className={`flex flex-col items-center justify-center min-w-[44px] min-h-[44px] px-2 py-1 rounded-xl text-[10px] font-medium transition-colors ${
+              isActive("/compile-dashboard")
+                ? "text-teal-300 bg-teal-500/10"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+            aria-label="Compile Dashboard"
+          >
+            <Zap
+              size={18}
+              className={
+                isActive("/compile-dashboard") ? "text-teal-400" : "text-slate-400"
+              }
+            />
+            <span className="mt-0.5">Compile</span>
+          </Link>
+
+          <Link
+            href="/docs"
+            className={`flex flex-col items-center justify-center min-w-[44px] min-h-[44px] px-2 py-1 rounded-xl text-[10px] font-medium transition-colors ${
+              isActive("/docs")
+                ? "text-teal-300 bg-teal-500/10"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+            aria-label="Docs and Reference"
+          >
+            <BookOpen
+              size={18}
+              className={isActive("/docs") ? "text-teal-400" : "text-slate-400"}
+            />
+            <span className="mt-0.5">Docs</span>
+          </Link>
+
+          <button
+            type="button"
+            onClick={(e) => openDrawer(e.currentTarget)}
+            className="flex flex-col items-center justify-center min-w-[44px] min-h-[44px] px-2 py-1 rounded-xl text-[10px] font-medium text-slate-400 hover:text-slate-200 transition-colors"
+            aria-label="Open navigation menu"
+            aria-expanded={isOpen}
+            aria-controls="mobile-navigation-drawer"
+          >
+            <Menu size={18} />
+            <span className="mt-0.5">Menu</span>
+          </button>
+        </nav>
       </div>
     </div>
   );
 }
+
+ResponsiveNav.displayName = "ResponsiveNav";

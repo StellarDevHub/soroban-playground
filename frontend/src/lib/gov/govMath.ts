@@ -7,10 +7,12 @@
 
 import type {
   ApprovalStatus,
+  GovernanceProposal,
   LedgerStateDiff,
   ProposalExecutablePayload,
   QuadraticVotingMetrics,
   QuorumStatus,
+  TreasuryImpactSimulation,
 } from './types';
 
 /**
@@ -208,4 +210,114 @@ export function simulateProposalStateDiff(
   }
 
   return diffs;
+}
+
+/**
+ * Calculates simulated treasury balance impact if a governance proposal passes and is executed.
+ */
+export function calculateTreasuryImpact(
+  proposal?: GovernanceProposal | null,
+  baseTreasury: number = 25_000_000,
+): TreasuryImpactSimulation {
+  if (!proposal) {
+    return {
+      baselineBalance: baseTreasury,
+      simulatedBalance: baseTreasury,
+      netDelta: 0,
+      deltaPct: 0,
+      currency: 'XLM',
+      impactType: 'neutral',
+      description: 'No proposal selected.',
+    };
+  }
+
+  // Check state diffs for direct treasury reserve changes
+  const treasuryDiff = proposal.prospectiveStateDiff?.find(
+    (d) =>
+      d.key.toLowerCase().includes('treasury') ||
+      d.key.toLowerCase().includes('reserve_balance') ||
+      d.key.toLowerCase().includes('grant_reserve'),
+  );
+
+  if (treasuryDiff && typeof treasuryDiff.proposedValue === 'number') {
+    const prev =
+      typeof treasuryDiff.previousValue === 'number'
+        ? treasuryDiff.previousValue
+        : baseTreasury;
+    const proposed = treasuryDiff.proposedValue;
+    const delta = proposed - prev;
+    const deltaPct = prev > 0 ? Number(((delta / prev) * 100).toFixed(2)) : 0;
+
+    return {
+      baselineBalance: prev,
+      simulatedBalance: proposed,
+      netDelta: delta,
+      deltaPct,
+      currency: 'XLM',
+      impactType: delta < 0 ? 'drawdown' : delta > 0 ? 'inflow' : 'neutral',
+      description:
+        delta < 0
+          ? `Disburses ${Math.abs(delta).toLocaleString()} XLM from community treasury upon execution.`
+          : delta > 0
+          ? `Deposits ${delta.toLocaleString()} XLM to community treasury upon execution.`
+          : 'Treasury reserve remains unchanged.',
+    };
+  }
+
+  // Check executable payload args for grants / payouts (e.g. amount_stroops or amount)
+  const args = proposal.executablePayload?.args || {};
+  if (args.amount_stroops && typeof args.amount_stroops === 'number') {
+    const amountXlm = args.amount_stroops / 10_000_000;
+    const simulated = Math.max(0, baseTreasury - amountXlm);
+    const delta = -amountXlm;
+    const deltaPct =
+      baseTreasury > 0 ? Number(((delta / baseTreasury) * 100).toFixed(2)) : 0;
+    return {
+      baselineBalance: baseTreasury,
+      simulatedBalance: simulated,
+      netDelta: delta,
+      deltaPct,
+      currency: 'XLM',
+      impactType: 'drawdown',
+      description: `Disburses ${amountXlm.toLocaleString()} XLM from community treasury upon execution.`,
+    };
+  }
+
+  // Check fee adjustments (e.g. fee_rate_bps)
+  const feeDiff = proposal.prospectiveStateDiff?.find((d) =>
+    d.key.includes('fee_rate_bps'),
+  );
+  if (
+    feeDiff &&
+    typeof feeDiff.proposedValue === 'number' &&
+    typeof feeDiff.previousValue === 'number'
+  ) {
+    const feeChangePct = Number(
+      (
+        ((feeDiff.proposedValue - feeDiff.previousValue) /
+          feeDiff.previousValue) *
+        100
+      ).toFixed(1),
+    );
+    return {
+      baselineBalance: baseTreasury,
+      simulatedBalance: baseTreasury,
+      netDelta: 0,
+      deltaPct: feeChangePct,
+      currency: 'XLM',
+      impactType: 'fee_adjustment',
+      description: `Adjusts protocol swap fee rate from ${feeDiff.previousValue} bps to ${feeDiff.proposedValue} bps (${feeChangePct > 0 ? '+' : ''}${feeChangePct}% revenue rate impact).`,
+    };
+  }
+
+  // Default: Net neutral / No direct reserve balance drawdown
+  return {
+    baselineBalance: baseTreasury,
+    simulatedBalance: baseTreasury,
+    netDelta: 0,
+    deltaPct: 0,
+    currency: 'XLM',
+    impactType: 'neutral',
+    description: 'No direct treasury reserve drawdown required for this proposal.',
+  };
 }

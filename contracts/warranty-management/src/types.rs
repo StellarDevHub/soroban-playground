@@ -21,14 +21,17 @@ pub enum Error {
     NotWarrantyOwner = 12,
     ContractPaused = 13,
     ProductInactive = 14,
+    InvalidClaimTransition = 15,
 }
 
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ClaimStatus {
-    Pending = 0,
-    Approved = 1,
-    Rejected = 2,
+    Filed = 0,
+    InReview = 1,
+    Approved = 2,
+    Rejected = 3,
+    Reimbursed = 4,
 }
 
 /// A product registered by the manufacturer.
@@ -64,6 +67,7 @@ pub struct Claim {
     pub status: ClaimStatus,
     pub filed_ts: u64,
     pub resolved_ts: u64,
+    pub reimbursed_ts: u64,
 }
 
 #[contracttype]

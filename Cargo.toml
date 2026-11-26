@@ -180,7 +180,7 @@ hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
-sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "macros"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "macros"] }
 tokio = { version = "1", features = ["full"] }
 
 # Profiles are tuned for the two distinct artifact classes in this workspace:

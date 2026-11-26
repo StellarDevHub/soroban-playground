@@ -103,6 +103,7 @@ export function buildCargoToml(extraDeps = {}) {
 name = "soroban_contract"
 version = "0.0.0"
 edition = "2021"
+build = false
 
 [lib]
 crate-type = ["cdylib"]

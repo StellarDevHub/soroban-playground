@@ -51,6 +51,26 @@ export interface RemoteBranchState {
   files: RemoteFile[];
 }
 
+/**
+ * Raised when the remote branch HEAD no longer matches the SHA the local
+ * commits were based on. Callers must pull/rebase before retrying.
+ */
+export class RemoteBranchConflictError extends Error {
+  /** SHA the caller expected the remote branch to point at. */
+  readonly expectedSha: string | null;
+  /** SHA the remote branch actually pointed at. */
+  readonly actualSha: string | null;
+
+  constructor(expectedSha: string | null, actualSha: string | null) {
+    super(
+      `Remote branch changed (expected ${expectedSha ?? "a new branch"}, found ${actualSha ?? "no branch"}). Pull and retry before pushing.`,
+    );
+    this.name = "RemoteBranchConflictError";
+    this.expectedSha = expectedSha;
+    this.actualSha = actualSha;
+  }
+}
+
 /** Options accepted by {@link pushBranch}. */
 export interface PushOptions {
   /** Remote owner. */
@@ -65,6 +85,11 @@ export interface PushOptions {
   tree: GitTree;
   /** Remote commit the local branch is based on (used as parent). */
   parentSha?: string | null;
+  /**
+   * Remote HEAD the push is based on. The push is rejected when the remote
+   * branch moved. Defaults to `parentSha` when omitted.
+   */
+  expectedHeadSha?: string | null;
 }
 
 /** Result of {@link pushBranch}. */
@@ -162,95 +187,203 @@ export async function canAccessRepository(
   }
 }
 
+/** `true` when an Octokit error represents a missing GitHub resource. */
+function isNotFound(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { status?: number; message?: string };
+  return (
+    candidate.status === 404 ||
+    /not found|404/i.test(candidate.message ?? "")
+  );
+}
+
+/**
+ * Resolve the current HEAD sha of a remote branch, or `null` when the branch
+ * does not exist yet.
+ */
+export async function getRemoteBranchHead(
+  client: GitHubClient,
+  options: { owner: string; repo: string; branch: string },
+): Promise<string | null> {
+  try {
+    const response = await client.request(
+      "GET /repos/{owner}/{repo}/git/ref/heads/{branch}",
+      options,
+    );
+    const data = (response.data ?? {}) as { object?: { sha?: string } };
+    if (!data.object?.sha) {
+      throw new Error(
+        `The remote branch "${options.branch}" did not return a commit sha.`,
+      );
+    }
+    return data.object.sha;
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Validate a branch name against Git's ref rules before it is sent to GitHub.
+ */
+export function validateBranchName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("A branch name is required.");
+  if (/[\s\\~^:?*[\]]/.test(trimmed)) {
+    throw new Error(`"${trimmed}" is not a valid branch name.`);
+  }
+  if (
+    trimmed.startsWith("/") ||
+    trimmed.endsWith("/") ||
+    trimmed.includes("//") ||
+    trimmed.includes("..") ||
+    trimmed.includes("@{") ||
+    trimmed.endsWith(".lock")
+  ) {
+    throw new Error(`"${trimmed}" is not a valid branch name.`);
+  }
+  return trimmed;
+}
+
 /**
  * Push the local commits to the remote branch.
  *
  * The Git Data API is used end-to-end: blobs for the files, a tree for the
- * directory listing, a commit object and finally the branch reference.
+ * directory listing, a commit object and finally the branch reference. Before
+ * anything is written the remote HEAD is compared with `expectedHeadSha`, so a
+ * concurrent push can never be overwritten silently. Every local commit is
+ * chained onto the previous remote commit, preserving history.
  */
 export async function pushBranch(
   client: GitHubClient,
   options: PushOptions,
 ): Promise<PushResult> {
-  const { owner, repo, branch, commits, tree } = options;
+  const { owner, repo, branch, commits } = options;
 
   if (commits.length === 0) {
     throw new Error("There is nothing to push.");
   }
 
-  const blobShas = new Map<string, string>();
-  for (const [path, content] of Object.entries(tree)) {
-    const blobResponse = await client.request(
-      "POST /repos/{owner}/{repo}/git/blobs",
+  const expectedSha =
+    options.expectedHeadSha === undefined
+      ? options.parentSha ?? null
+      : options.expectedHeadSha;
+  const actualSha = await getRemoteBranchHead(client, {
+    owner,
+    repo,
+    branch,
+  });
+  if (actualSha !== expectedSha) {
+    throw new RemoteBranchConflictError(expectedSha, actualSha);
+  }
+
+  const blobCache = new Map<string, string>();
+  const writeTree = async (tree: GitTree): Promise<string> => {
+    const entries: Array<{
+      path: string;
+      mode: string;
+      type: string;
+      sha: string;
+    }> = [];
+
+    for (const [path, content] of Object.entries(tree)) {
+      let sha = blobCache.get(content);
+      if (!sha) {
+        const blobResponse = await client.request(
+          "POST /repos/{owner}/{repo}/git/blobs",
+          {
+            owner,
+            repo,
+            content: encodeBase64(content),
+            encoding: "base64",
+          },
+        );
+        const blobData = (blobResponse.data ?? {}) as { sha?: string };
+        if (!blobData.sha) {
+          throw new Error("GitHub did not return a blob sha.");
+        }
+        sha = blobData.sha;
+        blobCache.set(content, sha);
+      }
+      entries.push({ path, mode: "100644", type: "blob", sha });
+    }
+
+    const treeResponse = await client.request(
+      "POST /repos/{owner}/{repo}/git/trees",
+      { owner, repo, tree: entries },
+    );
+    const treeData = (treeResponse.data ?? {}) as { sha?: string };
+    if (!treeData.sha) {
+      throw new Error("GitHub did not return a tree sha for the pushed files.");
+    }
+    return treeData.sha;
+  };
+
+  let parentSha = options.parentSha ?? actualSha;
+  let pushedSha = "";
+  let pushedUrl: string | null = null;
+
+  for (let index = 0; index < commits.length; index += 1) {
+    const commit = commits[index];
+    const tree =
+      index === commits.length - 1 && options.tree
+        ? options.tree
+        : commit.tree;
+    const treeSha = await writeTree(tree);
+    const date = new Date(commit.timestamp).toISOString();
+    const identity = {
+      name: commit.author.name,
+      email: commit.author.email,
+      date,
+    };
+
+    const commitResponse = await client.request(
+      "POST /repos/{owner}/{repo}/git/commits",
       {
         owner,
         repo,
-        content: encodeBase64(content),
-        encoding: "base64",
+        message: commit.message,
+        tree: treeSha,
+        parents: parentSha ? [parentSha] : [],
+        author: identity,
+        committer: identity,
       },
     );
-    const blobData = (blobResponse.data ?? {}) as { sha?: string };
-    if (blobData.sha) blobShas.set(path, blobData.sha);
-  }
+    const commitData = (commitResponse.data ?? {}) as {
+      sha?: string;
+      html_url?: string;
+    };
+    if (!commitData.sha) {
+      throw new Error(
+        "GitHub did not return a commit sha for the pushed commit.",
+      );
+    }
 
-  const treeResponse = await client.request(
-    "POST /repos/{owner}/{repo}/git/trees",
-    {
-      owner,
-      repo,
-      tree: Array.from(blobShas.entries()).map(([path, sha]) => ({
-        path,
-        mode: "100644",
-        type: "blob",
-        sha,
-      })),
-    },
-  );
-  const treeData = (treeResponse.data ?? {}) as { sha?: string };
-  if (!treeData.sha) {
-    throw new Error("GitHub did not return a tree sha for the pushed files.");
-  }
-
-  const commitResponse = await client.request(
-    "POST /repos/{owner}/{repo}/git/commits",
-    {
-      owner,
-      repo,
-      message: commits[commits.length - 1].message,
-      tree: treeData.sha,
-      ...(options.parentSha ? { parents: [options.parentSha] } : {}),
-    },
-  );
-  const commitData = (commitResponse.data ?? {}) as {
-    sha?: string;
-    html_url?: string;
-  };
-  if (!commitData.sha) {
-    throw new Error("GitHub did not return a commit sha for the pushed commit.");
+    pushedSha = commitData.sha;
+    pushedUrl = commitData.html_url ?? null;
+    parentSha = pushedSha;
   }
 
   const ref = `refs/heads/${branch}`;
-  try {
+  if (actualSha === null) {
     await client.request("POST /repos/{owner}/{repo}/git/refs", {
       owner,
       repo,
       ref,
-      sha: commitData.sha,
+      sha: pushedSha,
     });
-  } catch {
-    // The branch already exists — update it instead.
+  } else {
+    // `force: false` makes GitHub reject a non-fast-forward update as well.
     await client.request("PATCH /repos/{owner}/{repo}/git/refs/{ref}", {
       owner,
       repo,
       ref,
-      sha: commitData.sha,
+      sha: pushedSha,
+      force: false,
     });
   }
 
-  return {
-    sha: commitData.sha,
-    url: commitData.html_url ?? null,
-  };
+  return { sha: pushedSha, url: pushedUrl };
 }
 
 /**
@@ -321,6 +454,81 @@ export async function createRemoteBranch(
     ref: `refs/heads/${options.branch}`,
     sha: options.sha,
   });
+}
+
+/** User supplied part of a feature branch / pull request publication. */
+export interface PullRequestDraft {
+  /** New feature branch to create. */
+  branch: string;
+  /** Pull request title. */
+  title: string;
+  /** Base branch the pull request targets. */
+  base: string;
+  /** Optional pull request description. */
+  body?: string;
+}
+
+/** Options accepted by {@link createPullRequest}. */
+export interface CreatePullRequestOptions {
+  /** Repository owner. */
+  owner: string;
+  /** Repository name. */
+  repo: string;
+  /** Pull request title. */
+  title: string;
+  /** Branch containing the changes. */
+  head: string;
+  /** Branch the changes are merged into. */
+  base: string;
+  /** Optional pull request description. */
+  body?: string;
+}
+
+/** Result of {@link createPullRequest}. */
+export interface PullRequestResult {
+  /** Pull request number. */
+  number: number;
+  /** Html url of the pull request. */
+  url: string;
+}
+
+/**
+ * Open a pull request with the GitHub REST API.
+ */
+export async function createPullRequest(
+  client: GitHubClient,
+  options: CreatePullRequestOptions,
+): Promise<PullRequestResult> {
+  const title = options.title.trim();
+  if (!title) throw new Error("A pull request title is required.");
+
+  const head = validateBranchName(options.head);
+  const base = validateBranchName(options.base);
+  const body = options.body?.trim();
+
+  const response = await client.request("POST /repos/{owner}/{repo}/pulls", {
+    owner: options.owner,
+    repo: options.repo,
+    title,
+    head,
+    base,
+    ...(body ? { body } : {}),
+    maintainer_can_modify: true,
+  });
+  const data = (response.data ?? {}) as {
+    number?: number;
+    html_url?: string;
+  };
+  if (typeof data.number !== "number") {
+    throw new Error("GitHub did not return a pull request number.");
+  }
+
+  return {
+    number: data.number,
+    url:
+      data.html_url ??
+      `https://github.com/${options.owner}/${options.repo}/pull/${data.number}`,
+  };
 }
 
 /** List the remote branches. */

@@ -93,6 +93,31 @@ describe('HorizonService Ingestion Engine', () => {
       expect(records).toHaveLength(1);
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
+
+    it('backs off and evicts a Horizon endpoint after 429', async () => {
+      mockFetch.mockResolvedValueOnce({ status: 429, ok: false });
+
+      await expect(service.fetchTransactions()).rejects.toBeTruthy();
+
+      expect(service.endpoints[0].backoffAttempt).toBeGreaterThan(0);
+      expect(service.endpoints[0].isHealthy).toBe(false);
+    });
+
+    it('runs a /health probe every health interval', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ current_ledger: 12345 }),
+      });
+
+      await service.checkEndpointHealth(service.endpoints[0]);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://horizon-testnet.stellar.org/health',
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+      expect(service.endpoints[0].latestLedger).toBe(12345);
+    });
   });
 
   describe('gap detection', () => {
