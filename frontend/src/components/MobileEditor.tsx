@@ -3,14 +3,26 @@
 import React, { useState } from "react";
 import { Code2, Terminal } from "lucide-react";
 import SplitPane from "@/components/layout/SplitPane";
+import {
+  useVisualViewport,
+  MobileCodingToolbar,
+} from "@/components/mobileEditorControls";
 
 interface MobileEditorProps {
   editor: React.ReactNode;
   output: React.ReactNode;
+  onInsertSymbol?: (symbol: string) => void;
+  editorInstance?: unknown;
 }
 
-export default function MobileEditor({ editor, output }: MobileEditorProps) {
+export default function MobileEditor({
+  editor,
+  output,
+  onInsertSymbol,
+  editorInstance,
+}: MobileEditorProps) {
   const [activeTab, setActiveTab] = useState<"editor" | "output">("editor");
+  const { isKeyboardOpen, style } = useVisualViewport({ bottomOffset: 48 });
 
   const editorTabId = "mobile-editor-tab";
   const outputTabId = "mobile-output-tab";
@@ -34,8 +46,11 @@ export default function MobileEditor({ editor, output }: MobileEditorProps) {
         />
       </div>
 
-      {/* Mobile / Tablet: tabbed layout */}
-      <div className="flex flex-col lg:hidden h-[calc(100vh-4rem)] overflow-hidden">
+      {/* Mobile / Tablet: tabbed layout with visual viewport keyboard adaptation */}
+      <div
+        className="flex flex-col lg:hidden h-[calc(100vh-4rem)] max-h-[100dvh] overflow-hidden"
+        style={isKeyboardOpen ? style : undefined}
+      >
         <div className="flex-1 overflow-hidden">
           <div
             role="tabpanel"
@@ -54,6 +69,14 @@ export default function MobileEditor({ editor, output }: MobileEditorProps) {
             {output}
           </div>
         </div>
+
+        {/* Mobile Quick-Access Coding Toolbar when in editor mode */}
+        {activeTab === "editor" && (
+          <MobileCodingToolbar
+            editor={editorInstance}
+            onInsertSymbol={onInsertSymbol}
+          />
+        )}
 
         {/* Tab bar at bottom */}
         <div
