@@ -21,6 +21,7 @@ import {
   act,
 } from "@testing-library/react";
 import WasmOptConfig from "@/components/Optimizer/WasmOptConfig";
+import { profileWasm } from "@/workers/wasmOptCore";
 
 // ── Mock the Web Worker ────────────────────────────────────────────────────────
 
@@ -638,6 +639,98 @@ describe("WasmOptConfig", () => {
             /Drop your \.wasm binary here/i.test(element.textContent ?? ""),
         ),
       ).toBeInTheDocument();
+    });
+  });
+
+  // ── 9. Streamed progress & bytecode memory profiler ────────────────────────
+  describe("progress and bytecode memory profiler", () => {
+    it("renders streamed worker progress and clears it on success", async () => {
+      render(<WasmOptConfig initialBytes={MINIMAL_WASM} />);
+      fireEvent.click(
+        screen.getByRole("button", { name: /Run Optimisation/i }),
+      );
+
+      await waitFor(() => expect(workerInstances.length).toBeGreaterThan(0));
+      const worker = workerInstances[0];
+
+      act(() => {
+        worker._simulateMessage({
+          type: "progress",
+          id: 1,
+          stage: "Removing unreachable code with binaryen",
+          percent: 66,
+        });
+      });
+
+      const bar = screen.getByRole("progressbar", {
+        name: /Optimisation progress/i,
+      });
+      expect(bar).toHaveAttribute("aria-valuenow", "66");
+      expect(screen.getByText(/66%/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Removing unreachable code with binaryen/i),
+      ).toBeInTheDocument();
+
+      act(() => {
+        worker._simulateMessage({
+          type: "success",
+          id: 1,
+          originalBytes: MINIMAL_WASM.length,
+          optimizedBytes: MINIMAL_WASM.length,
+          reductionBytes: 0,
+          reductionPct: 0,
+          passResults: [],
+          optimized: MINIMAL_WASM,
+          sorobanSections: [],
+          specIdentifiers: [],
+          profile: {
+            before: profileWasm(MINIMAL_WASM),
+            after: profileWasm(MINIMAL_WASM),
+          },
+        });
+      });
+
+      expect(screen.queryByRole("progressbar")).toBeNull();
+    });
+
+    it("renders before/after section sizes and treemaps after optimisation", async () => {
+      const wasm = buildTestWasmWithSections();
+      render(<WasmOptConfig initialBytes={wasm} filename="test.wasm" />);
+      fireEvent.click(
+        screen.getByRole("button", { name: /Run Optimisation/i }),
+      );
+
+      await waitFor(() => expect(workerInstances.length).toBeGreaterThan(0));
+      const optimized = new Uint8Array([
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+      ]);
+
+      act(() => {
+        workerInstances[0]._simulateMessage({
+          type: "success",
+          id: 1,
+          originalBytes: wasm.length,
+          optimizedBytes: optimized.length,
+          reductionBytes: wasm.length - optimized.length,
+          reductionPct: 50,
+          passResults: [],
+          optimized,
+          sorobanSections: ["contractspecv0"],
+          specIdentifiers: [],
+          profile: {
+            before: profileWasm(wasm),
+            after: profileWasm(optimized),
+          },
+        });
+      });
+
+      const profiler = screen.getByTestId("bytecode-memory-profile");
+      expect(profiler).toHaveTextContent(/Bytecode Memory Profile/i);
+      expect(profiler).toHaveTextContent(/Code/);
+      expect(profiler).toHaveTextContent(/Types/);
+      expect(profiler).toHaveTextContent(/Custom \/ Spec/);
+      expect(screen.getByTestId("section-treemap")).toBeInTheDocument();
+      expect(screen.getByTestId("section-treemap-after")).toBeInTheDocument();
     });
   });
 });
