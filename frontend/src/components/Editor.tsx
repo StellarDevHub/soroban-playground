@@ -9,6 +9,7 @@ import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
 interface EditorProps {
   code: string;
   setCode: (value: string) => void;
+  modelKey?: string;
   viewStateKey?: string;
   onFormat?: (source?: string) => void;
   formatDiagnostics?: RustFormatDiagnostic[];
@@ -30,6 +31,7 @@ function EditorLoadingState() {
 export default function Editor({
   code,
   setCode,
+  modelKey,
   viewStateKey,
   onFormat,
   formatDiagnostics,
@@ -39,6 +41,7 @@ export default function Editor({
     language: "rust",
     value: code,
     onChange: setCode,
+    modelKey,
     viewStateKey,
     onFormat,
     formatDiagnostics,
