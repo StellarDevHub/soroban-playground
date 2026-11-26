@@ -47,6 +47,10 @@ pub fn set_nft(env: &Env, nft: &NFTRecord) {
         .set(&DataKey::Token(nft.token_id), nft);
 }
 
+pub fn remove_nft(env: &Env, token_id: u64) {
+    env.storage().persistent().remove(&DataKey::Token(token_id));
+}
+
 pub fn get_listing(env: &Env, token_id: u64) -> Result<RentalListing, Error> {
     env.storage()
         .persistent()

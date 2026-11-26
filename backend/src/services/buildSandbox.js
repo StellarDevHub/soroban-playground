@@ -35,6 +35,7 @@ const DANGEROUS_OVERRIDE_VARS = [
   'CARGO_ENCODED_RUSTFLAGS',
   'CARGO_HOME',
   'CARGO_TARGET_DIR',
+  'CARGO_NET_OFFLINE',
 ];
 
 function isInside(parent, candidate) {
@@ -91,7 +92,9 @@ export function createSandboxEnv(baseEnv, sandboxPaths) {
   env.CARGO_TARGET_DIR = sandboxPaths.cargoTargetDir;
   env.RUST_MIN_STACK = '268435456';
   env.CARGO_TERM_COLOR = 'never';
+  env.CARGO_NET_OFFLINE = 'true';
   env.CARGO_NET_GIT_FETCH_WITH_CLI = 'false';
+  env.CARGO_BUILD_JOBS = '1';
 
   // Production WASM build profile enforcement (issue #SC-EPIC-25).
   // Pin the release profile through the sandbox environment so every compile

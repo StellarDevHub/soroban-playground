@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeftRight,
   CheckCircle2,
   Clock,
+  ExternalLink,
   Link2,
   RefreshCw,
   Shield,
@@ -33,19 +34,103 @@ export interface BridgeStats {
   activeDeposits: number;
 }
 
-interface BridgeDashboardProps {
-  contractId?: string;
-  walletAddress?: string;
-  deposits: BridgeDeposit[];
-  stats: BridgeStats;
-  isLoading: boolean;
-  onLock: (params: {
-    token: string;
-    amount: number;
-    ethDestination: string;
-  }) => Promise<void>;
-  onConfirmMint: (depositId: number, ethTxHash: string) => Promise<void>;
-  onRefund: (depositId: number) => Promise<void>;
+export type BridgeStage =
+  | "source_confirmed"
+  | "relayer_picked_up"
+  | "proof_generated"
+  | "destination_minted";
+
+export const BRIDGE_STAGES: BridgeStage[] = [
+  "source_confirmed",
+  "relayer_picked_up",
+  "proof_generated",
+  "destination_minted",
+];
+
+export const BRIDGE_STAGE_LABELS: Record<BridgeStage, string> = {
+  source_confirmed: "Source Transaction Confirmed",
+  relayer_picked_up: "Relayer Picked Up",
+  proof_generated: "Proof Generated",
+  destination_minted: "Destination Minted",
+};
+
+export interface BridgeTrackingSession {
+  depositId: number;
+  stage: BridgeStage | null;
+  sourceTxHash?: string;
+  destinationTxHash?: string;
+  sourceNetwork: "stellar";
+  destinationNetwork: "ethereum";
+  startedAt: number;
+  updatedAt: number;
+}
+
+export interface BridgeEvent {
+  depositId: number;
+  type: "source_confirmed" | "relayer_picked_up" | "proof_generated" | "destination_minted";
+  sourceTxHash?: string;
+  destinationTxHash?: string;
+  timestamp: number;
+}
+
+export const BRIDGE_SESSIONS_STORAGE_KEY = "bridge-tracking-sessions";
+
+export function stageIndex(stage: BridgeStage | null): number {
+  return stage === null ? -1 : BRIDGE_STAGES.indexOf(stage);
+}
+
+/**
+ * Applies a streamed bridge event to a session. Stages only move forward;
+ * out-of-order or duplicate events never regress the stepper.
+ */
+export function applyBridgeEvent(
+  session: BridgeTrackingSession,
+  event: BridgeEvent,
+): BridgeTrackingSession {
+  if (event.depositId !== session.depositId) return session;
+  const nextStage = event.type as BridgeStage;
+  const advance = stageIndex(nextStage) > stageIndex(session.stage);
+  return {
+    ...session,
+    stage: advance ? nextStage : session.stage,
+    sourceTxHash: event.sourceTxHash ?? session.sourceTxHash,
+    destinationTxHash: event.destinationTxHash ?? session.destinationTxHash,
+    updatedAt: event.timestamp,
+  };
+}
+
+export function loadBridgeSessions(): Record<number, BridgeTrackingSession> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(BRIDGE_SESSIONS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveBridgeSessions(
+  sessions: Record<number, BridgeTrackingSession>,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      BRIDGE_SESSIONS_STORAGE_KEY,
+      JSON.stringify(sessions),
+    );
+  } catch {
+    // Storage may be full or disabled; tracking remains in memory.
+  }
+}
+
+export function sourceExplorerUrl(txHash: string): string {
+  return `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+}
+
+export function destinationExplorerUrl(txHash: string): string {
+  return `https://sepolia.etherscan.io/tx/${txHash}`;
 }
 
 const STATUS_STYLES: Record<BridgeDeposit["status"], string> = {
@@ -60,6 +145,92 @@ const STATUS_ICONS: Record<BridgeDeposit["status"], React.ReactNode> = {
   Refunded: <RefreshCw size={12} />,
 };
 
+export function BridgeProgressStepper({
+  session,
+}: {
+  session: BridgeTrackingSession;
+}) {
+  const current = stageIndex(session.stage);
+  return (
+    <div className="mt-2 rounded-lg border border-gray-800 bg-gray-900 p-3">
+      <ol className="space-y-2" aria-label="Bridge transfer progress">
+        {BRIDGE_STAGES.map((stage, idx) => {
+          const done = idx <= current;
+          const active = idx === current + 1;
+          return (
+            <li
+              key={stage}
+              data-stage={stage}
+              data-state={done ? "complete" : active ? "active" : "pending"}
+              className="flex items-center gap-2 text-xs"
+            >
+              {done ? (
+                <CheckCircle2 size={12} className="text-emerald-400" />
+              ) : active ? (
+                <Clock size={12} className="animate-pulse text-amber-300" />
+              ) : (
+                <span className="h-3 w-3 rounded-full border border-gray-600" />
+              )}
+              <span
+                className={
+                  done
+                    ? "text-emerald-300"
+                    : active
+                      ? "text-amber-300"
+                      : "text-gray-500"
+                }
+              >
+                {BRIDGE_STAGE_LABELS[stage]}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="mt-3 space-y-1 text-[10px]">
+        {session.sourceTxHash && (
+          <a
+            href={sourceExplorerUrl(session.sourceTxHash)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 font-mono text-cyan-400 hover:text-cyan-300"
+          >
+            <ExternalLink size={10} />
+            Source (Stellar): {session.sourceTxHash}
+          </a>
+        )}
+        {session.destinationTxHash && (
+          <a
+            href={destinationExplorerUrl(session.destinationTxHash)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 font-mono text-cyan-400 hover:text-cyan-300"
+          >
+            <ExternalLink size={10} />
+            Destination (Ethereum): {session.destinationTxHash}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface BridgeDashboardProps {
+  contractId?: string;
+  walletAddress?: string;
+  deposits: BridgeDeposit[];
+  stats: BridgeStats;
+  isLoading: boolean;
+  onLock: (params: {
+    token: string;
+    amount: number;
+    ethDestination: string;
+  }) => Promise<void>;
+  onConfirmMint: (depositId: number, ethTxHash: string) => Promise<void>;
+  onRefund: (depositId: number) => Promise<void>;
+  /** Live bridge event stream (e.g. a WebSocket subscription), if available. */
+  bridgeEvents?: BridgeEvent[];
+}
+
 export default function BridgeDashboard({
   contractId,
   walletAddress,
@@ -69,6 +240,7 @@ export default function BridgeDashboard({
   onLock,
   onConfirmMint,
   onRefund,
+  bridgeEvents,
 }: BridgeDashboardProps) {
   const [token, setToken] = useState("USDC");
   const [amount, setAmount] = useState("");
@@ -76,6 +248,70 @@ export default function BridgeDashboard({
   const [mintDepositId, setMintDepositId] = useState("");
   const [mintTxHash, setMintTxHash] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<
+    Record<number, BridgeTrackingSession>
+  >({});
+  const hydrated = useRef(false);
+
+  // Restore persisted tracking sessions after mount (avoids SSR mismatch).
+  useEffect(() => {
+    setSessions(loadBridgeSessions());
+    hydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (hydrated.current) saveBridgeSessions(sessions);
+  }, [sessions]);
+
+  // Apply streamed events to the matching sessions.
+  useEffect(() => {
+    if (!bridgeEvents || bridgeEvents.length === 0) return;
+    setSessions((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const event of bridgeEvents) {
+        const existing = next[event.depositId];
+        if (!existing) continue;
+        const updated = applyBridgeEvent(existing, event);
+        if (updated !== existing) {
+          next[event.depositId] = updated;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [bridgeEvents]);
+
+  // Start tracking a deposit once it is locked (pending) and not yet tracked.
+  useEffect(() => {
+    setSessions((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const d of deposits) {
+        if (d.status === "Pending" && !next[d.id]) {
+          const now = Date.now();
+          next[d.id] = {
+            depositId: d.id,
+            stage: null,
+            sourceNetwork: "stellar",
+            destinationNetwork: "ethereum",
+            startedAt: d.createdAt || now,
+            updatedAt: now,
+          };
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [deposits]);
+
+  const trackedSessions = useMemo(
+    () =>
+      deposits
+        .filter((d) => sessions[d.id])
+        .map((d) => ({ deposit: d, session: sessions[d.id] })),
+    [deposits, sessions],
+  );
 
   const handleLock = async () => {
     setError(null);
@@ -104,6 +340,18 @@ export default function BridgeDashboard({
     if (!mintTxHash) return setError("Enter the ETH transaction hash.");
     try {
       await onConfirmMint(id, mintTxHash);
+      setSessions((prev) => {
+        const existing = prev[id];
+        if (!existing) return prev;
+        return {
+          ...prev,
+          [id]: {
+            ...existing,
+            destinationTxHash: mintTxHash,
+            updatedAt: Date.now(),
+          },
+        };
+      });
       setMintDepositId("");
       setMintTxHash("");
     } catch (e) {
@@ -245,6 +493,25 @@ export default function BridgeDashboard({
         <div className="flex items-start gap-2 rounded-lg border border-rose-900/60 bg-rose-950/40 p-3 text-sm text-rose-300">
           <AlertCircle size={14} className="mt-0.5 shrink-0" />
           {error}
+        </div>
+      )}
+
+      {/* Active transfer tracker */}
+      {trackedSessions.length > 0 && (
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <h4 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-300">
+            Transfer Progress
+          </h4>
+          <div className="space-y-3">
+            {trackedSessions.map(({ deposit, session }) => (
+              <div key={deposit.id}>
+                <p className="font-mono text-xs text-gray-400">
+                  Deposit #{deposit.id}
+                </p>
+                <BridgeProgressStepper session={session} />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

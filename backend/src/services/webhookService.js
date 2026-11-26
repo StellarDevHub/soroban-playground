@@ -19,12 +19,11 @@
 //   webhookUtils.js                  (pure crypto / timing helpers, imported below)
 
 import crypto from 'crypto';
-import http from 'http';
-import https from 'https';
 import { getDatabase } from '../database/connection.js';
 import {
   generateSignature,
   verifySignature,
+  verifyTimestampedSignature,
   buildDeliveryHeaders,
   nextAttemptAt,
   MAX_ATTEMPTS,
@@ -63,66 +62,64 @@ function newId() {
  * @returns {Promise<{status:number, body:string}>}
  */
 function postJson(url, body, headers) {
-  return new Promise((resolve, reject) => {
-    let parsed;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return Promise.reject(new Error(`Invalid webhook URL: ${url}`));
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return Promise.reject(new Error('Webhook URL must use HTTP or HTTPS'));
+  }
+
+  const payloadBuffer = Buffer.from(body, 'utf8');
+  const cappedPayload =
+    payloadBuffer.length > MAX_PAYLOAD_BYTES
+      ? payloadBuffer.subarray(0, MAX_PAYLOAD_BYTES)
+      : payloadBuffer;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  return (async () => {
     try {
-      parsed = new URL(url);
-    } catch {
-      return reject(new Error(`Invalid webhook URL: ${url}`));
-    }
-
-    const isHttps = parsed.protocol === 'https:';
-    const client = isHttps ? https : http;
-
-    // Truncate oversized payloads
-    const payloadBuffer = Buffer.from(body, 'utf8');
-    const cappedPayload =
-      payloadBuffer.length > MAX_PAYLOAD_BYTES
-        ? payloadBuffer.slice(0, MAX_PAYLOAD_BYTES)
-        : payloadBuffer;
-
-    const options = {
-      hostname: parsed.hostname,
-      port: parsed.port || (isHttps ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-        'Content-Length': cappedPayload.length,
-        'User-Agent': 'SorobanPlayground-Webhooks/1.0',
-      },
-    };
-
-    const req = client.request(options, (res) => {
-      let text = '';
-      let bytesRead = 0;
-
-      res.on('data', (chunk) => {
-        bytesRead += chunk.length;
-        if (bytesRead <= MAX_RESPONSE_BODY_BYTES) {
-          text += chunk;
-        } else {
-          res.destroy();
-        }
+      const response = await fetch(url, {
+        method: 'POST',
+        body: cappedPayload,
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+          'User-Agent': 'SorobanPlayground-Webhooks/1.0',
+        },
+        signal: controller.signal,
       });
-
-      res.on('end', () =>
-        resolve({
-          status: res.statusCode,
-          body: text.slice(0, MAX_RESPONSE_BODY_BYTES),
-        })
-      );
-    });
-
-    req.setTimeout(TIMEOUT_MS, () =>
-      req.destroy(new Error(`Webhook request timed out after ${TIMEOUT_MS} ms`))
-    );
-
-    req.on('error', reject);
-    req.write(cappedPayload);
-    req.end();
-  });
+      let text = '';
+      if (response.body) {
+        const reader = response.body.getReader();
+        let bytesRead = 0;
+        const decoder = new TextDecoder();
+        while (bytesRead < MAX_RESPONSE_BODY_BYTES) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = value.subarray(0, MAX_RESPONSE_BODY_BYTES - bytesRead);
+          text += decoder.decode(chunk, { stream: true });
+          bytesRead += chunk.length;
+          if (chunk.length < value.length) {
+            await reader.cancel();
+            break;
+          }
+        }
+        text += decoder.decode();
+      }
+      return { status: response.status, body: text };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Webhook request timed out after ${TIMEOUT_MS} ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
 }
 
 // ── Subscription management ───────────────────────────────────────────────────
@@ -211,44 +208,52 @@ export async function updateSubscription(id, tenantId, updates) {
   if (!tenantId) throw new Error('tenantId is required');
   const db = getDatabase();
 
-  const fields = [];
-  const values = [];
-
   if (updates.url !== undefined) {
     try {
       new URL(updates.url);
     } catch {
       throw new Error(`Invalid URL: ${updates.url}`);
     }
-    fields.push('url = ?');
-    values.push(updates.url);
-  }
-  if (updates.events !== undefined) {
-    fields.push('events = ?');
-    values.push(
-      JSON.stringify(
-        Array.isArray(updates.events) ? updates.events : [updates.events]
-      )
-    );
-  }
-  if (updates.active !== undefined) {
-    fields.push('active = ?');
-    fields.push('consecutive_failures = 0'); // reset circuit breaker on re-enable
-    values.push(updates.active ? 1 : 0);
-  }
-  if (updates.description !== undefined) {
-    fields.push('description = ?');
-    values.push(updates.description);
   }
 
-  if (fields.length === 0) return false;
-
-  fields.push('updated_at = CURRENT_TIMESTAMP');
-  values.push(id, tenantId);
-
+  if (
+    updates.url === undefined &&
+    updates.events === undefined &&
+    updates.active === undefined &&
+    updates.description === undefined
+  ) {
+    return false;
+  }
+  const hasUrl = updates.url !== undefined;
+  const hasEvents = updates.events !== undefined;
+  const hasActive = updates.active !== undefined;
+  const hasDescription = updates.description !== undefined;
   const { changes } = await db.run(
-    `UPDATE webhook_subscriptions SET ${fields.join(', ')} WHERE id = ? AND tenant_id = ?`,
-    values
+    `UPDATE webhook_subscriptions
+     SET url = CASE WHEN ? THEN ? ELSE url END,
+         events = CASE WHEN ? THEN ? ELSE events END,
+         active = CASE WHEN ? THEN ? ELSE active END,
+         description = CASE WHEN ? THEN ? ELSE description END,
+         consecutive_failures = CASE WHEN ? THEN 0 ELSE consecutive_failures END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND tenant_id = ?`,
+    [
+      hasUrl ? 1 : 0,
+      updates.url ?? null,
+      hasEvents ? 1 : 0,
+      hasEvents
+        ? JSON.stringify(
+            Array.isArray(updates.events) ? updates.events : [updates.events]
+          )
+        : null,
+      hasActive ? 1 : 0,
+      updates.active ? 1 : 0,
+      hasDescription ? 1 : 0,
+      updates.description ?? null,
+      hasActive ? 1 : 0,
+      id,
+      tenantId,
+    ]
   );
   return changes > 0;
 }
@@ -410,7 +415,7 @@ export async function processPendingDeliveries() {
         [row.subscription_id]
       );
     } else if (attempt >= MAX_ATTEMPTS) {
-      // Exhausted all retries — permanently mark as failed and increment circuit breaker
+      // Exhausted all retries — mark the delivery failed and deactivate its endpoint.
       await db.run(
         `UPDATE webhook_deliveries
          SET status = 'failed',
@@ -425,15 +430,10 @@ export async function processPendingDeliveries() {
       await db.run(
         `UPDATE webhook_subscriptions
          SET consecutive_failures = ?,
-             active = CASE WHEN ? >= ? THEN 0 ELSE active END,
+             active = 0,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [
-          newConsecutive,
-          newConsecutive,
-          CIRCUIT_BREAKER_THRESHOLD,
-          row.subscription_id,
-        ]
+        [newConsecutive, row.subscription_id]
       );
 
       if (newConsecutive >= CIRCUIT_BREAKER_THRESHOLD) {
@@ -452,7 +452,13 @@ export async function processPendingDeliveries() {
              response_body = ?,
              next_attempt_at = ?
          WHERE id = ?`,
-        [attempt, result.status, result.body, nextAttemptAt(attempt), row.id]
+        [
+          attempt,
+          result.status,
+          result.body,
+          nextAttemptAt(attempt - 1),
+          row.id,
+        ]
       );
 
       const newConsecutive = (row.consecutive_failures || 0) + 1;
@@ -486,15 +492,8 @@ export async function listDeliveries(
   if (!tenantId) throw new Error('tenantId is required');
   const db = getDatabase();
 
-  const params = [tenantId];
-  let where = 'WHERE d.tenant_id = ?';
-
-  if (subscriptionId) {
-    where += ' AND d.subscription_id = ?';
-    params.push(subscriptionId);
-  }
-
-  params.push(limit);
+  const filterSubscriptionId = subscriptionId || null;
+  const params = [tenantId, filterSubscriptionId, filterSubscriptionId, limit];
 
   return db.all(
     `SELECT d.id,
@@ -506,7 +505,8 @@ export async function listDeliveries(
             d.delivered_at,
             d.created_at
      FROM webhook_deliveries d
-     ${where}
+     WHERE d.tenant_id = ?
+       AND (? IS NULL OR d.subscription_id = ?)
      ORDER BY d.created_at DESC
      LIMIT ?`,
     params
@@ -572,12 +572,12 @@ export async function replayDelivery(deliveryId, tenantId) {
  *
  * @param {string} rawBody    - Raw request body string.
  * @param {string} secret     - Subscription secret.
- * @param {string} signature  - Value of the `X-Soroban-Signature` header.
+ * @param {string} signature  - Value of the `Stellar-Signature` header.
  * @returns {boolean}
  */
 export function verifyInboundSignature(rawBody, secret, signature) {
   if (!signature || !secret) return false;
-  return verifySignature(rawBody, secret, signature);
+  return verifyTimestampedSignature(rawBody, secret, signature);
 }
 
 export default {

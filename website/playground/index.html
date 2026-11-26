@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contract Inspector — Soroban DevKit Web Playground</title>
+<meta name="description" content="Inspect a Soroban WASM contract in your browser using the same Rust inspection logic as the sdkt CLI. Runs fully locally — contracts are never uploaded.">
+<meta name="theme-color" content="#09090b">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23101014' stroke='%2326262c'/%3E%3Ctext x='16' y='22' font-size='15' text-anchor='middle' font-family='monospace' font-weight='bold' fill='%23e8e8ec'%3Esd%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="playground.css">
+<link rel="stylesheet" href="test-runner.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-nav">
+  <div class="wrap site-nav-in">
+    <a class="brand" href="../" aria-label="Soroban DevKit home">
+      <span class="mark" aria-hidden="true">sd</span>
+      <span>Soroban DevKit</span>
+      <span style="color:var(--dim);font-weight:400">/ Web Playground</span>
+    </a>
+    <nav class="nav-links" aria-label="Playground sections">
+      <a href="#main" class="active" aria-current="page">Inspector</a>
+      <span class="soon" role="link" aria-disabled="true" title="Coming soon — not implemented yet">Analyze</span>
+      <span class="soon" role="link" aria-disabled="true" title="Coming soon — not implemented yet">XDR</span>
+      <a href="#compare" role="link">Diff</a>
+      <a href="#test-runner" role="link">Tests</a>
+      <span class="soon" role="link" aria-disabled="true" title="Coming soon — not implemented yet">Health</span>
+      <span class="nav-ver">v2.7.0</span>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <div class="wrap">
+
+    <div class="page-head">
+      <div>
+        <h1>Contract Inspector</h1>
+        <p>Analyze a Soroban WASM contract directly in your browser.</p>
+      </div>
+      <span class="local-chip" id="modeChip">Local analysis — no RPC required</span>
+    </div>
+
+    <!-- Upload -->
+    <div class="upload-row">
+      <div class="dropzone" id="dropzone" role="button" tabindex="0"
+           aria-label="Drop a .wasm contract file here, or press Enter to choose a file">
+        <p class="dz-title">Drop <code>.wasm</code> here</p>
+        <p class="dz-or">or</p>
+        <label class="dz-btn" for="fileInput">Choose WASM File</label>
+        <input type="file" id="fileInput" accept=".wasm,application/wasm">
+      </div>
+
+      <div class="compare-slot" id="compare">
+        <h2 class="example-title">Compare an upgrade</h2>
+        <p class="example-desc">Load a candidate WASM to run the offline upgrade-safety check.</p>
+        <label class="dz-btn" for="candidateInput">Choose candidate</label>
+        <input type="file" id="candidateInput" accept=".wasm,application/wasm">
+        <div class="candidate-name" id="candidateName">No candidate loaded</div>
+      </div>
+
+      <aside class="example-panel" aria-label="Bundled example contracts">
+        <h2 class="example-title">No contract handy?</h2>
+        <p class="example-desc">Load a real compiled Soroban contract that ships with this page — inspected locally, same pipeline as a dropped file.</p>
+        <div class="example-btns">
+          <button type="button" class="example-btn" data-example="us_old"
+                  aria-label="Inspect the bundled example contract us_old.wasm">
+            <span class="ex-name">Load example: <code>us_old.wasm</code></span>
+            <span class="ex-hint">transfer &amp; mint — event + struct type</span>
+          </button>
+          <button type="button" class="example-btn" data-example="us_new"
+                  aria-label="Inspect the bundled example contract us_new.wasm">
+            <span class="ex-name">Load example: <code>us_new.wasm</code></span>
+            <span class="ex-hint">hello() and increment() — candidate upgrade</span>
+          </button>
+        </div>
+        <p class="example-note">Marked <em>(bundled)</em> in the file bar — it is not from your disk.</p>
+      </aside>
+    </div>
+    <p class="privacy-note">
+      <span class="privacy-tag" aria-hidden="true">local</span>
+      Runs locally in your browser. Your contract is not uploaded.
+    </p>
+
+    <!-- Selected file / status -->
+    <div class="filebar" id="filebar" hidden>
+      <div>
+        <div class="fname" id="fname"></div>
+        <div class="fmeta" id="fmeta"></div>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+      <button class="reset-btn" id="resetBtn" type="button">reset</button>
+    </div>
+
+    <!-- Error -->
+    <div class="error-box" id="errorBox" hidden role="alert">
+      <div class="err-title">Inspection failed</div>
+      <p id="errorMsg"></p>
+    </div>
+
+    <!-- Results -->
+    <div class="results hidden" id="results" aria-live="polite"></div>
+
+    <!-- CLI -->
+    <section class="cli-note">
+      <div>
+        <h2>Prefer the terminal?</h2>
+        <p>The Web Playground is a browser convenience. The <code>sdkt</code> CLI
+          is the primary developer interface and the source of truth — it exposes
+          the full command set, JSON output, and CI integration.</p>
+      </div>
+      <a class="btn btn-primary" href="../#install">Use sdkt CLI</a>
+    </section>
+
+    <!-- Test Runner Panel -->
+    <section id="test-runner" class="test-runner-section">
+      <div class="page-head" style="margin-top:2rem">
+        <div>
+          <h2 style="font-size:1.3rem">Test Runner</h2>
+          <p>Paste <code>cargo test -- --format json</code> output to see structured pass/fail results and inline assertion badges. Optionally paste an <code>lcov.info</code> report for line-level coverage highlights.</p>
+        </div>
+      </div>
+
+      <div class="test-runner-inputs">
+        <div class="test-runner-input-group">
+          <label class="test-runner-label" for="testOutputArea">
+            <code>cargo test</code> JSON output
+            <span class="test-runner-label-hint">(paste stdout from <code>cargo test -- --format json</code>)</span>
+          </label>
+          <textarea id="testOutputArea" class="test-runner-textarea"
+            placeholder="Paste cargo test JSON stream here…"
+            spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+        </div>
+
+        <div class="test-runner-input-group">
+          <label class="test-runner-label" for="coverageArea">
+            lcov coverage report
+            <span class="test-runner-label-hint">(optional — paste <code>lcov.info</code> or llvm-cov lcov export)</span>
+          </label>
+          <textarea id="coverageArea" class="test-runner-textarea test-runner-textarea-sm"
+            placeholder="Paste lcov.info contents here…"
+            spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+        </div>
+
+        <div class="test-runner-actions">
+          <button id="runTestsBtn" type="button" class="btn btn-primary">Parse &amp; display results</button>
+          <button id="clearTestsBtn" type="button" class="btn btn-ghost">Clear</button>
+        </div>
+      </div>
+
+      <!-- Panel is mounted here by test-runner-panel.js -->
+      <div id="testRunnerPanel"></div>
+    </section>
+
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap" style="display:flex;flex-wrap:wrap;gap:0.75rem;justify-content:space-between;width:100%">
+    <span>Soroban DevKit v2.7.0 · Web Playground · MIT License</span>
+    <span>
+      <a href="https://github.com/SaboLabs/soroban-devkit" rel="noopener">GitHub</a> ·
+      <a href="../">Landing page</a> ·
+      Not affiliated with the Stellar Development Foundation.
+    </span>
+  </div>
+</footer>
+
+<script src="playground.js"></script>
+<script type="module" src="test-runner-panel.js"></script>
+</body>
+</html>

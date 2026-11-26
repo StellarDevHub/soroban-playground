@@ -3,7 +3,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{AggregationStrategy, DataKey, Error, InstanceKey, PriceSource};
+use crate::types::{AggregationStrategy, DataKey, Error, InstanceKey, PriceBounds, PriceSource};
 
 // ── Instance (config) ─────────────────────────────────────────────────────────
 
@@ -40,12 +40,6 @@ pub fn set_source_count(env: &Env, v: u32) {
     env.storage().instance().set(&InstanceKey::SourceCount, &v);
 }
 
-pub fn get_decimals(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&InstanceKey::Decimals)
-        .unwrap_or(7)
-}
 pub fn set_decimals(env: &Env, v: u32) {
     env.storage().instance().set(&InstanceKey::Decimals, &v);
 }
@@ -54,7 +48,8 @@ pub fn get_max_price_age(env: &Env) -> u64 {
     env.storage()
         .instance()
         .get(&InstanceKey::MaxPriceAge)
-        .unwrap_or(3600)
+        .unwrap_or(3600u64)
+        .min(3600)
 }
 pub fn set_max_price_age(env: &Env, v: u64) {
     env.storage().instance().set(&InstanceKey::MaxPriceAge, &v);
@@ -80,16 +75,6 @@ pub fn set_strategy(env: &Env, v: AggregationStrategy) {
     env.storage().instance().set(&InstanceKey::Strategy, &v);
 }
 
-pub fn get_trim_pct(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&InstanceKey::TrimPct)
-        .unwrap_or(10)
-}
-pub fn set_trim_pct(env: &Env, v: u32) {
-    env.storage().instance().set(&InstanceKey::TrimPct, &v);
-}
-
 pub fn get_circuit_breaker_bps(env: &Env) -> u32 {
     // Default: 3000 bps = 30% max single-update swing
     env.storage()
@@ -113,4 +98,17 @@ pub fn get_source(env: &Env, id: u32) -> Result<PriceSource, Error> {
         .persistent()
         .get(&DataKey::Source(id))
         .ok_or(Error::SourceNotFound)
+}
+
+pub fn get_price_bounds(env: &Env) -> Result<PriceBounds, Error> {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::PriceBounds)
+        .ok_or(Error::PriceBoundsNotSet)
+}
+
+pub fn set_price_bounds(env: &Env, bounds: &PriceBounds) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::PriceBounds, bounds);
 }

@@ -1,5 +1,5 @@
 [package]
-name = "soroban-emergency-pause"
+name = "emergency-pause"
 version = "0.1.0"
 edition = "2021"
 description = "Emergency pause circuit breaker with multi-sig guardian role and time-locked governance"

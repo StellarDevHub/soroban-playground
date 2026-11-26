@@ -116,6 +116,63 @@ const FIELDS = [
   { key: "group", weight: 0.3, get: (action: SpotlightAction) => [action.group] },
 ];
 
+export interface SpotlightSearchIndex {
+  search: (query: string, options?: { limit?: number }) => SpotlightResult[];
+}
+
+/**
+ * Build a character posting index once per action snapshot. Queries use it to
+ * discard actions that cannot contain every query character before running the
+ * more expensive scored subsequence matcher.
+ */
+export function createSpotlightSearchIndex(
+  actions: readonly SpotlightAction[],
+): SpotlightSearchIndex {
+  const postings = new Map<string, Set<number>>();
+  actions.forEach((action, index) => {
+    const searchableText = FIELDS.flatMap((field) => field.get(action))
+      .filter((value): value is string => typeof value === "string")
+      .join("\n")
+      .toLowerCase();
+    for (const character of new Set(searchableText)) {
+      const entries = postings.get(character);
+      if (entries) entries.add(index);
+      else postings.set(character, new Set([index]));
+    }
+  });
+
+  return {
+    search(query, options = {}) {
+      const tokens = query
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((token) => token.length > 0);
+      if (tokens.length === 0) {
+        return rankSpotlightActions(actions, "", options);
+      }
+
+      let candidates: Set<number> | undefined;
+      for (const token of tokens) {
+        for (const character of new Set(token)) {
+          const posting = postings.get(character);
+          if (!posting) return [];
+          candidates = candidates
+            ? new Set([...candidates].filter((index) => posting.has(index)))
+            : new Set(posting);
+          if (candidates.size === 0) return [];
+        }
+      }
+
+      return rankSpotlightActions(
+        [...candidates].sort((a, b) => a - b).map((index) => actions[index]),
+        query,
+        options,
+      );
+    },
+  };
+}
+
 /**
  * Rank the registry against a whitespace-separated query. An empty query
  * returns every action in registry order (i.e. grouped), and every returned

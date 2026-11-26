@@ -10,7 +10,7 @@ import {
 } from './services/buildSandbox.js';
 import { enforceQuota, getUsage } from './services/diskQuotaManager.js';
 
-const CLEANUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const OLD_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 const TEMP_DIR_PREFIX = getCompileTempPrefix();
 const MAX_RETRY_ATTEMPTS = 3;
@@ -22,6 +22,28 @@ let intervalId = null;
  * and deletes those older than a specified threshold.
  * Includes robust error handling and retry logic.
  */
+/**
+ * A directory is considered actively compiling if it holds a lock file that
+ * was created by the compile worker. The lock is an exclusive-create file
+ * descriptor, so its presence (fresh or not) means a build owns the directory.
+ */
+const LOCK_FILE_NAME = '.compile.lock';
+
+function isActivelyLocked(dirPath) {
+  const lockPath = path.join(dirPath, LOCK_FILE_NAME);
+  try {
+    // Opening with 'r+' fails on a missing file; an existing lock is left intact.
+    const fd = fs.openSync(lockPath, 'r+');
+    fs.closeSync(fd);
+    return true;
+  } catch (err) {
+    if (err.code === 'ENOENT') return false;
+    // Any other error (EACCES, EBUSY) means we cannot prove the dir is idle;
+    // treat it as locked so we never delete an in-use workspace.
+    return true;
+  }
+}
+
 async function scanAndCleanupDir(baseDir) {
   try {
     const startTime = performance.now();
@@ -37,6 +59,12 @@ async function scanAndCleanupDir(baseDir) {
           const stats = fs.statSync(dirPath);
           const now = Date.now();
           const birthtimeMs = stats.birthtimeMs;
+
+          if (isActivelyLocked(dirPath)) {
+            console.log(`Skipping actively locked directory: ${dirPath}`);
+            processedCount++;
+            continue;
+          }
 
           if (now - birthtimeMs > OLD_THRESHOLD_MS) {
             console.log(`Deleting old temporary directory: ${dirPath}`);

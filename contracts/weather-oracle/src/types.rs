@@ -74,6 +74,32 @@ pub enum DataKey {
     Submitted(u32, Address),
     /// Historical index: (location, observed_at) → record_id
     HistoryIndex(String, u64),
+    /// Epoch weather reports: (station_id, epoch) -> Vec<EpochReport>
+    EpochReports(u32, u64),
+    /// Finalized epoch consensus benchmark: (station_id, epoch) -> EpochConsensus
+    EpochConsensus(u32, u64),
+}
+
+/// Weather report for an epoch submitted by a station/source.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct EpochReport {
+    pub reporter: Address,
+    pub station_id: u32,
+    pub rainfall_mm: u32,
+    pub observed_at: u64,
+}
+
+/// Consensus benchmark for a measurement epoch calculated using IQR trimming.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct EpochConsensus {
+    pub station_id: u32,
+    pub epoch: u64,
+    pub total_reports: u32,
+    pub valid_reports: u32,
+    pub trimmed_median_rainfall: u32,
+    pub finalized_at: u64,
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────
@@ -98,4 +124,8 @@ pub enum Error {
     InvalidWindSpeed = 14,
     EmptyLocation = 15,
     InvalidTimestamp = 16,
+    StaleData = 17,
+    ConsensusNotReached = 18,
+    OutlierFiltered = 19,
+    InsufficientReports = 20,
 }

@@ -91,6 +91,19 @@ describe('POST /api/notary/notarize', () => {
     );
   });
 
+  it('returns 400 when unexpected object keys are provided (strict mode)', async () => {
+    const res = await request(app).post('/api/notary/notarize').send({
+      fileHash: VALID_HASH,
+      metadata: 'my document',
+      unexpectedKey: 'smuggled',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe('Validation failed');
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors[0].code).toBe('unrecognized_keys');
+  });
+
   it('propagates service errors', async () => {
     const err = new Error('File already notarized');
     err.statusCode = 409;

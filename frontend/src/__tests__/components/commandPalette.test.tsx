@@ -8,7 +8,7 @@
  */
 
 import React from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CommandPalette } from "@/components/CommandPalette";
 import {
   buildCommandIndex,
@@ -362,5 +362,62 @@ describe("CommandPalette", () => {
     (loadTemplateMetadata as jest.Mock).mockClear();
     render(<CommandPalette open onOpenChange={jest.fn()} />);
     await waitFor(() => expect(loadTemplateMetadata).toHaveBeenCalled());
+  });
+
+  it("toggles action preview on Tab key without executing", () => {
+    const onOpenChange = jest.fn();
+    renderOpen({ onOpenChange });
+    const input = screen.getByRole("combobox");
+
+    expect(screen.queryByTestId("action-preview")).not.toBeInTheDocument();
+
+    // Tab opens action preview
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(screen.getByTestId("action-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("action-preview")).toHaveTextContent(/Action Preview:/i);
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // Second Tab dismisses preview
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(screen.queryByTestId("action-preview")).not.toBeInTheDocument();
+  });
+
+  it("indexes recent files, contract deployment actions, and documentation quick-links", () => {
+    const index = buildCommandIndex({
+      recents: [{ id: "/playground", title: "Recent IDE", kind: "route", at: Date.now() }],
+      actions: [
+        {
+          id: "build.compile",
+          label: "Compile contract",
+          run: jest.fn(),
+        },
+      ],
+    });
+
+    expect(index.some((item) => item.source === "recent" && item.title === "Recent IDE")).toBe(true);
+    expect(index.some((item) => item.source === "action" && item.title === "Compile contract")).toBe(true);
+    expect(index.some((item) => item.source === "route" && item.title.includes("Docs:"))).toBe(true);
+  });
+
+  it("executes fuzzy search over 1,000+ items with sub-10ms query response time", () => {
+    const largeIndex = Array.from({ length: 1200 }, (_, i) => ({
+      id: `file-${i}`,
+      title: `Contract Project File ${i} Token Vault Escrow`,
+      subtitle: `soroban/contracts/vault_${i}/src/lib.rs`,
+      source: "contract" as const,
+      keywords: ["soroban", "escrow", "vault", `vault_${i}`, "rust", "wasm"],
+      href: `/contract/vault_${i}`,
+    }));
+
+    // Warm up
+    rankCommands(largeIndex, "token");
+
+    const start = performance.now();
+    const results = rankCommands(largeIndex, "escrow vault");
+    const duration = performance.now() - start;
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(duration).toBeLessThan(10);
   });
 });

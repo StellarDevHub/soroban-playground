@@ -29,8 +29,8 @@ use crate::storage::{
 };
 use crate::types::{Error, Role, Signer, Transaction, TxStatus};
 
-/// 24-hour timelock in seconds.
-const TIMELOCK_SECS: u64 = 86_400;
+/// Mandatory 48-hour timelock in seconds.
+const TIMELOCK_SECS: u64 = 172_800;
 /// Proposal expiry: 7 days.
 const EXPIRY_SECS: u64 = 604_800;
 
@@ -249,6 +249,8 @@ impl DaoTreasury {
 
         if tx.approvals >= get_threshold(&env) {
             tx.status = TxStatus::Queued;
+            // Start the full timelock when the transaction becomes executable.
+            tx.execute_after = now + TIMELOCK_SECS;
             env.events()
                 .publish((soroban_sdk::symbol_short!("queued"),), tx_id);
         }

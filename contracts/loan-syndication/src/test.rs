@@ -16,6 +16,7 @@ struct Fixture {
     borrower: Address,
     token_client: TokenClient<'static>,
     token_admin: StellarAssetClient<'static>,
+    collateral_client: TokenClient<'static>,
     loan_id: u32,
     funding_deadline: u64,
     maturity: u64,
@@ -32,6 +33,14 @@ fn setup() -> Fixture {
     let token_address = env.register_stellar_asset_contract_v2(issuer).address();
     let token_client = TokenClient::new(&env, &token_address);
     let token_admin = StellarAssetClient::new(&env, &token_address);
+
+    let collateral_issuer = Address::generate(&env);
+    let collateral_address = env
+        .register_stellar_asset_contract_v2(collateral_issuer)
+        .address();
+    let collateral_client = TokenClient::new(&env, &collateral_address);
+    let collateral_admin = StellarAssetClient::new(&env, &collateral_address);
+
     client.initialize(&admin);
     let funding_deadline = env.ledger().timestamp() + 100;
     let maturity = env.ledger().timestamp() + 200;
@@ -46,6 +55,10 @@ fn setup() -> Fixture {
         &maturity,
         &50,
     );
+    // Borrower locks 500 collateral; a liquidator can buy it all for 100.
+    collateral_admin.mint(&borrower, &500);
+    client.post_collateral(&loan_id, &collateral_address, &500, &100);
+
     Fixture {
         env,
         client,
@@ -53,6 +66,7 @@ fn setup() -> Fixture {
         borrower,
         token_client,
         token_admin,
+        collateral_client,
         loan_id,
         funding_deadline,
         maturity,
@@ -75,6 +89,19 @@ fn draw_full(fixture: &Fixture) -> (Address, Address) {
     lenders
 }
 
+/// Move past maturity + grace period and mark the loan defaulted.
+fn default_loan(fixture: &Fixture) {
+    fixture.env.ledger().set_timestamp(fixture.maturity + 50);
+    fixture.client.mark_default(&fixture.loan_id);
+}
+
+/// Create a funded liquidator holding `amount` of the loan asset.
+fn make_liquidator(fixture: &Fixture, amount: i128) -> Address {
+    let liquidator = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&liquidator, &amount);
+    liquidator
+}
+
 #[test]
 fn initialize_and_create_loan() {
     let fixture = setup();
@@ -82,6 +109,8 @@ fn initialize_and_create_loan() {
     assert_eq!(loan.status, LoanStatus::Funding);
     assert_eq!(loan.senior_target, 700);
     assert_eq!(loan.junior_target, 300);
+    assert_eq!(loan.collateral_held, 500);
+    assert_eq!(loan.liquidation_price, 100);
     assert_eq!(fixture.client.loan_count(), 1);
     assert_eq!(fixture.client.total_due(&fixture.loan_id), 1_130);
 }
@@ -208,6 +237,37 @@ fn drawdown_requires_both_tranches() {
         fixture.client.try_drawdown(&fixture.loan_id),
         Err(Ok(Error::LoanNotFunded))
     );
+    // Principal stays locked in the contract while the syndicate is incomplete.
+    assert_eq!(fixture.token_client.balance(&fixture.borrower), 0);
+}
+
+#[test]
+fn drawdown_requires_collateral() {
+    let fixture = setup();
+    // A second loan with no collateral posted.
+    let token = fixture.token_client.address.clone();
+    let loan_two = fixture.client.create_loan(
+        &fixture.borrower,
+        &token,
+        &1_000,
+        &700,
+        &1_000,
+        &2_000,
+        &fixture.funding_deadline,
+        &fixture.maturity,
+        &50,
+    );
+    let senior = Address::generate(&fixture.env);
+    let junior = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&senior, &700);
+    fixture.token_admin.mint(&junior, &300);
+    fixture.client.fund(&senior, &loan_two, &0, &700);
+    fixture.client.fund(&junior, &loan_two, &1, &300);
+
+    assert_eq!(
+        fixture.client.try_drawdown(&loan_two),
+        Err(Ok(Error::CollateralRequired))
+    );
 }
 
 #[test]
@@ -286,15 +346,17 @@ fn junior_absorbs_default_loss_before_senior() {
     fixture
         .client
         .repay(&fixture.borrower, &fixture.loan_id, &800);
-    fixture.env.ledger().set_timestamp(fixture.maturity + 50);
-    fixture.client.mark_default(&fixture.loan_id);
+    default_loan(&fixture);
+    // Collateral recovery adds 100 to the waterfall: 800 + 100 = 900.
+    let liquidator = make_liquidator(&fixture, 100);
+    fixture.client.liquidate(&liquidator, &fixture.loan_id);
 
     let senior_summary = fixture.client.tranche_summary(&fixture.loan_id, &0);
     let junior_summary = fixture.client.tranche_summary(&fixture.loan_id, &1);
     assert_eq!(senior_summary.settlement_allocation, 770);
-    assert_eq!(junior_summary.settlement_allocation, 30);
+    assert_eq!(junior_summary.settlement_allocation, 130);
     assert_eq!(fixture.client.claim(&senior, &fixture.loan_id, &0), 770);
-    assert_eq!(fixture.client.claim(&junior, &fixture.loan_id, &1), 30);
+    assert_eq!(fixture.client.claim(&junior, &fixture.loan_id, &1), 130);
 }
 
 #[test]
@@ -304,14 +366,16 @@ fn deeper_default_reduces_senior_and_wipes_junior() {
     fixture
         .client
         .repay(&fixture.borrower, &fixture.loan_id, &500);
-    fixture.env.ledger().set_timestamp(fixture.maturity + 50);
-    fixture.client.mark_default(&fixture.loan_id);
+    default_loan(&fixture);
+    // 500 repaid + 100 recovered from collateral = 600.
+    let liquidator = make_liquidator(&fixture, 100);
+    fixture.client.liquidate(&liquidator, &fixture.loan_id);
 
     assert_eq!(
         fixture
             .client
             .calculate_claim(&fixture.loan_id, &senior, &0),
-        500
+        600
     );
     assert_eq!(
         fixture
@@ -435,4 +499,200 @@ fn tranche_summary_reports_risk_terms() {
     assert_eq!(junior.tranche, Tranche::Junior);
     assert_eq!(junior.funded, 300);
     assert_eq!(junior.amount_due, 360);
+}
+
+// ---------------------------------------------------------------------------
+// Collateral, liquidation and reserve
+// ---------------------------------------------------------------------------
+
+#[test]
+fn collateral_is_held_by_the_contract() {
+    let fixture = setup();
+    assert_eq!(fixture.collateral_client.balance(&fixture.borrower), 0);
+    assert_eq!(
+        fixture
+            .collateral_client
+            .balance(&fixture.client.address),
+        500
+    );
+}
+
+#[test]
+fn claim_blocked_until_liquidated() {
+    let fixture = setup();
+    let (senior, _) = draw_full(&fixture);
+    default_loan(&fixture);
+    assert_eq!(
+        fixture.client.try_claim(&senior, &fixture.loan_id, &0),
+        Err(Ok(Error::RecoveryPending))
+    );
+}
+
+#[test]
+fn liquidate_before_default_is_rejected() {
+    let fixture = setup();
+    draw_full(&fixture);
+    let liquidator = make_liquidator(&fixture, 100);
+    assert_eq!(
+        fixture.client.try_liquidate(&liquidator, &fixture.loan_id),
+        Err(Ok(Error::NothingToLiquidate))
+    );
+}
+
+#[test]
+fn liquidation_pays_lenders_with_collateral_proceeds() {
+    let fixture = setup();
+    let (senior, _) = draw_full(&fixture);
+    default_loan(&fixture);
+    let liquidator = make_liquidator(&fixture, 100);
+
+    let paid = fixture.client.liquidate(&liquidator, &fixture.loan_id);
+    assert_eq!(paid, 100);
+    assert_eq!(fixture.collateral_client.balance(&liquidator), 500);
+    assert_eq!(fixture.token_client.balance(&liquidator), 0);
+
+    let loan = fixture.client.get_loan(&fixture.loan_id);
+    assert_eq!(loan.repaid, 100);
+    assert_eq!(loan.collateral_held, 0);
+    assert_eq!(loan.status, LoanStatus::Defaulted);
+
+    // Senior is paid first from the recovery.
+    assert_eq!(fixture.client.claim(&senior, &fixture.loan_id, &0), 100);
+}
+
+#[test]
+fn liquidation_closes_loan_when_debt_is_covered() {
+    let fixture = setup();
+    draw_full(&fixture);
+    // Borrower already repaid 1,100 of 1,130; only 30 is outstanding.
+    fixture.token_admin.mint(&fixture.borrower, &100);
+    fixture
+        .client
+        .repay(&fixture.borrower, &fixture.loan_id, &1_100);
+    default_loan(&fixture);
+    let liquidator = make_liquidator(&fixture, 100);
+
+    let paid = fixture.client.liquidate(&liquidator, &fixture.loan_id);
+    assert_eq!(paid, 30);
+    // Only 30/100 of the collateral is sold: 500 * 30 / 100 = 150.
+    assert_eq!(fixture.collateral_client.balance(&liquidator), 150);
+    let loan = fixture.client.get_loan(&fixture.loan_id);
+    assert_eq!(loan.status, LoanStatus::Repaid);
+    assert_eq!(loan.collateral_held, 350);
+
+    // The borrower gets the leftover collateral back.
+    assert_eq!(fixture.client.reclaim_collateral(&fixture.loan_id), 350);
+    assert_eq!(fixture.collateral_client.balance(&fixture.borrower), 350);
+}
+
+#[test]
+fn reclaim_collateral_after_full_repayment() {
+    let fixture = setup();
+    draw_full(&fixture);
+    fixture.token_admin.mint(&fixture.borrower, &130);
+    fixture
+        .client
+        .repay(&fixture.borrower, &fixture.loan_id, &1_130);
+
+    assert_eq!(fixture.client.reclaim_collateral(&fixture.loan_id), 500);
+    assert_eq!(fixture.collateral_client.balance(&fixture.borrower), 500);
+    assert_eq!(
+        fixture.client.try_reclaim_collateral(&fixture.loan_id),
+        Err(Ok(Error::NothingToClaim))
+    );
+}
+
+#[test]
+fn reclaim_collateral_is_blocked_while_loan_is_active() {
+    let fixture = setup();
+    draw_full(&fixture);
+    assert_eq!(
+        fixture.client.try_reclaim_collateral(&fixture.loan_id),
+        Err(Ok(Error::InvalidLoanStatus))
+    );
+}
+
+#[test]
+fn cancelled_loan_returns_collateral_to_borrower() {
+    let fixture = setup();
+    fixture
+        .client
+        .cancel_loan(&fixture.borrower, &fixture.loan_id);
+    assert_eq!(fixture.client.reclaim_collateral(&fixture.loan_id), 500);
+    assert_eq!(fixture.collateral_client.balance(&fixture.borrower), 500);
+}
+
+#[test]
+fn rounding_dust_goes_to_reserve() {
+    let fixture = setup();
+    let senior = Address::generate(&fixture.env);
+    let junior_a = Address::generate(&fixture.env);
+    let junior_b = Address::generate(&fixture.env);
+    let junior_c = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&senior, &700);
+    fixture.token_admin.mint(&junior_a, &100);
+    fixture.token_admin.mint(&junior_b, &100);
+    fixture.token_admin.mint(&junior_c, &100);
+    fixture.client.fund(&senior, &fixture.loan_id, &0, &700);
+    fixture.client.fund(&junior_a, &fixture.loan_id, &1, &100);
+    fixture.client.fund(&junior_b, &fixture.loan_id, &1, &100);
+    fixture.client.fund(&junior_c, &fixture.loan_id, &1, &100);
+    fixture.client.drawdown(&fixture.loan_id);
+
+    fixture
+        .client
+        .repay(&fixture.borrower, &fixture.loan_id, &800);
+    default_loan(&fixture);
+    let liquidator = make_liquidator(&fixture, 100);
+    fixture.client.liquidate(&liquidator, &fixture.loan_id);
+
+    // Junior allocation is 130; three equal lenders each get floor(130/3) = 43.
+    assert_eq!(fixture.client.claim(&senior, &fixture.loan_id, &0), 770);
+    assert_eq!(fixture.client.claim(&junior_a, &fixture.loan_id, &1), 43);
+    assert_eq!(fixture.client.reserve(&fixture.loan_id), 0);
+    assert_eq!(fixture.client.claim(&junior_b, &fixture.loan_id, &1), 43);
+    assert_eq!(fixture.client.claim(&junior_c, &fixture.loan_id, &1), 43);
+
+    // 130 - 3 * 43 = 1 unit is preserved in the reserve, not lost.
+    assert_eq!(fixture.client.reserve(&fixture.loan_id), 1);
+    assert_eq!(fixture.client.sweep_reserve(&fixture.loan_id), 1);
+    assert_eq!(fixture.token_client.balance(&fixture.admin), 1);
+    assert_eq!(fixture.client.reserve(&fixture.loan_id), 0);
+    assert_eq!(
+        fixture.client.try_sweep_reserve(&fixture.loan_id),
+        Err(Ok(Error::NothingToClaim))
+    );
+}
+
+#[test]
+fn reserve_is_empty_until_everyone_claims() {
+    let fixture = setup();
+    let senior = Address::generate(&fixture.env);
+    let junior_a = Address::generate(&fixture.env);
+    let junior_b = Address::generate(&fixture.env);
+    let junior_c = Address::generate(&fixture.env);
+    fixture.token_admin.mint(&senior, &700);
+    fixture.token_admin.mint(&junior_a, &100);
+    fixture.token_admin.mint(&junior_b, &100);
+    fixture.token_admin.mint(&junior_c, &100);
+    fixture.client.fund(&senior, &fixture.loan_id, &0, &700);
+    fixture.client.fund(&junior_a, &fixture.loan_id, &1, &100);
+    fixture.client.fund(&junior_b, &fixture.loan_id, &1, &100);
+    fixture.client.fund(&junior_c, &fixture.loan_id, &1, &100);
+    fixture.client.drawdown(&fixture.loan_id);
+    fixture
+        .client
+        .repay(&fixture.borrower, &fixture.loan_id, &800);
+    default_loan(&fixture);
+    let liquidator = make_liquidator(&fixture, 100);
+    fixture.client.liquidate(&liquidator, &fixture.loan_id);
+
+    fixture.client.claim(&junior_a, &fixture.loan_id, &1);
+    fixture.client.claim(&junior_b, &fixture.loan_id, &1);
+    // junior_c has not claimed yet, so nothing can be swept.
+    assert_eq!(fixture.client.reserve(&fixture.loan_id), 0);
+    assert_eq!(
+        fixture.client.try_sweep_reserve(&fixture.loan_id),
+        Err(Ok(Error::NothingToClaim))
+    );
 }

@@ -16,18 +16,21 @@ export function createNodeStyle(isSelected: boolean) {
   };
 }
 
-export function createEdgeStyle() {
+export function createEdgeStyle(
+  color = "#38bdf8",
+  strokeWidth = 1.5,
+) {
   return {
     markerEnd: {
       type: MarkerType.ArrowClosed,
-      color: "#38bdf8",
+      color,
     },
     style: {
-      stroke: "#38bdf8",
-      strokeWidth: 1.5,
+      stroke: color,
+      strokeWidth,
     },
     labelStyle: {
-      fill: "#94a3b8",
+      fill: color,
       fontSize: 11,
     },
   };

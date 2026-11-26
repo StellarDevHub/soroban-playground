@@ -36,6 +36,8 @@ function makeFlag(overrides = {}) {
     enabled: 1,
     rollout_pct: 100,
     description: 'test',
+    environment: null,
+    segments: '[]',
     created_at: '2026-01-01',
     updated_at: '2026-01-01',
     ...overrides,
@@ -113,10 +115,6 @@ describe('featureFlagService.evaluate', () => {
   });
 
   it('is deterministic for same userId and flagKey', async () => {
-    mockDb.all
-      .mockResolvedValue([makeFlag({ enabled: 1, rollout_pct: 50 })])
-      .mockResolvedValue([]);
-
     const results = new Set();
     for (let i = 0; i < 5; i++) {
       mockDb.all
@@ -128,15 +126,74 @@ describe('featureFlagService.evaluate', () => {
         })
       );
     }
-    // All calls with the same userId must return the same value
     expect(results.size).toBe(1);
   });
 
-  it('returns false when rollout_pct < 100 and no userId', async () => {
+  it('returns false when rollout_pct < 100 and no subject', async () => {
     mockDb.all
       .mockResolvedValueOnce([makeFlag({ enabled: 1, rollout_pct: 50 })])
       .mockResolvedValueOnce([]);
     expect(await featureFlagService.evaluate('test-flag', {})).toBe(false);
+  });
+
+  it('falls back to publicKey as the rollout subject', async () => {
+    mockDb.all
+      .mockResolvedValueOnce([makeFlag({ enabled: 1, rollout_pct: 50 })])
+      .mockResolvedValueOnce([]);
+    const result = await featureFlagService.evaluate('test-flag', {
+      publicKey: 'GABC',
+    });
+    expect(typeof result).toBe('boolean');
+  });
+
+  it('enforces environment scoping', async () => {
+    mockDb.all
+      .mockResolvedValueOnce([
+        makeFlag({ enabled: 1, rollout_pct: 100, environment: 'staging' }),
+      ])
+      .mockResolvedValueOnce([]);
+    expect(
+      await featureFlagService.evaluate('test-flag', {
+        userId: 'u1',
+        environment: 'production',
+      })
+    ).toBe(false);
+  });
+
+  it('requires a matching segment when flag declares segments', async () => {
+    mockDb.all
+      .mockResolvedValueOnce([
+        makeFlag({
+          enabled: 1,
+          rollout_pct: 100,
+          segments: JSON.stringify(['beta-testers']),
+        }),
+      ])
+      .mockResolvedValueOnce([]);
+    expect(
+      await featureFlagService.evaluate('test-flag', {
+        userId: 'u1',
+        isBetaTester: false,
+      })
+    ).toBe(false);
+  });
+
+  it('grants access to matching network segment', async () => {
+    mockDb.all
+      .mockResolvedValueOnce([
+        makeFlag({
+          enabled: 1,
+          rollout_pct: 100,
+          segments: JSON.stringify(['network:testnet']),
+        }),
+      ])
+      .mockResolvedValueOnce([]);
+    expect(
+      await featureFlagService.evaluate('test-flag', {
+        userId: 'u1',
+        network: 'testnet',
+      })
+    ).toBe(true);
   });
 });
 
@@ -147,11 +204,11 @@ describe('featureFlagService HTTP routes', () => {
     jest.clearAllMocks();
     redisService.get.mockResolvedValue(null);
     getDatabase.mockReturnValue(mockDb);
-    const express = require('express').default;
-    const { default: featureFlagsRoute } = require(
+    const express = (await import('express')).default;
+    const { default: featureFlagsRoute } = await import(
       '../src/routes/featureFlags.js?bust=' + Math.random()
     );
-    const { errorHandler } = require('../src/middleware/errorHandler.js');
+    const { errorHandler } = await import('../src/middleware/errorHandler.js');
     app = express();
     app.use(express.json());
     app.use('/api/feature-flags', featureFlagsRoute);

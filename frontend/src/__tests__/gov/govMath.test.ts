@@ -11,6 +11,7 @@ import {
   calculateQuorumProgress,
   calculateApprovalProgress,
   simulateProposalStateDiff,
+  calculateTreasuryImpact,
 } from '../../lib/gov/govMath';
 import { INITIAL_GOVERNANCE_PROPOSALS } from '../../lib/gov/mockProposals';
 
@@ -91,6 +92,35 @@ describe('Governance Mathematics & Quorum Engine', () => {
       const adminDiff = diffs.find((d) => d.key === 'admin');
       expect(adminDiff?.diffType).toBe('modified');
       expect(adminDiff?.isSecurityCritical).toBe(true);
+    });
+  });
+
+  describe('Treasury Impact Simulation', () => {
+    it('simulates drawdown from prospective state diffs', () => {
+      const pip11 = INITIAL_GOVERNANCE_PROPOSALS.find((p) => p.id === 'PIP-11');
+      expect(pip11).toBeDefined();
+      const impact = calculateTreasuryImpact(pip11);
+      expect(impact.baselineBalance).toBe(25000000);
+      expect(impact.simulatedBalance).toBe(24500000);
+      expect(impact.netDelta).toBe(-500000);
+      expect(impact.deltaPct).toBe(-2);
+      expect(impact.impactType).toBe('drawdown');
+    });
+
+    it('simulates fee rate adjustments', () => {
+      const pip14 = INITIAL_GOVERNANCE_PROPOSALS.find((p) => p.id === 'PIP-14');
+      expect(pip14).toBeDefined();
+      const impact = calculateTreasuryImpact(pip14);
+      expect(impact.impactType).toBe('fee_adjustment');
+      expect(impact.deltaPct).toBe(-33.3);
+    });
+
+    it('defaults to neutral impact for non-financial proposals', () => {
+      const pip15 = INITIAL_GOVERNANCE_PROPOSALS.find((p) => p.id === 'PIP-15');
+      expect(pip15).toBeDefined();
+      const impact = calculateTreasuryImpact(pip15);
+      expect(impact.impactType).toBe('neutral');
+      expect(impact.netDelta).toBe(0);
     });
   });
 

@@ -10,6 +10,9 @@ pub enum DataKey {
     UsageRecord(String, Address), // (song_id, licensee)
     License(String, Address),     // (song_id, licensee)
     RevenueShare(String),         // song_id
+    MusicMetadata(String),
+    RightsAgreement(String, Address),
+    SongPaymentToken(String),
 }
 
 pub fn is_initialized(env: &Env) -> bool {

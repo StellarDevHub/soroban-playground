@@ -1,32 +1,41 @@
-# Price Feed Aggregator
+# Price Aggregator
 
-A production-ready Soroban smart contract that aggregates prices from multiple
-authorized data sources, providing tamper-resistant, manipulation-resistant
-pricing for DeFi applications such as synthetic assets and stablecoins.
+Multi-asset Soroban oracle aggregator with authenticated reporter binding, per-asset bounds, median consensus, and aggregate swing protection.
 
-## How It Works
+## Configuration and use
 
-Multiple oracle sources submit prices for each asset independently.
-The contract combines them using a configurable aggregation strategy,
-applies outlier detection to exclude manipulated feeds, and trips a
-circuit breaker if the aggregate swings too sharply relative to the
-previous accepted price.
+1. `initialize(admin, strategy?, max_price_age?, outlier_bps?, circuit_breaker_bps?, min_sources?)` initializes once. Only `Median` is accepted. Heartbeat must be 1 to 3,600 seconds; source minimum must be 3 to 32 (default three); basis-point thresholds must be 1 to 10,000.
+2. Admin calls `add_source(admin, name, weight)` to allocate a source ID, then **`set_reporter(admin, source_id, reporter)`** to bind its signing address. Unbound IDs cannot submit or contribute prices. Binding is immutable and duplicate active reporter addresses are rejected. To rotate a reporter, remove the old source and register/bind a new ID.
+3. Admin calls **`set_price_bounds(admin, asset, min, max)`** separately for every asset, using positive inclusive limits in its 18-decimal price scale (human price multiplied by 10^18). There is no default band.
+4. The bound reporter calls `update_price(source_addr, source_id, asset, price)`. Signing with an unrelated address does not authorize submission under an existing source ID.
+5. Consumers call `get_aggregated_price(asset)`. `get_price(source_id, asset)` provides validated individual-source data.
 
-```
-Source A ──┐
-Source B ──┼──► Outlier filter ──► Aggregation ──► Circuit breaker ──► AggregatedPrice
-Source C ──┘         ▲                   ▲                  ▲
-                staleness check    Median / WA /       max swing %
-                                  TrimmedMean
-```
+The default outlier tolerance is 20%. An aggregate deviating more than 50% from the last accepted aggregate is rejected by the existing relative circuit breaker. Failed reads do not overwrite that accepted baseline. Admin can pause/unpause, remove sources, and update weight metadata. `get_source`, `get_source_count`, `get_admin`, `get_strategy`, and `is_paused` expose metadata. The existing 32-source limit remains.
 
-## Aggregation Strategies
+## Compatibility and existing deployments
 
-| Strategy           | Description                                                                       |
-| ------------------ | --------------------------------------------------------------------------------- |
-| `Median` (default) | Middle value of sorted prices. Robust against outliers.                           |
-| `WeightedAverage`  | Weighted mean using per-source weights (1–100). Rewards trusted oracles.          |
-| `TrimmedMean`      | Drops the lowest and highest price, then averages the rest. Best with 5+ sources. |
+Existing entry-point signatures and source metadata remain unchanged. Integrations must add reporter binding and per-asset bounds configuration before submitting prices; backend/UI consumers using the previous registration flow need to invoke these new admin entry points.
+
+Pre-binding `DataKey::Price` records are **not trusted**: older code did not bind source IDs to signing addresses. Authenticated submissions now use `DataKey::VerifiedPrice`, so every source must publish fresh rounds after the upgrade. Old records are retained but never consumed; there is no automatic migration of untrusted values.
+
+Legacy minimum-source settings below three are clamped to three; legacy heartbeat settings above one hour are capped. Non-median configurations must be changed to `Median`. Consumers that relied on single-source consensus, weighted/trimmed aggregation, or reads while paused must update their assumptions.
+
+## Price safety policy
+
+- Every consumed round must be positive, inside inclusive admin-configured price bounds, and no older than the configured heartbeat. The heartbeat cannot exceed **3,600 seconds**. Exactly 3,600 seconds is valid at the default; 3,601 is stale. Future timestamps are rejected.
+- Aggregation returns the **median of at least three distinct reporter addresses**, after inactive, stale, invalid, duplicate, and outlier rounds have been excluded. It fails with `InsufficientSources` if filtering removes quorum. Registering several IDs for one reporter cannot create quorum.
+- `WeightedAverage` and `TrimmedMean` enum variants remain for ABI decoding, but initialization and strategy changes reject them. Legacy non-median configurations also cannot produce aggregates. Weights remain metadata and never influence the median.
+- Price bounds must be explicitly configured; there is no universal default band appropriate to all assets. Missing bounds fail closed with `PriceBoundsNotSet`. Invalid bounds (`min <= 0` or `max < min`) are rejected. Bounds apply to initial submissions, later updates, and previously stored rounds at read time.
+- The aggregate timestamp is the **oldest valid candidate round timestamp**, conservatively including candidates later excluded as outliers. Reading repeatedly never makes an old round fresh.
+- Pause blocks submissions and price reads. Single-source `get_price` validates the round but is diagnostic data, not a quorum result; financial consumers should use `get_aggregated_price`.
+- Price/deviation arithmetic avoids multiplying an i128 price by 10,000 or adding two extreme prices, so valid positive prices up to `i128::MAX` do not overflow these checks.
+
+Reporter addresses establish distinct on-chain identities, not economic independence. The administrator must select independent oracle operators and set appropriate bands for the asset and its scale. Reporters must submit current observations: timestamps record on-chain submission time and cannot prove the age of an off-chain observation.
+
+## Existing API and Deployment Reference
+
+The following legacy endpoints remain available. Registration alone is insufficient:
+configure the bounds and reporter bindings described above before submitting prices.
 
 ## Security Features
 
@@ -58,9 +67,11 @@ frontend/src/app/price-aggregator/page.tsx    ← Next.js page
 | ------------------------------------------------------------------------------------------------ | ----------------- | ---------------------------------------------- |
 | `initialize(admin, strategy?, max_price_age?, outlier_bps?, circuit_breaker_bps?, min_sources?)` | Public (once)     | Initialize contract                            |
 | `add_source(admin, name, weight)`                                                                | Admin             | Register a new price source, returns source ID |
+| `set_reporter(admin, source_id, reporter)` | Admin | Bind a distinct reporter before its first submission |
+| `set_price_bounds(admin, asset, min, max)` | Admin | Configure mandatory inclusive per-asset bands |
 | `remove_source(admin, source_id)`                                                                | Admin             | Deactivate a source                            |
 | `set_weight(admin, source_id, weight)`                                                           | Admin             | Update source weight (1–100)                   |
-| `set_strategy(admin, strategy)`                                                                  | Admin             | Change aggregation strategy                    |
+| `set_strategy(admin, strategy)`                                                                  | Admin             | Select Median (only supported strategy)                    |
 | `update_price(source_addr, source_id, asset, price)`                                             | Authorized source | Submit a price (scaled to 10^18)               |
 | `get_price(source_id, asset)`                                                                    | Read              | Get latest price from a single source          |
 | `get_aggregated_price(asset)`                                                                    | Read              | Compute and return aggregated price            |
@@ -197,9 +208,8 @@ Test coverage includes:
 - Source management (add, remove, weight update, auth checks)
 - Price submission (valid, unauthorized, inactive source, zero price)
 - Staleness enforcement (stale single-source query, stale excluded from aggregation)
-- Median aggregation (single source, odd count, even count)
-- Weighted average aggregation
-- Trimmed mean aggregation
+- Median aggregation (three-source quorum, odd/even counts)
+- Rejection of non-median aggregation modes
 - Insufficient sources error
 - Outlier detection (outlier excluded, clean price accepted)
 - Circuit breaker (trips on large swing, allows small swing)

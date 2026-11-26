@@ -54,6 +54,13 @@ describe('event schema validation and versioning', () => {
       ])
     );
     expect(res.body.data.quarantineItem.id).toMatch(/^q-/);
+
+    const metrics = await request(app).get('/api/events/metrics');
+    expect(metrics.status).toBe(200);
+    expect(metrics.body.data).toMatchObject({
+      quarantineSize: 1,
+      validationStats: { total: 1, invalid: 1, quarantined: 1 },
+    });
   });
 
   it('migrates legacy v1 payment events to the latest schema', async () => {

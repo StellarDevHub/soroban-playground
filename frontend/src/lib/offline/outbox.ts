@@ -3,13 +3,14 @@
 
 /**
  * Durable outbox for operations that could not be delivered while offline
- * (issue #1525).
+ * (issue #1525, #2037).
  *
  * Every mutation the app wants to persist is first written here, then attempted
  * immediately. While the network is down the operation simply stays queued; the
  * drain pass replays it — oldest first — as soon as connectivity returns.
  *
- * The queue is persisted to `localStorage` so a tab reload, a crash or a device
+ * The queue is dual-persisted to IndexedDB (with ACID transaction guarantees) and
+ * `localStorage` (for synchronous fallback), so a tab reload, a crash or a device
  * restart does not silently drop a user's work, and it is capped
  * ({@link OUTBOX_CAPACITY}) so a long offline stretch cannot exhaust the origin
  * storage quota.
@@ -22,6 +23,13 @@ import {
   type OutboxState,
 } from "./types";
 import { readJson, writeJson } from "./storage";
+import {
+  idbPutOperation,
+  idbDeleteOperation,
+  idbClearOperations,
+  idbGetPendingOperations,
+  isIndexedDbSupported,
+} from "./indexedDbQueue";
 
 export const OUTBOX_STORAGE_KEY = "sp:offline:outbox";
 
@@ -53,6 +61,8 @@ export interface Outbox {
   clear: () => void;
   /** Drop all but the newest `keep` operations. */
   compact: (keep: number) => OutboxState;
+  /** Rehydrate pending operations from IndexedDB if present. */
+  hydrateFromIndexedDb: () => Promise<OutboxState>;
 }
 
 function describeError(error: unknown): string {
@@ -132,10 +142,15 @@ export function createOutbox(options: OutboxOptions = {}): Outbox {
       lastAttemptAt: null,
       lastError: null,
     };
-    // Last write wins: replacing by id makes enqueueing idempotent, which is
-    // what lets callers queue eagerly on every keystroke without piling up.
+    // Last write wins: replacing by id makes enqueueing idempotent
     const withoutDuplicate = state.operations.filter((entry) => entry.id !== id);
     replace([...withoutDuplicate, operation as OutboxOperation]);
+
+    // Mirror to IndexedDB with ACID guarantees
+    if (isIndexedDbSupported()) {
+      void idbPutOperation(operation as OutboxOperation);
+    }
+
     return operation;
   };
 
@@ -145,24 +160,32 @@ export function createOutbox(options: OutboxOptions = {}): Outbox {
       state.operations.filter((entry) => entry.id !== id),
       { lastError: null },
     );
+    if (isIndexedDbSupported()) {
+      void idbDeleteOperation(id);
+    }
     return true;
   };
 
   const reject = (id: string, error: unknown): boolean => {
     const previous = state;
     let changed = false;
+    let updatedOp: OutboxOperation | null = null;
     const next = state.operations.map((entry) => {
       if (entry.id !== id) return entry;
       changed = true;
-      return {
+      updatedOp = {
         ...entry,
         attempts: entry.attempts + 1,
         lastAttemptAt: now(),
         lastError: describeError(error),
       };
+      return updatedOp;
     });
     if (!changed) return false;
     replace(next);
+    if (isIndexedDbSupported() && updatedOp) {
+      void idbPutOperation(updatedOp);
+    }
     return state !== previous;
   };
 
@@ -171,12 +194,32 @@ export function createOutbox(options: OutboxOptions = {}): Outbox {
 
   const clear = (): void => {
     persist({ ...EMPTY_OUTBOX_STATE, lastDrainedAt: state.lastDrainedAt });
+    if (isIndexedDbSupported()) {
+      void idbClearOperations();
+    }
   };
 
   const compact = (keep: number): OutboxState => {
     const ordered = pending();
     const start = Math.max(0, ordered.length - keep);
     return replace(ordered.slice(start));
+  };
+
+  const hydrateFromIndexedDb = async (): Promise<OutboxState> => {
+    if (!isIndexedDbSupported()) return state;
+    try {
+      const fromDb = await idbGetPendingOperations();
+      if (fromDb.length > 0) {
+        // Merge with any in-memory items, preferring latest queuedAt
+        const combined = new Map<string, OutboxOperation>();
+        for (const op of fromDb) combined.set(op.id, op);
+        for (const op of state.operations) combined.set(op.id, op);
+        return replace(Array.from(combined.values()));
+      }
+    } catch {
+      // ignore
+    }
+    return state;
   };
 
   return {
@@ -191,5 +234,6 @@ export function createOutbox(options: OutboxOptions = {}): Outbox {
     pending,
     clear,
     compact,
+    hydrateFromIndexedDb,
   };
 }

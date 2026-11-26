@@ -19,14 +19,15 @@ mod types;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, BytesN, Env, String};
 
 use crate::storage::{
-    clear_pending_upgrade, get_balance, get_deposit, get_exec_delay,
-    get_pending_upgrade as storage_get_pending_upgrade, get_proposal, get_proposal_count,
-    get_quorum_bps, get_total_supply, get_voting_period, has_voted, is_initialized, record_vote,
-    remove_delegate, resolve_delegate, set_admin, set_balance, set_delegate, set_deposit,
-    set_exec_delay, set_pending_upgrade, set_proposal, set_proposal_count, set_quorum_bps,
-    set_total_supply, set_voting_period,
+    balance_at, checkpoint_count, clear_pending_upgrade, get_balance, get_deposit,
+    get_exec_delay, get_pending_upgrade as storage_get_pending_upgrade, get_proposal,
+    get_proposal_count, get_quorum_bps, get_total_supply, get_voting_period, has_voted,
+    is_initialized, record_balance_checkpoint, record_delegate_checkpoint, record_vote,
+    remove_delegate, resolve_delegate, resolve_delegate_at, set_admin, set_balance,
+    set_delegate, set_deposit, set_exec_delay, set_pending_upgrade, set_proposal,
+    set_proposal_count, set_quorum_bps, set_total_supply, set_voting_period,
 };
-use crate::types::{Error, Proposal, ProposalStatus, UpgradePending, VoteChoice};
+use crate::types::{Error, InstanceKey, Proposal, ProposalStatus, UpgradePending, VoteChoice};
 
 #[contract]
 pub struct Governance;
@@ -72,7 +73,9 @@ impl Governance {
         require_admin(&env, &admin)?;
         let new_bal = get_balance(&env, &recipient) + amount;
         set_balance(&env, &recipient, new_bal);
-        set_total_supply(&env, get_total_supply(&env) + amount);
+        let new_supply = get_total_supply(&env) + amount;
+        set_total_supply(&env, new_supply);
+        record_balance_checkpoint(&env, &recipient, new_bal);
         Ok(())
     }
 
@@ -103,8 +106,10 @@ impl Governance {
 
         let now = env.ledger().timestamp();
         let vp = get_voting_period(&env);
-        let ed = get_exec_delay(&env);
+        let ed = get_exec_delay(&env).max(172_800);
         let id = get_proposal_count(&env);
+        let snapshot_id = checkpoint_count(&env);
+        let vote_end = now + vp;
 
         let proposal = Proposal {
             id,
@@ -116,10 +121,12 @@ impl Governance {
             votes_against: 0,
             votes_abstain: 0,
             total_supply_snapshot: get_total_supply(&env),
+            snapshot_id,
             vote_start: now,
-            vote_end: now + vp,
-            execute_after: now + vp + ed,
+            vote_end,
+            execute_after: vote_end + ed,
             deposit,
+            veto_deadline: vote_end + ed,
         };
         set_proposal(&env, &proposal);
         set_proposal_count(&env, id + 1);
@@ -148,12 +155,12 @@ impl Governance {
             return Err(Error::VotingNotActive);
         }
         // Use the effective delegate's power (resolves chain).
-        let effective_voter = resolve_delegate(&env, &voter);
+        let effective_voter = resolve_delegate_at(&env, &voter, proposal.snapshot_id);
         if has_voted(&env, proposal_id, &effective_voter) {
             return Err(Error::AlreadyVoted);
         }
 
-        let power = get_balance(&env, &effective_voter);
+        let power = balance_at(&env, &effective_voter, proposal.snapshot_id);
         if power == 0 {
             return Err(Error::InsufficientVotingPower);
         }
@@ -210,10 +217,13 @@ impl Governance {
         let mut proposal = get_proposal(&env, proposal_id)?;
         let now = env.ledger().timestamp();
 
+        if proposal.status == ProposalStatus::Cancelled {
+            return Err(Error::ProposalCancelled);
+        }
         if proposal.status != ProposalStatus::Passed {
             return Err(Error::ProposalNotPassed);
         }
-        if now < proposal.execute_after {
+        if now < proposal.execute_after || now < proposal.veto_deadline {
             return Err(Error::TimelockActive);
         }
 
@@ -240,6 +250,43 @@ impl Governance {
         }
         proposal.status = ProposalStatus::Cancelled;
         set_proposal(&env, &proposal);
+        Ok(())
+    }
+
+    /// Configure the emergency guardian. Admin only; use None to disable vetoes.
+    pub fn set_guardian(env: Env, admin: Address, guardian: Option<Address>) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&InstanceKey::Guardian, &guardian);
+        Ok(())
+    }
+
+    /// Veto a passed proposal during its 48-hour post-vote timelock window.
+    pub fn guardian_veto(env: Env, guardian: Address, proposal_id: u32) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        guardian.require_auth();
+        let configured: Option<Address> = env
+            .storage()
+            .instance()
+            .get(&InstanceKey::Guardian)
+            .unwrap_or(None);
+        if configured != Some(guardian) {
+            return Err(Error::NotGuardian);
+        }
+        let mut proposal = get_proposal(&env, proposal_id)?;
+        if proposal.status == ProposalStatus::Cancelled {
+            return Err(Error::ProposalCancelled);
+        }
+        if proposal.status != ProposalStatus::Passed {
+            return Err(Error::ProposalNotPassed);
+        }
+        if env.ledger().timestamp() >= proposal.veto_deadline {
+            return Err(Error::VetoWindowClosed);
+        }
+        proposal.status = ProposalStatus::Cancelled;
+        set_proposal(&env, &proposal);
+        env.events().publish((symbol_short!("vetoed"),), proposal_id);
         Ok(())
     }
 
@@ -367,63 +414,15 @@ impl Governance {
                     return Err(Error::SelfDelegation);
                 }
                 set_delegate(&env, &from, &target);
+                record_delegate_checkpoint(&env, &from, Some(target));
             }
-            None => remove_delegate(&env, &from),
+            None => {
+                remove_delegate(&env, &from);
+                record_delegate_checkpoint(&env, &from, None);
+            }
         }
         env.events().publish((symbol_short!("delegated"),), from);
         Ok(())
     }
 
-    // ── Read-only ─────────────────────────────────────────────────────────────
 
-    pub fn get_proposal(env: Env, id: u32) -> Result<Proposal, Error> {
-        ensure_initialized(&env)?;
-        get_proposal(&env, id)
-    }
-
-    pub fn get_proposal_count(env: Env) -> Result<u32, Error> {
-        ensure_initialized(&env)?;
-        Ok(get_proposal_count(&env))
-    }
-
-    pub fn get_voting_power(env: Env, addr: Address) -> Result<i128, Error> {
-        ensure_initialized(&env)?;
-        Ok(voting_power(&env, &addr))
-    }
-
-    pub fn get_balance(env: Env, addr: Address) -> Result<i128, Error> {
-        ensure_initialized(&env)?;
-        Ok(get_balance(&env, &addr))
-    }
-
-    pub fn get_delegate(env: Env, addr: Address) -> Result<Address, Error> {
-        ensure_initialized(&env)?;
-        Ok(resolve_delegate(&env, &addr))
-    }
-
-    pub fn get_total_supply(env: Env) -> Result<i128, Error> {
-        ensure_initialized(&env)?;
-        Ok(get_total_supply(&env))
-    }
-}
-
-// ── Private helpers ───────────────────────────────────────────────────────────
-
-fn ensure_initialized(env: &Env) -> Result<(), Error> {
-    if !is_initialized(env) {
-        return Err(Error::NotInitialized);
-    }
-    Ok(())
-}
-
-fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
-    if storage::get_admin(env)? != *caller {
-        return Err(Error::Unauthorized);
-    }
-    Ok(())
-}
-
-/// Effective voting power = own balance (delegation is resolved at vote time).
-fn voting_power(env: &Env, addr: &Address) -> i128 {
-    get_balance(env, addr)
-}

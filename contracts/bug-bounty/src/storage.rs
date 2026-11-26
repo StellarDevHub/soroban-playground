@@ -3,7 +3,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, InstanceKey, Report, Severity};
+use crate::types::{DataKey, Error, InstanceKey, PriorArt, Report, Severity};
 
 // ── Initialisation guard ──────────────────────────────────────────────────────
 
@@ -143,4 +143,83 @@ pub fn clear_open_report_flag(env: &Env, reporter: &Address) {
     env.storage()
         .persistent()
         .remove(&DataKey::HasOpenReport(reporter.clone()));
+}
+
+// ── Escrow locks ──────────────────────────────────────────────────────────────
+
+pub fn get_locked_balance(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::LockedBalance)
+        .unwrap_or(0)
+}
+
+pub fn set_locked_balance(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::LockedBalance, &amount);
+}
+
+pub fn get_active_report_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::ActiveReportCount)
+        .unwrap_or(0)
+}
+
+pub fn set_active_report_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::ActiveReportCount, &count);
+}
+
+// ── Triager ───────────────────────────────────────────────────────────────────
+
+pub fn get_triager(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&InstanceKey::Triager)
+}
+
+pub fn set_triager(env: &Env, triager: &Address) {
+    env.storage().instance().set(&InstanceKey::Triager, triager);
+}
+
+// ── Cancellation ──────────────────────────────────────────────────────────────
+
+pub fn get_cancel_requested_at(env: &Env) -> Option<u64> {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::CancelRequestedAt)
+}
+
+pub fn set_cancel_requested_at(env: &Env, at: u64) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::CancelRequestedAt, &at);
+}
+
+pub fn clear_cancel_requested_at(env: &Env) {
+    env.storage()
+        .instance()
+        .remove(&InstanceKey::CancelRequestedAt);
+}
+
+pub fn is_cancelled(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::Cancelled)
+        .unwrap_or(false)
+}
+
+pub fn set_cancelled(env: &Env) {
+    env.storage().instance().set(&InstanceKey::Cancelled, &true);
+}
+
+// ── Prior art ─────────────────────────────────────────────────────────────────
+
+pub fn get_prior_art(env: &Env, id: u32) -> Option<PriorArt> {
+    env.storage().persistent().get(&DataKey::PriorArt(id))
+}
+
+pub fn set_prior_art(env: &Env, id: u32, art: &PriorArt) {
+    env.storage().persistent().set(&DataKey::PriorArt(id), art);
 }

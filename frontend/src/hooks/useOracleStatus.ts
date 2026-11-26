@@ -9,6 +9,65 @@ export type OracleNode = {
   lastProofAt: number | null;
 };
 
+export type OracleHealthStatus = "active" | "delayed" | "stale" | "down";
+
+export interface OraclePricePoint {
+  timestamp: number;
+  oraclePrice: number;
+  spotPrice: number;
+  deviationPct: number;
+}
+
+export interface OracleFeedData {
+  id: string;
+  name: string;
+  asset: string;
+  oraclePrice: number;
+  spotPrice: number;
+  lastUpdatedAt: number;
+  status?: OracleHealthStatus;
+  history?: OraclePricePoint[];
+}
+
+export const ORACLE_THRESHOLDS = {
+  ACTIVE_MAX_SEC: 60,
+  STALE_MIN_SEC: 300,
+  DOWN_MIN_SEC: 1800,
+} as const;
+
+export function getOracleHealthStatus(
+  lastUpdatedAt: number | null | undefined,
+  now: number = Date.now(),
+): OracleHealthStatus {
+  if (!lastUpdatedAt) return "down";
+  const diffSec = Math.max(0, (now - lastUpdatedAt) / 1000);
+  if (diffSec < 60) return "active";
+  if (diffSec <= 300) return "delayed";
+  if (diffSec <= 1800) return "stale";
+  return "down";
+}
+
+export function calculatePriceDeviation(
+  oraclePrice: number,
+  spotPrice: number,
+): {
+  deviationPct: number;
+  deviationBps: number;
+  isDeviated: boolean;
+} {
+  if (!spotPrice || spotPrice <= 0) {
+    return { deviationPct: 0, deviationBps: 0, isDeviated: false };
+  }
+  const diff = oraclePrice - spotPrice;
+  const pct = (diff / spotPrice) * 100;
+  const bps = Math.round(pct * 100);
+  return {
+    deviationPct: Number(pct.toFixed(3)),
+    deviationBps: bps,
+    isDeviated: Math.abs(pct) >= 1.0,
+  };
+}
+
 export type OracleVote = {
   nodeId: string;
   ok: boolean;

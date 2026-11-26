@@ -1,6 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Filler,
+  Tooltip,
+  Legend,
+} from "chart.js";
+import { Line } from "react-chartjs-2";
 import {
   CheckCircle2,
   ChevronDown,
@@ -11,29 +22,39 @@ import {
   Unlock,
   XCircle,
 } from "lucide-react";
+import {
+  claimedAmount,
+  claimableAmount,
+  revokedAmount,
+  vestedAmountAt,
+} from "./vestingSchedule";
+import type {
+  MilestoneData,
+  VestingScheduleData,
+  VestingType,
+} from "./vestingSchedule";
 
-export type VestingType = "Linear" | "Milestone";
+export {
+  claimedAmount,
+  claimableAmount,
+  revokedAmount,
+  vestedAmountAt,
+} from "./vestingSchedule";
+export type {
+  MilestoneData,
+  VestingScheduleData,
+  VestingType,
+} from "./vestingSchedule";
 
-export interface MilestoneData {
-  index: number;
-  descriptionHash: number;
-  pctBps: number;
-  approved: boolean;
-}
-
-export interface VestingScheduleData {
-  id: number;
-  beneficiary: string;
-  token: string;
-  totalAmount: number;
-  releasedAmount: number;
-  cliffTimestamp: number;
-  startTimestamp: number;
-  endTimestamp: number;
-  vestingType: VestingType;
-  milestones: MilestoneData[];
-  revoked: boolean;
-}
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Filler,
+  Tooltip,
+  Legend,
+);
 
 interface VestingDashboardProps {
   contractId?: string;
@@ -78,6 +99,12 @@ export default function VestingDashboard({
   const [tab, setTab] = useState<"schedules" | "create">("schedules");
   const [createType, setCreateType] = useState<VestingType>("Linear");
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(nowSec);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(nowSec()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Shared create form fields
   const [beneficiary, setBeneficiary] = useState("");
@@ -211,19 +238,19 @@ export default function VestingDashboard({
                     <div className="mt-2 h-1.5 rounded-full bg-gray-800 overflow-hidden">
                       <div
                         className="h-full bg-violet-500/40 relative"
-                        style={{ width: `${vestedPercent(s, nowSec())}%` }}
+                        style={{ width: `${vestedPercent(s, currentTime)}%` }}
                       >
                         <div
                           className="absolute inset-y-0 left-0 bg-violet-500"
                           style={{
-                            width: `${releasedPercent(s) > 0 ? (releasedPercent(s) / vestedPercent(s, nowSec())) * 100 : 0}%`,
+                            width: `${vestedPercent(s, currentTime) > 0 ? Math.min((releasedPercent(s) / vestedPercent(s, currentTime)) * 100, 100) : 0}%`,
                           }}
                         />
                       </div>
                     </div>
                     <p className="text-[10px] text-gray-500 mt-1">
                       {releasedPercent(s)}% released ·{" "}
-                      {vestedPercent(s, nowSec())}% vested ·{" "}
+                      {vestedPercent(s, currentTime)}% vested ·{" "}
                       {s.totalAmount.toLocaleString()} total
                     </p>
                   </div>
@@ -242,6 +269,8 @@ export default function VestingDashboard({
 
                 {expanded === s.id && (
                   <div className="border-t border-gray-800 p-3 space-y-3 bg-gray-950/50">
+                    <VestingDetails schedule={s} now={currentTime} />
+
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <InfoRow
                         label="Token"
@@ -253,7 +282,7 @@ export default function VestingDashboard({
                       />
                       <InfoRow
                         label="Released"
-                        value={s.releasedAmount.toLocaleString()}
+                        value={claimedAmount(s).toLocaleString()}
                       />
                       <InfoRow
                         label="Cliff"
@@ -309,11 +338,15 @@ export default function VestingDashboard({
                       <div className="flex gap-2 pt-1 border-t border-gray-800">
                         <button
                           onClick={() => onRelease(s.id)}
-                          disabled={isLoading}
+                          disabled={
+                            isLoading ||
+                            s.revoked ||
+                            claimableAmount(s, currentTime) <= 0
+                          }
                           className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-300 text-xs rounded transition-colors"
                         >
                           <Unlock size={12} />
-                          Release
+                          Claim Vested Tokens
                         </button>
                         <button
                           onClick={() => onRevoke(s.id)}
@@ -532,23 +565,287 @@ function nowSec(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+function lockedAmount(s: VestingScheduleData, timestamp: number): number {
+  return Math.max(
+    s.totalAmount -
+      claimedAmount(s) -
+      claimableAmount(s, timestamp) -
+      revokedAmount(s),
+    0,
+  );
+}
+
 function vestedPercent(s: VestingScheduleData, ts: number): number {
   if (s.totalAmount === 0) return 0;
-  if (s.vestingType === "Linear") {
-    if (ts < s.cliffTimestamp) return 0;
-    if (ts >= s.endTimestamp) return 100;
-    const elapsed = ts - s.cliffTimestamp;
-    const duration = s.endTimestamp - s.cliffTimestamp;
-    return Math.round((elapsed / duration) * 100);
-  }
-  const approvedBps = s.milestones
-    .filter((m) => m.approved)
-    .reduce((a, m) => a + m.pctBps, 0);
-  return Math.round(approvedBps / 100);
+  return Math.round((vestedAmountAt(s, ts) / s.totalAmount) * 100);
 }
 
 function releasedPercent(s: VestingScheduleData): number {
   return s.totalAmount === 0
     ? 0
-    : Math.round((s.releasedAmount / s.totalAmount) * 100);
+    : Math.round((claimedAmount(s) / s.totalAmount) * 100);
+}
+
+function VestingDetails({
+  schedule,
+  now,
+}: {
+  schedule: VestingScheduleData;
+  now: number;
+}) {
+  const claimed = claimedAmount(schedule);
+  const claimable = claimableAmount(schedule, now);
+  const locked = lockedAmount(schedule, now);
+
+  return (
+    <div className="space-y-3">
+      <div
+        className={`grid ${schedule.revoked ? "grid-cols-4" : "grid-cols-3"} gap-2`}
+      >
+        <AmountCard label="Claimed" amount={claimed} color="text-sky-300" />
+        <AmountCard
+          label="Claimable"
+          amount={claimable}
+          color="text-emerald-300"
+        />
+        <AmountCard label="Locked" amount={locked} color="text-amber-300" />
+        {schedule.revoked && (
+          <AmountCard
+            label="Returned"
+            amount={revokedAmount(schedule)}
+            color="text-rose-300"
+          />
+        )}
+      </div>
+      <p className="text-[10px] text-gray-400">
+        {countdownLabel(schedule, now)}
+      </p>
+      {schedule.vestingType === "Linear" ? (
+        <VestingChart schedule={schedule} now={now} />
+      ) : (
+        <p className="text-[10px] text-gray-500">
+          Milestone tokens unlock as milestones are approved; approval times
+          are not recorded in this schedule.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AmountCard({
+  label,
+  amount,
+  color,
+}: {
+  label: string;
+  amount: number;
+  color: string;
+}) {
+  return (
+    <div className="rounded-md border border-gray-800 bg-gray-900 p-2">
+      <p className="text-[9px] uppercase tracking-wider text-gray-500">
+        {label}
+      </p>
+      <p className={`mt-1 text-xs font-mono ${color}`}>
+        {amount.toLocaleString()}
+      </p>
+    </div>
+  );
+}
+
+function countdownLabel(schedule: VestingScheduleData, now: number): string {
+  if (schedule.vestingType === "Milestone") {
+    return "Next unlock: pending milestone approval";
+  }
+  if (schedule.revoked) return "Schedule revoked; no further tokens will vest";
+  if (now < schedule.cliffTimestamp) {
+    return `Cliff begins in ${formatDuration(schedule.cliffTimestamp - now)}`;
+  }
+  if (now >= schedule.endTimestamp) return "Vesting complete";
+  const vested = vestedAmountAt(schedule, now);
+  if (vested >= schedule.totalAmount) return "Vesting complete";
+  const duration = schedule.endTimestamp - schedule.cliffTimestamp;
+  const nextUnlock =
+    schedule.cliffTimestamp +
+    Math.ceil(((vested + 1) * duration) / schedule.totalAmount);
+  return `Next token unlocks in ${formatDuration(Math.max(nextUnlock - now, 0))}`;
+}
+
+function formatDuration(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  return [
+    days > 0 ? `${days}d` : null,
+    hours > 0 ? `${hours}h` : null,
+    minutes > 0 ? `${minutes}m` : null,
+    `${remainingSeconds}s`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function VestingChart({
+  schedule,
+  now,
+}: {
+  schedule: VestingScheduleData;
+  now: number;
+}) {
+  const chartTimestamps = new Set<number>([
+    schedule.startTimestamp,
+    Math.max(schedule.startTimestamp, schedule.cliffTimestamp - 1),
+    schedule.cliffTimestamp,
+    now,
+    schedule.endTimestamp,
+  ]);
+  if (schedule.endTimestamp > schedule.cliffTimestamp) {
+    const intervals = 40;
+    for (let i = 1; i < intervals; i += 1) {
+      chartTimestamps.add(
+        schedule.cliffTimestamp +
+          Math.floor(
+            ((schedule.endTimestamp - schedule.cliffTimestamp) * i) /
+              intervals,
+          ),
+      );
+    }
+  }
+
+  const timestamps = [...chartTimestamps].sort((a, b) => a - b);
+  const cliffIndex = timestamps.indexOf(schedule.cliffTimestamp);
+  const labels = timestamps.map((timestamp) =>
+    timestamp === schedule.cliffTimestamp
+      ? `Cliff · ${new Date(timestamp * 1000).toLocaleDateString()}`
+      : new Date(timestamp * 1000).toLocaleDateString(),
+  );
+  const data = (timestamp: number) => ({
+    claimed: claimedAmount(schedule),
+    claimable: claimableAmount(schedule, timestamp),
+    locked: lockedAmount(schedule, timestamp),
+    returned: revokedAmount(schedule),
+  });
+  const points = timestamps.map(data);
+
+  return (
+    <div className="rounded-md border border-gray-800 bg-gray-900 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] uppercase tracking-wider text-gray-500">
+          Vesting schedule
+        </p>
+        <p className="text-[10px] text-violet-300">
+          Cliff: {new Date(schedule.cliffTimestamp * 1000).toLocaleDateString()}
+        </p>
+      </div>
+      <div className="h-44">
+        <Line
+          plugins={[
+            {
+              id: "vesting-cliff-boundary",
+              afterDatasetsDraw(chart) {
+                const x = chart.scales.x.getPixelForValue(cliffIndex);
+                const { top, bottom } = chart.chartArea;
+                chart.ctx.save();
+                chart.ctx.strokeStyle = "rgba(196, 181, 253, 0.8)";
+                chart.ctx.setLineDash([4, 4]);
+                chart.ctx.beginPath();
+                chart.ctx.moveTo(x, top);
+                chart.ctx.lineTo(x, bottom);
+                chart.ctx.stroke();
+                chart.ctx.restore();
+              },
+            },
+          ]}
+          data={{
+            labels,
+            datasets: [
+              {
+                label: "Claimed",
+                data: points.map((point) => point.claimed),
+                borderColor: "rgb(56, 189, 248)",
+                backgroundColor: "rgba(56, 189, 248, 0.45)",
+                pointRadius: 0,
+                fill: true,
+                tension: 0,
+              },
+              {
+                label: "Claimable",
+                data: points.map((point) => point.claimable),
+                borderColor: "rgb(52, 211, 153)",
+                backgroundColor: "rgba(52, 211, 153, 0.45)",
+                pointRadius: points.map((_, index) =>
+                  index === cliffIndex ? 4 : 0,
+                ),
+                pointBackgroundColor: "rgb(196, 181, 253)",
+                fill: "-1",
+                tension: 0,
+              },
+              {
+                label: schedule.revoked ? "Locked" : "Locked / revocable",
+                data: points.map((point) => point.locked),
+                borderColor: "rgb(251, 191, 36)",
+                backgroundColor: "rgba(251, 191, 36, 0.3)",
+                pointRadius: 0,
+                fill: "-1",
+                tension: 0,
+              },
+              ...(schedule.revoked
+                ? [
+                    {
+                      label: "Returned",
+                      data: points.map((point) => point.returned),
+                      borderColor: "rgb(251, 113, 133)",
+                      backgroundColor: "rgba(251, 113, 133, 0.3)",
+                      pointRadius: 0,
+                      fill: "-1" as const,
+                      tension: 0,
+                    },
+                  ]
+                : []),
+            ],
+          }}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { intersect: false, mode: "index" },
+            plugins: {
+              legend: {
+                display: true,
+                position: "bottom",
+                labels: { color: "rgba(209, 213, 219, 0.8)", boxWidth: 10 },
+              },
+              tooltip: {
+                callbacks: {
+                  label: (context) =>
+                    `${context.dataset.label}: ${Number(context.parsed.y).toLocaleString()}`,
+                },
+              },
+            },
+            scales: {
+              x: {
+                stacked: true,
+                grid: { display: false },
+                ticks: {
+                  color: "rgba(156, 163, 175, 0.8)",
+                  maxTicksLimit: 5,
+                  maxRotation: 0,
+                },
+              },
+              y: {
+                stacked: true,
+                beginAtZero: true,
+                max: Math.max(schedule.totalAmount, 0),
+                grid: { color: "rgba(75, 85, 99, 0.25)" },
+                ticks: {
+                  color: "rgba(156, 163, 175, 0.8)",
+                  maxTicksLimit: 4,
+                },
+              },
+            },
+          }}
+        />
+      </div>
+    </div>
+  );
 }

@@ -39,6 +39,12 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
   },
 };
 
+export const NETWORK_PRESETS: NetworkConfig[] = Object.values(NETWORKS);
+
+export function getNetworkPreset(id: NetworkId): NetworkConfig {
+  return NETWORKS[id] ?? NETWORKS.testnet;
+}
+
 export interface NetworkHealth {
   status: "healthy" | "degraded" | "offline" | "checking";
   latencyMs: number | null;
@@ -46,8 +52,19 @@ export interface NetworkHealth {
   error?: string;
 }
 
-export default function NetworkSwitcher() {
-  const [selectedNetwork, setSelectedNetwork] = useState<NetworkId>(() => {
+export interface NetworkSwitcherProps {
+  selectedNetwork?: NetworkId;
+  onNetworkChange?: (network: NetworkConfig) => void;
+}
+
+export default function NetworkSwitcher({
+  selectedNetwork: controlledNetwork,
+  onNetworkChange,
+}: NetworkSwitcherProps = {}) {
+  const [internalNetwork, setInternalNetwork] = useState<NetworkId>(() => {
+    if (controlledNetwork && controlledNetwork in NETWORKS) {
+      return controlledNetwork;
+    }
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("soroban_playground_network");
       if (saved && saved in NETWORKS) {
@@ -56,6 +73,19 @@ export default function NetworkSwitcher() {
     }
     return "testnet";
   });
+
+  const selectedNetwork: NetworkId =
+    controlledNetwork && controlledNetwork in NETWORKS
+      ? controlledNetwork
+      : internalNetwork;
+
+  const handleSelectNetwork = useCallback(
+    (id: NetworkId) => {
+      setInternalNetwork(id);
+      onNetworkChange?.(NETWORKS[id]);
+    },
+    [onNetworkChange],
+  );
 
   const [healthMap, setHealthMap] = useState<Record<NetworkId, NetworkHealth>>({
     mainnet: { status: "checking", latencyMs: null, lastChecked: null },
@@ -256,7 +286,7 @@ export default function NetworkSwitcher() {
                 <button
                   key={id}
                   onClick={() => {
-                    setSelectedNetwork(id);
+                    handleSelectNetwork(id);
                     setIsOpen(false);
                   }}
                   className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all ${

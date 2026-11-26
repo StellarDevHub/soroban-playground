@@ -9,8 +9,10 @@ import {
   getCompileTempPrefix,
 } from './buildSandbox.js';
 import {
+  assertNoBuildScriptInWorkspace,
   runSandboxedCargoBuild,
   getSandboxDefaults,
+  sanitizeCargoTomlForSandbox,
 } from './compileSandbox.js';
 import { buildCargoToml } from '../routes/compile_utils.js';
 
@@ -27,7 +29,8 @@ parentPort.on('message', async (job) => {
   await fs.mkdir(sandbox.cargoTargetDir, { recursive: true });
 
   try {
-    const cargoToml = job.cargoToml || buildCargoToml(job.dependencies || {});
+    const rawCargoToml = job.cargoToml || buildCargoToml(job.dependencies || {});
+    const cargoToml = sanitizeCargoTomlForSandbox(rawCargoToml);
     await fs.writeFile(
       path.join(sandbox.crateRoot, 'Cargo.toml'),
       cargoToml,
@@ -38,6 +41,7 @@ parentPort.on('message', async (job) => {
       job.code,
       'utf8'
     );
+    await assertNoBuildScriptInWorkspace(sandbox.crateRoot);
 
     parentPort.postMessage({
       type: 'progress',
@@ -111,67 +115,3 @@ parentPort.on('message', async (job) => {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 });
-
-function runCargoBuild(cwd, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      'cargo',
-      [
-        'build',
-        '--target',
-        'wasm32-unknown-unknown',
-        '--release',
-        '--message-format=json',
-      ],
-      {
-        cwd,
-        shell: false,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          RUST_MIN_STACK: '268435456',
-          CARGO_TARGET_DIR: path.join(process.cwd(), 'cache', 'cargo-target'),
-        },
-      }
-    );
-
-    let stdout = '';
-    let stderr = '';
-    let memoryPeakBytes = 0;
-
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('Compilation timed out'));
-    }, timeoutMs);
-
-    const interval = setInterval(() => {
-      if (typeof child.pid === 'number') {
-        memoryPeakBytes = Math.max(memoryPeakBytes, process.memoryUsage().rss);
-      }
-    }, 500);
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      clearInterval(interval);
-      reject(error);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      clearInterval(interval);
-      if (code !== 0) {
-        reject(new Error(stderr || stdout || `cargo exited with code ${code}`));
-        return;
-      }
-      resolve({
-        logs: (stdout + '\n' + stderr).split('\n').filter(Boolean),
-        memoryPeakBytes,
-      });
-    });
-  });
-}

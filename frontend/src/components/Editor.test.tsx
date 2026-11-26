@@ -5,17 +5,36 @@ import * as monaco from 'monaco-editor';
 import { monacoLifecycle } from '@/lib/monacoLifecycle';
 
 jest.mock('monaco-editor', () => {
-  const model = {
-    dispose: jest.fn(),
-    getValue: jest.fn().mockReturnValue(''),
-    setValue: jest.fn(),
-    uri: { toString: () => 'inmemory://model/1' },
+  let modelId = 0;
+  const createModel = (initialValue = '') => {
+    let value = initialValue;
+    const id = ++modelId;
+    return {
+      dispose: jest.fn(),
+      getValue: () => value,
+      setValue: (nextValue: string) => {
+        value = nextValue;
+      },
+      undoStack: [] as string[],
+      redoStack: [] as string[],
+      uri: { toString: () => `inmemory://model/${id}` },
+    };
   };
+  let currentModel = createModel();
   const contentListener = { dispose: jest.fn() };
   const editor = {
     dispose: jest.fn(),
-    getModel: jest.fn().mockReturnValue(model),
-    setModel: jest.fn(),
+    getModel: jest.fn(() => currentModel),
+    setModel: jest.fn((model: typeof currentModel) => {
+      currentModel = model;
+    }),
+    trigger: jest.fn((_source: string, action: string) => {
+      if (action === 'undo') {
+        currentModel.redoStack.push(currentModel.undoStack.pop() ?? '');
+      } else if (action === 'redo') {
+        currentModel.undoStack.push(currentModel.redoStack.pop() ?? '');
+      }
+    }),
     onDidChangeModelContent: jest.fn().mockReturnValue(contentListener),
     saveViewState: jest.fn().mockReturnValue({ viewState: {} }),
     restoreViewState: jest.fn(),
@@ -26,7 +45,13 @@ jest.mock('monaco-editor', () => {
     KeyMod: { CtrlCmd: 2048 },
     KeyCode: { KeyS: 49 },
     editor: {
-      create: jest.fn().mockReturnValue(editor),
+      create: jest.fn(
+        (_container: unknown, options: { model: typeof currentModel }) => {
+          currentModel = options.model;
+          return editor;
+        },
+      ),
+      createModel: jest.fn((value: string) => createModel(value)),
       setModelMarkers: jest.fn(),
       defineTheme: jest.fn(),
       setTheme: jest.fn(),

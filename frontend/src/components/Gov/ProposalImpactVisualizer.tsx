@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   Vote,
   CheckCircle2,
@@ -19,6 +19,7 @@ import {
   Zap,
   ChevronRight,
   Info,
+  Coins,
 } from "lucide-react";
 import type {
   GovernanceProposal,
@@ -33,8 +34,11 @@ import {
   generateQuadraticCurvePoints,
   calculateQuorumProgress,
   calculateApprovalProgress,
+  calculateTreasuryImpact,
 } from "@/lib/gov/govMath";
 import { INITIAL_GOVERNANCE_PROPOSALS } from "@/lib/gov/mockProposals";
+import { useEventStream } from "@/hooks/useEventStream";
+import type { WsEvent } from "@/workers/eventStream.worker";
 
 export interface ProposalImpactVisualizerProps {
   proposals?: GovernanceProposal[];
@@ -46,6 +50,11 @@ export interface ProposalImpactVisualizerProps {
   ) => Promise<void> | void;
   onBatchVoteSubmit?: (votes: BatchVoteItem[]) => Promise<void> | void;
   className?: string;
+  contractId?: string;
+  wsUrl?: string;
+  enableLiveEvents?: boolean;
+  liveEvents?: WsEvent[];
+  onVoteEvent?: (event: WsEvent) => void;
 }
 
 export default function ProposalImpactVisualizer({
@@ -54,10 +63,19 @@ export default function ProposalImpactVisualizer({
   onVoteSubmit,
   onBatchVoteSubmit,
   className = "",
+  contractId,
+  wsUrl,
+  enableLiveEvents = true,
+  liveEvents,
+  onVoteEvent,
 }: ProposalImpactVisualizerProps) {
   // --- Proposals & Selection State ---
   const [proposals, setProposals] =
     useState<GovernanceProposal[]>(initialProposals);
+
+  useEffect(() => {
+    setProposals(initialProposals);
+  }, [initialProposals]);
   const [selectedProposalId, setSelectedProposalId] = useState<string>(
     initialProposals[0]?.id || "",
   );
@@ -124,6 +142,127 @@ export default function ProposalImpactVisualizer({
       activeProposal.approvalThresholdPct,
     );
   }, [activeProposal]);
+
+  const treasuryImpact = useMemo(() => {
+    return calculateTreasuryImpact(activeProposal);
+  }, [activeProposal]);
+
+  // --- Live Contract Event Subscription & Stream Handling ---
+  const isWorkerAvailable =
+    typeof window !== "undefined" && typeof Worker !== "undefined";
+  const isStreamEnabled = enableLiveEvents && isWorkerAvailable;
+
+  const resolvedWsUrl = useMemo(() => {
+    if (wsUrl) return wsUrl;
+    if (typeof window !== "undefined" && window.location) {
+      return `ws://${window.location.hostname}:3001/ws/events`;
+    }
+    return "ws://localhost:3001/ws/events";
+  }, [wsUrl]);
+
+  const { events: streamedEvents, status: streamStatus } = useEventStream({
+    url: resolvedWsUrl,
+    contractId: activeProposal?.executablePayload?.targetContract || contractId,
+    disabled: !isStreamEnabled,
+  });
+
+  const processedEventIds = useRef<Set<string>>(new Set());
+  const [recentLiveVoteCount, setRecentLiveVoteCount] = useState<number>(0);
+
+  useEffect(() => {
+    const incoming = [...(streamedEvents || []), ...(liveEvents || [])];
+    if (incoming.length === 0) return;
+
+    let updatedAny = false;
+
+    incoming.forEach((ev) => {
+      const eventKey = ev.id || `${ev.type}-${JSON.stringify(ev)}`;
+      if (processedEventIds.current.has(eventKey)) return;
+      processedEventIds.current.add(eventKey);
+
+      if (onVoteEvent) {
+        onVoteEvent(ev);
+      }
+
+      let payload: Record<string, unknown> = {};
+      if (ev.type === "event" && ev.data) {
+        try {
+          payload =
+            typeof ev.data === "string"
+              ? JSON.parse(ev.data)
+              : (ev.data as Record<string, unknown>);
+        } catch {
+          payload = {};
+        }
+      } else if (ev.type === "quorum_update") {
+        payload = ev as unknown as Record<string, unknown>;
+      }
+
+      const targetId = (payload.proposalId ||
+        payload.proposal_id ||
+        payload.target_id ||
+        payload.id) as string | number | undefined;
+
+      const isFor =
+        payload.is_for === true ||
+        payload.isFor === true ||
+        payload.choice === "For";
+      const isAgainst =
+        payload.is_for === false ||
+        payload.isFor === false ||
+        payload.choice === "Against";
+      const isAbstain = payload.choice === "Abstain";
+
+      const credits =
+        typeof payload.credits === "number"
+          ? payload.credits
+          : typeof payload.tokens === "number"
+          ? payload.tokens
+          : 100;
+
+      setProposals((prev) =>
+        prev.map((p) => {
+          const isTarget =
+            targetId !== undefined
+              ? p.id === String(targetId) ||
+                p.id.toLowerCase() === String(targetId).toLowerCase() ||
+                p.id === `PIP-${targetId}`
+              : p.id === activeProposal?.id;
+
+          if (!isTarget) return p;
+
+          updatedAny = true;
+          const effectiveVotes =
+            typeof payload.vote_weight === "number"
+              ? payload.vote_weight
+              : typeof payload.voteWeight === "number"
+              ? payload.voteWeight
+              : typeof payload.votes === "number"
+              ? payload.votes
+              : p.quadraticVotingEnabled
+              ? calculateQuadraticVotes(credits)
+              : credits;
+
+          return {
+            ...p,
+            votesFor: isFor ? p.votesFor + effectiveVotes : p.votesFor,
+            votesAgainst: isAgainst ? p.votesAgainst + effectiveVotes : p.votesAgainst,
+            votesAbstain: isAbstain ? p.votesAbstain + effectiveVotes : p.votesAbstain,
+            totalTokensVoted: p.totalTokensVoted + credits,
+            votersCount: p.votersCount + 1,
+            currentLedger:
+              ev.type === "event" && ev.ledger && ev.ledger > p.currentLedger
+                ? ev.ledger
+                : p.currentLedger,
+          };
+        }),
+      );
+    });
+
+    if (updatedAny) {
+      setRecentLiveVoteCount((prev) => prev + 1);
+    }
+  }, [streamedEvents, liveEvents, activeProposal?.id, onVoteEvent]);
 
   // Quadratic voting curve metrics
   const qvMetrics = useMemo(() => {
@@ -365,6 +504,35 @@ export default function ProposalImpactVisualizer({
             </span>
           </div>
 
+          <div
+            className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/8 flex items-center gap-1.5"
+            data-testid="live-event-status"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                streamStatus === "connected" ||
+                (liveEvents && liveEvents.length > 0) ||
+                recentLiveVoteCount > 0
+                  ? "bg-emerald-400 animate-pulse"
+                  : "bg-indigo-400"
+              }`}
+            />
+            <span className="text-slate-400">Stream: </span>
+            <span className="font-semibold text-indigo-300">
+              {streamStatus === "connected" ||
+              (liveEvents && liveEvents.length > 0) ||
+              recentLiveVoteCount > 0
+                ? "Live"
+                : "Connected"}
+            </span>
+          </div>
+          {recentLiveVoteCount > 0 && (
+            <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 flex items-center gap-1">
+              <Zap className="w-3 h-3 text-emerald-400" />
+              <span>+{recentLiveVoteCount} live update{recentLiveVoteCount > 1 ? "s" : ""}</span>
+            </div>
+          )}
+
           <button
             onClick={openBatchModal}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-indigo-600/90 hover:bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 transition"
@@ -549,16 +717,21 @@ export default function ProposalImpactVisualizer({
 
             {/* --- Quorum & Approval Split Gauges --- */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Quorum Progress Bar */}
-              <div className="p-4 rounded-xl border border-white/8 bg-slate-900/40 space-y-2">
-                <div className="flex items-center justify-between text-xs">
+              {/* Quorum Progress with SVG Circular Gauge */}
+              <div
+                className="p-4 rounded-xl border border-white/8 bg-slate-900/40 space-y-3"
+                data-testid="quorum-gauge-card"
+              >
+                <div className="flex items-center justify-between text-xs border-b border-white/6 pb-2">
                   <div className="flex items-center gap-1.5 font-semibold text-slate-200">
                     <TrendingUp className="w-4 h-4 text-indigo-400" />
                     <span>Quorum Threshold</span>
                   </div>
                   <span
-                    className={`font-semibold ${
-                      quorum.reached ? "text-emerald-400" : "text-amber-400"
+                    className={`font-semibold text-xs px-2 py-0.5 rounded-full border ${
+                      quorum.reached
+                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                        : "bg-amber-500/15 text-amber-400 border-amber-500/30"
                     }`}
                   >
                     {quorum.reached
@@ -567,26 +740,125 @@ export default function ProposalImpactVisualizer({
                   </span>
                 </div>
 
-                <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden p-0.5 border border-white/6 relative">
-                  <div
-                    style={{ width: `${quorum.progressPct}%` }}
-                    className={`h-full rounded-full transition-all duration-700 ${
-                      quorum.reached
-                        ? "bg-gradient-to-r from-emerald-500 to-teal-400"
-                        : "bg-gradient-to-r from-indigo-500 to-cyan-400"
-                    }`}
-                  />
+                {/* SVG Circular Gauge & Floor Metrics */}
+                <div className="flex flex-col sm:flex-row items-center gap-4 justify-between">
+                  {/* Circular Progress Gauge */}
+                  <div className="relative flex items-center justify-center shrink-0">
+                    <svg
+                      className="w-24 h-24 transform -rotate-90"
+                      viewBox="0 0 100 100"
+                      role="progressbar"
+                      aria-label="Quorum completion gauge"
+                      aria-valuenow={quorum.progressPct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      data-testid="quorum-circular-gauge"
+                    >
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="40"
+                        className="stroke-slate-800"
+                        strokeWidth="8"
+                        fill="transparent"
+                      />
+                      {/* Floor threshold indicator ring */}
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="40"
+                        className="stroke-white/10"
+                        strokeWidth="8"
+                        strokeDasharray="2 6"
+                        fill="transparent"
+                      />
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="40"
+                        className={`transition-all duration-700 ease-out ${
+                          quorum.reached
+                            ? "stroke-emerald-400"
+                            : "stroke-indigo-500"
+                        }`}
+                        strokeWidth="8"
+                        strokeDasharray={251.33}
+                        strokeDashoffset={
+                          251.33 -
+                          (Math.min(100, Math.max(0, quorum.progressPct)) /
+                            100) *
+                            251.33
+                        }
+                        strokeLinecap="round"
+                        fill="transparent"
+                      />
+                    </svg>
+                    {/* Center Percentage Display */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                      <span className="font-mono text-sm font-bold text-white tracking-tight">
+                        {quorum.progressPct}%
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-medium uppercase tracking-wider">
+                        Floor
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Details relative to Minimum Quorum Floor */}
+                  <div className="space-y-1.5 flex-1 w-full text-xs font-mono">
+                    <div className="flex justify-between items-center text-slate-300">
+                      <span className="text-slate-400">Current Votes:</span>
+                      <span className="font-bold text-slate-100">
+                        {activeProposal.totalTokensVoted.toLocaleString()} Tokens
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-300">
+                      <span className="text-slate-400">Minimum Quorum Floor:</span>
+                      <span className="font-bold text-indigo-300">
+                        {activeProposal.quorumThresholdTokens.toLocaleString()}{" "}
+                        Tokens
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-300">
+                      <span className="text-slate-400">Floor Status:</span>
+                      <span
+                        className={`font-semibold ${
+                          quorum.reached ? "text-emerald-400" : "text-amber-400"
+                        }`}
+                      >
+                        {quorum.reached
+                          ? `Floor Met (+${(
+                              activeProposal.totalTokensVoted -
+                              activeProposal.quorumThresholdTokens
+                            ).toLocaleString()})`
+                          : `${quorum.tokensRemaining.toLocaleString()} tokens needed`}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>
-                    Voted: {activeProposal.totalTokensVoted.toLocaleString()}{" "}
-                    Tokens
-                  </span>
-                  <span>
-                    Threshold:{" "}
-                    {activeProposal.quorumThresholdTokens.toLocaleString()}
-                  </span>
+                {/* Linear progress bar as floor visualizer */}
+                <div className="space-y-1 pt-1 border-t border-white/6">
+                  <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden p-0.5 border border-white/6 relative">
+                    <div
+                      style={{ width: `${quorum.progressPct}%` }}
+                      className={`h-full rounded-full transition-all duration-700 ${
+                        quorum.reached
+                          ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                          : "bg-gradient-to-r from-indigo-500 to-cyan-400"
+                      }`}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+                    <span>
+                      Voted: {activeProposal.totalTokensVoted.toLocaleString()}{" "}
+                      Tokens
+                    </span>
+                    <span>
+                      Threshold:{" "}
+                      {activeProposal.quorumThresholdTokens.toLocaleString()}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -882,6 +1154,85 @@ export default function ProposalImpactVisualizer({
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            {/* --- Simulated Treasury Balance Impact --- */}
+            <div
+              className="p-5 rounded-2xl border border-white/8 bg-slate-900/50 space-y-4"
+              data-testid="treasury-impact-section"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Coins className="w-4 h-4 text-emerald-400" />
+                    Simulated Treasury Balance Impact
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Projected DAO treasury reserve balance if proposal reaches quorum and passes execution.
+                  </p>
+                </div>
+                <span
+                  className={`text-xs font-mono font-semibold px-2.5 py-0.5 rounded-full border ${
+                    treasuryImpact.netDelta < 0
+                      ? "bg-rose-500/15 text-rose-300 border-rose-500/30"
+                      : treasuryImpact.netDelta > 0
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                      : "bg-slate-800 text-slate-300 border-white/8"
+                  }`}
+                >
+                  {treasuryImpact.impactType === "drawdown"
+                    ? "Reserve Drawdown"
+                    : treasuryImpact.impactType === "inflow"
+                    ? "Treasury Inflow"
+                    : treasuryImpact.impactType === "fee_adjustment"
+                    ? "Fee Rate Delta"
+                    : "Net Neutral"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl bg-slate-950 border border-white/6 font-mono">
+                  <span className="text-[11px] text-slate-400">Baseline Reserve</span>
+                  <p className="text-base font-bold text-slate-200 mt-0.5">
+                    {treasuryImpact.baselineBalance.toLocaleString()} {treasuryImpact.currency}
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-white/6 font-mono">
+                  <span className="text-[11px] text-slate-400">Net Balance Impact</span>
+                  <p
+                    className={`text-base font-bold mt-0.5 ${
+                      treasuryImpact.netDelta < 0
+                        ? "text-rose-400"
+                        : treasuryImpact.netDelta > 0
+                        ? "text-emerald-400"
+                        : "text-slate-300"
+                    }`}
+                  >
+                    {treasuryImpact.netDelta === 0
+                      ? "0 XLM"
+                      : `${treasuryImpact.netDelta > 0 ? "+" : ""}${treasuryImpact.netDelta.toLocaleString()} ${treasuryImpact.currency}`}
+                    {treasuryImpact.deltaPct !== 0 && (
+                      <span className="text-xs font-normal ml-1.5 opacity-80">
+                        ({treasuryImpact.deltaPct > 0 ? "+" : ""}
+                        {treasuryImpact.deltaPct}%)
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-white/6 font-mono">
+                  <span className="text-[11px] text-slate-400">Projected Post-Execution</span>
+                  <p className="text-base font-bold text-indigo-300 mt-0.5">
+                    {treasuryImpact.simulatedBalance.toLocaleString()} {treasuryImpact.currency}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white/2 border border-white/6 text-xs text-slate-300 flex items-start gap-2">
+                <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                <span>{treasuryImpact.description}</span>
               </div>
             </div>
 

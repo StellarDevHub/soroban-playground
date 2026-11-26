@@ -15,6 +15,13 @@ import {
 import { alertManager } from '../utils/alerting.js';
 import { recordTamperEvidentAuditLog } from './tamperEvidentAuditLogger.js';
 import { spawnTracked, terminateChildProcess } from './childProcessManager.js';
+import {
+  DEFAULT_STALL_TIMEOUT_MS,
+  DEFAULT_MAX_BUMPS,
+  calculateIncrementedFee,
+  getDynamicBaseFee,
+  submitWithAutoFeeBump,
+} from './stellar/feeBumpService.js';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_STATE_FILE =
@@ -100,79 +107,54 @@ export function validateBatchContracts(contracts) {
   return normalized;
 }
 
-export function deployContract(contract, { signal, onProgress } = {}) {
-  validateDeployContract(contract);
-
-  const span = createSpan('soroban.deploy', {
-    'deploy.contract_name': contract.contractName,
-    'deploy.contract_id': contract.id,
-    'deploy.network': contract.network,
-    'deploy.wasm_path': contract.wasmPath,
-  });
-
+function spawnCliDeployAttempt(
+  contract,
+  { fee, timeoutMs, signal, onProgress, span }
+) {
   return new Promise((resolve, reject) => {
-    const startTime = Date.now();
+    const cliArgs = [
+      'contract',
+      'deploy',
+      '--wasm',
+      contract.wasmPath,
+      '--source-account',
+      contract.sourceAccount,
+      ...(fee ? ['--fee', String(fee)] : []),
+      ...(contract.preflight
+        ? [
+            '--rpc-url',
+            contract.preflight.rpcUrl,
+            '--network-passphrase',
+            contract.preflight.passphrase,
+            '--salt',
+            contract.preflight.salt,
+            '--optimize=false',
+          ]
+        : ['--network', contract.network]),
+    ];
 
-    const child = spawnTracked(
-      process.env.SOROBAN_CLI || 'soroban',
-      [
-        'contract',
-        'deploy',
-        '--wasm',
-        contract.wasmPath,
-        '--source-account',
-        contract.sourceAccount,
-        ...(contract.preflight
-          ? [
-              '--rpc-url',
-              contract.preflight.rpcUrl,
-              '--network-passphrase',
-              contract.preflight.passphrase,
-              '--salt',
-              contract.preflight.salt,
-              '--optimize=false',
-            ]
-          : ['--network', contract.network]),
-      ],
-      {
-        shell: false,
-        windowsHide: true,
-        env: injectTraceContext(process.env),
-      }
-    );
+    const child = spawnTracked(process.env.SOROBAN_CLI || 'soroban', cliArgs, {
+      shell: false,
+      windowsHide: true,
+      env: injectTraceContext(process.env),
+    });
 
     let stdout = '';
     let stderr = '';
     let done = false;
-    const timeout = setTimeout(
-      () => {
-        addSpanEvent(span, 'deploy.timeout');
-        terminateChildProcess(child);
-        finish(new Error(`Deployment timed out for ${contract.contractName}`));
-      },
-      Number.parseInt(
-        process.env.DEPLOY_TIMEOUT_MS || `${DEFAULT_TIMEOUT_MS}`,
-        10
-      )
-    );
+
+    const timeout = setTimeout(() => {
+      addSpanEvent(span, 'deploy.timeout');
+      terminateChildProcess(child);
+      const err = new Error(`Deployment timed out for ${contract.contractName}`);
+      err.code = 'DEPLOY_TIMEOUT';
+      finish(err);
+    }, timeoutMs);
 
     const finish = (err, result) => {
       if (done) return;
       done = true;
       clearTimeout(timeout);
-
-      const durationMs = Date.now() - startTime;
-      setSpanAttributes(span, {
-        'deploy.duration_ms': durationMs,
-        'deploy.exit_code': err ? err.code || 1 : 0,
-        'deploy.contract_id': result?.contractId,
-      });
-
-      if (err) {
-        span.setStatus({ code: 2, message: err.message });
-      }
-
-      span.end();
 
       if (signal) {
         signal.removeEventListener('abort', onAbort);
@@ -184,7 +166,9 @@ export function deployContract(contract, { signal, onProgress } = {}) {
     const onAbort = () => {
       addSpanEvent(span, 'deploy.cancelled');
       terminateChildProcess(child);
-      finish(new Error(`Deployment cancelled for ${contract.contractName}`));
+      const err = new Error(`Deployment cancelled for ${contract.contractName}`);
+      err.code = 'DEPLOY_CANCELLED';
+      finish(err);
     };
 
     if (signal) {
@@ -221,19 +205,6 @@ export function deployContract(contract, { signal, onProgress } = {}) {
           );
           return;
         }
-        recordTamperEvidentAuditLog({
-          action: 'contract_deploy',
-          contractId,
-          ledgerSequence:
-            contract.ledgerSequence || contract.ledger_sequence || 1,
-          sessionId: contract.sessionId || contract.session_id || 'sess-deploy',
-          userId: contract.userId || contract.user_id,
-          metadata: {
-            contractName: contract.contractName,
-            network: contract.network,
-          },
-        }).catch(() => {});
-
         finish(null, {
           contractId,
           stdout: stdout.trim(),
@@ -250,6 +221,229 @@ export function deployContract(contract, { signal, onProgress } = {}) {
       finish(error);
     });
   });
+}
+
+export async function deployContract(contract, { signal, onProgress } = {}) {
+  const startTime = Date.now();
+  const span = createSpan('soroban.deploy', {
+    'deploy.contract_name': contract.contractName,
+    'deploy.contract_id': contract.id,
+    'deploy.network': contract.network,
+    'deploy.wasm_path': contract.wasmPath,
+  });
+
+  try {
+    // Direct Stellar transaction submission path with SEP-0029 automated fee bumping
+    if (contract.transaction || contract.transactionXdr) {
+      const feeBumpConfig =
+        typeof contract.feeBump === 'object' ? contract.feeBump : {};
+      const txResult = await submitWithAutoFeeBump({
+        innerTransaction: contract.transaction,
+        innerTransactionXdr: contract.transactionXdr,
+        feeSource: feeBumpConfig.feeSource || contract.sourceAccount,
+        feeSourceKeypair: feeBumpConfig.feeSourceKeypair,
+        feeBumpSigner: feeBumpConfig.feeBumpSigner,
+        network: contract.network,
+        horizonUrl: feeBumpConfig.horizonUrl,
+        networkPassphrase: feeBumpConfig.networkPassphrase,
+        submitTransaction: feeBumpConfig.submitTransaction,
+        checkTransactionStatus: feeBumpConfig.checkTransactionStatus,
+        stallTimeoutMs:
+          feeBumpConfig.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS,
+        pollIntervalMs: feeBumpConfig.pollIntervalMs,
+        maxBumps: feeBumpConfig.maxBumps ?? DEFAULT_MAX_BUMPS,
+        feeIncrementMultiplier: feeBumpConfig.feeIncrementMultiplier,
+        percentile: feeBumpConfig.percentile,
+        maxFee: feeBumpConfig.maxFee,
+        fetchImpl: feeBumpConfig.fetchImpl,
+        signal,
+        onFeeBump: (bumpInfo) => {
+          addSpanEvent(span, 'deploy.fee_bump', {
+            attempt: bumpInfo.attempt,
+            previous_fee: bumpInfo.previousFee,
+            new_fee: bumpInfo.newFee,
+            hash: bumpInfo.hash,
+          });
+          onProgress?.(
+            'fee-bumping',
+            `Bumping fee from ${bumpInfo.previousFee} to ${bumpInfo.newFee} stroops (attempt ${bumpInfo.attempt})`
+          );
+          feeBumpConfig.onFeeBump?.(bumpInfo);
+        },
+      });
+
+      const contractId =
+        txResult.result?.contractId ||
+        contract.preflight?.contractId ||
+        `C${(contract.id || 'contract').padEnd(55, '0').slice(0, 55)}`;
+
+      recordTamperEvidentAuditLog({
+        action: 'contract_deploy',
+        contractId,
+        ledgerSequence:
+          contract.ledgerSequence || contract.ledger_sequence || 1,
+        sessionId: contract.sessionId || contract.session_id || 'sess-deploy',
+        userId: contract.userId || contract.user_id,
+        metadata: {
+          contractName: contract.contractName,
+          network: contract.network,
+          fee: txResult.fee,
+          feeBumps: txResult.bumps,
+          txHash: txResult.hash,
+        },
+      }).catch(() => {});
+
+      const durationMs = Date.now() - startTime;
+      setSpanAttributes(span, {
+        'deploy.duration_ms': durationMs,
+        'deploy.exit_code': 0,
+        'deploy.contract_id': contractId,
+        'deploy.fee': txResult.fee,
+        'deploy.fee_bumps': txResult.bumps,
+      });
+
+      return {
+        contractId,
+        hash: txResult.hash,
+        fee: txResult.fee,
+        feeBumps: txResult.bumps,
+        bumpHistory: txResult.bumpHistory,
+        result: txResult.result,
+      };
+    }
+
+    validateDeployContract(contract);
+
+    const feeBumpEnabled = Boolean(contract.feeBump);
+    const feeBumpConfig =
+      typeof contract.feeBump === 'object' ? contract.feeBump : {};
+    const useDynamicFee = Boolean(contract.dynamicFee || feeBumpEnabled);
+
+    let currentFee = contract.fee || null;
+    if (useDynamicFee && !currentFee) {
+      const dynamic = await getDynamicBaseFee({
+        network: contract.network,
+        horizonUrl: feeBumpConfig.horizonUrl,
+        percentile: feeBumpConfig.percentile,
+        maxFee: feeBumpConfig.maxFee,
+        fetchImpl: feeBumpConfig.fetchImpl,
+        signal,
+      });
+      currentFee = dynamic.fee;
+    }
+
+    const baseTimeoutMs = Number.parseInt(
+      process.env.DEPLOY_TIMEOUT_MS || `${DEFAULT_TIMEOUT_MS}`,
+      10
+    );
+    const stallTimeoutMs = feeBumpEnabled
+      ? (feeBumpConfig.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS)
+      : baseTimeoutMs;
+    const maxBumps = feeBumpEnabled
+      ? (feeBumpConfig.maxBumps ?? DEFAULT_MAX_BUMPS)
+      : 0;
+    const bumpHistory = [];
+
+    for (let bumpAttempt = 0; bumpAttempt <= maxBumps; bumpAttempt += 1) {
+      try {
+        const result = await spawnCliDeployAttempt(contract, {
+          fee: currentFee,
+          timeoutMs: stallTimeoutMs,
+          signal,
+          onProgress,
+          span,
+        });
+
+        recordTamperEvidentAuditLog({
+          action: 'contract_deploy',
+          contractId: result.contractId,
+          ledgerSequence:
+            contract.ledgerSequence || contract.ledger_sequence || 1,
+          sessionId: contract.sessionId || contract.session_id || 'sess-deploy',
+          userId: contract.userId || contract.user_id,
+          metadata: {
+            contractName: contract.contractName,
+            network: contract.network,
+            ...(currentFee ? { fee: currentFee } : {}),
+            ...(bumpHistory.length > 0
+              ? { feeBumps: bumpHistory.length }
+              : {}),
+          },
+        }).catch(() => {});
+
+        const durationMs = Date.now() - startTime;
+        setSpanAttributes(span, {
+          'deploy.duration_ms': durationMs,
+          'deploy.exit_code': 0,
+          'deploy.contract_id': result.contractId,
+          ...(currentFee ? { 'deploy.fee': currentFee } : {}),
+          ...(bumpHistory.length > 0
+            ? { 'deploy.fee_bumps': bumpHistory.length }
+            : {}),
+        });
+
+        return {
+          ...result,
+          ...(currentFee ? { fee: currentFee } : {}),
+          ...(feeBumpEnabled
+            ? { feeBumps: bumpHistory.length, bumpHistory }
+            : {}),
+        };
+      } catch (error) {
+        const isStallTimeout = error.code === 'DEPLOY_TIMEOUT';
+        if (!feeBumpEnabled || !isStallTimeout || bumpAttempt >= maxBumps) {
+          throw error;
+        }
+
+        const latestDynamic = await getDynamicBaseFee({
+          network: contract.network,
+          horizonUrl: feeBumpConfig.horizonUrl,
+          percentile: feeBumpConfig.percentile,
+          maxFee: feeBumpConfig.maxFee,
+          fetchImpl: feeBumpConfig.fetchImpl,
+          signal,
+        });
+
+        const previousFee = currentFee || latestDynamic.fee;
+        currentFee = calculateIncrementedFee(previousFee, latestDynamic.fee, {
+          multiplier: feeBumpConfig.feeIncrementMultiplier,
+          maxFee: feeBumpConfig.maxFee,
+        });
+
+        const bumpRecord = {
+          attempt: bumpAttempt + 1,
+          previousFee,
+          newFee: currentFee,
+          dynamicP90Fee: latestDynamic.fee,
+          timestamp: new Date().toISOString(),
+        };
+        bumpHistory.push(bumpRecord);
+
+        addSpanEvent(span, 'deploy.fee_bump', {
+          attempt: bumpRecord.attempt,
+          previous_fee: previousFee,
+          new_fee: currentFee,
+        });
+        onProgress?.(
+          'fee-bumping',
+          `Deployment stalled; bumping fee from ${previousFee} to ${currentFee} stroops (attempt ${bumpRecord.attempt})`
+        );
+        feeBumpConfig.onFeeBump?.(bumpRecord);
+      }
+    }
+
+    throw new Error(`Deployment failed for ${contract.contractName}`);
+  } catch (err) {
+    const durationMs = Date.now() - startTime;
+    setSpanAttributes(span, {
+      'deploy.duration_ms': durationMs,
+      'deploy.exit_code': err.code || 1,
+    });
+    span.setStatus({ code: 2, message: err.message });
+    throw err;
+  } finally {
+    span.end();
+  }
 }
 
 async function rollbackContracts(deployed, context) {

@@ -43,6 +43,7 @@ class FakeWebSocket {
 }
 
 beforeEach(() => {
+  jest.useFakeTimers();
   jest.resetAllMocks();
   (global as any).WebSocket = FakeWebSocket;
   store.length = 0;
@@ -351,7 +352,6 @@ describe("useOracleStatus", () => {
           json: () => Promise.resolve({ data: {} }),
         });
 
-      jest.useFakeTimers();
       const { result } = renderHook(() => useOracleStatus({ pollMs: 9999999 }));
 
       await act(async () => {
@@ -396,7 +396,6 @@ describe("useOracleStatus", () => {
           json: () => Promise.resolve({ data: {} }),
         });
 
-      jest.useFakeTimers();
       const { result } = renderHook(() => useOracleStatus({ pollMs: 9999999 }));
 
       await act(async () => {
@@ -432,7 +431,6 @@ describe("useOracleStatus", () => {
           json: () => Promise.resolve({ data: {} }),
         });
 
-      jest.useFakeTimers();
       const { unmount, result } = renderHook(() =>
         useOracleStatus({ pollMs: 9999999 }),
       );

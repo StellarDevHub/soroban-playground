@@ -311,7 +311,21 @@ impl SubscriptionStream {
             panic!("stream already cancelled");
         }
 
+        let now = env.ledger().timestamp();
+        // Settle any accrued-but-unclaimed balance up to now before cancelling.
+        if stream.status == StreamStatus::Active {
+            let elapsed = now.saturating_sub(stream.last_claim_time) as i128;
+            let accrued = stream.flow_rate * elapsed;
+            let remaining = stream.deposit - stream.claimed;
+            let accrued = accrued.min(remaining).max(0);
+            stream.claimed += accrued;
+            stream.last_claim_time = now;
+        }
+
         let refund = stream.deposit - stream.claimed;
+        if refund < 0 {
+            panic!("invalid refund");
+        }
         stream.status = StreamStatus::Cancelled;
         env.storage()
             .persistent()

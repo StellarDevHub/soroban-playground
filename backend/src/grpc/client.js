@@ -19,8 +19,8 @@ import { context, propagation } from '@opentelemetry/api';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const moduleFilename = fileURLToPath(import.meta.url);
+const __dirname = dirname(moduleFilename);
 
 const PROTO_PATH = join(__dirname, 'soroban_indexer.proto');
 

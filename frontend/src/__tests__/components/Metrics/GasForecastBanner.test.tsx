@@ -6,6 +6,7 @@ import GasForecastBanner, {
   calculateMovingAverageAndStdDev,
   determineCongestionLevel,
   calculateFeePresets,
+  calculateResourceFee,
   getHorizonFeeStatsUrl,
   getFeePollingIntervalMs,
   DEFAULT_BASE_FEE,
@@ -116,6 +117,45 @@ describe("GasForecastBanner - Statistical & Conversion Engine", () => {
       const surgePresets = calculateFeePresets(100, 1500, 800, 800, 1800, 4000, "surge");
       expect(surgePresets.fast.stroops).toBeGreaterThanOrEqual(300); // at least 3x base fee
       expect(surgePresets.slow.estimatedLatency).toContain("several ledgers");
+    });
+
+    it("adds pre-flight resource fee across low, moderate, and surge conditions", () => {
+      const resourceFee = calculateResourceFee({
+        cpuInstructions: 2_000_000,
+        memoryBytes: 65_536,
+      });
+      expect(resourceFee).toBeGreaterThan(0);
+
+      const lowBase = calculateFeePresets(100, 120, 20, 100, 140, 200, "low", 0);
+      const lowWithRes = calculateFeePresets(100, 120, 20, 100, 140, 200, "low", resourceFee);
+      expect(lowWithRes.slow.stroops).toBe(lowBase.slow.stroops + resourceFee);
+      expect(lowWithRes.average.stroops).toBe(lowBase.average.stroops + resourceFee);
+      expect(lowWithRes.fast.stroops).toBe(lowBase.fast.stroops + resourceFee);
+
+      const surgeBase = calculateFeePresets(100, 1500, 800, 800, 1800, 4000, "surge", 0);
+      const surgeWithRes = calculateFeePresets(100, 1500, 800, 800, 1800, 4000, "surge", resourceFee);
+      expect(surgeWithRes.fast.stroops).toBe(surgeBase.fast.stroops + resourceFee);
+    });
+  });
+
+  describe("calculateResourceFee", () => {
+    it("returns 0 when footprint is undefined or zeroed", () => {
+      expect(calculateResourceFee(undefined)).toBe(0);
+      expect(calculateResourceFee({ cpuInstructions: 0, memoryBytes: 0 })).toBe(0);
+      expect(calculateResourceFee({ cpuInstructions: -100, memoryBytes: -50 })).toBe(0);
+    });
+
+    it("computes Stroops from CPU instructions, memory bytes, and read/write bytes", () => {
+      // 100,000 instructions => 10 * 25 = 250; 2048 bytes => 2 * 10 = 20 => 270
+      expect(calculateResourceFee({ cpuInstructions: 100_000, memoryBytes: 2048 })).toBe(270);
+      // Respects minResourceFee floor
+      expect(
+        calculateResourceFee({
+          cpuInstructions: 100_000,
+          memoryBytes: 2048,
+          minResourceFee: 1000,
+        })
+      ).toBe(1000);
     });
   });
 });
@@ -254,5 +294,59 @@ describe("GasForecastBanner UI Component", () => {
 
     addEventListenerSpy.mockRestore();
     removeEventListenerSpy.mockRestore();
+  });
+
+  it("displays live P50, P75, and P90 percentiles from Horizon fee_stats", async () => {
+    jest.spyOn(global, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        last_ledger_base_fee: "100",
+        ledger_capacity_usage: "0.72",
+        last_ledger: "88888",
+        fee_charged: {
+          p20: "100",
+          p50: "250",
+          p60: "300",
+          p70: "400",
+          p80: "600",
+          p90: "950",
+          p95: "1200",
+          p99: "2000",
+        },
+      }),
+    } as Response);
+
+    render(<GasForecastBanner networkId="mainnet" compact={false} />);
+    expect(await screen.findByText("Ledger #88,888")).toBeInTheDocument();
+    expect(screen.getByText("250 Stroops")).toBeInTheDocument();
+    expect(screen.getByTestId("metric-p75")).toHaveTextContent("500 Stroops");
+    expect(screen.getByText("950 Stroops")).toBeInTheDocument();
+  });
+
+  it("toggles between Low, Normal, and Priority fees via the interactive slider", () => {
+    const handleSelectFee = jest.fn();
+    render(
+      <GasForecastBanner
+        networkId="testnet"
+        compact={false}
+        onSelectFee={handleSelectFee}
+        simulationFootprint={{ cpuInstructions: 400_000, memoryBytes: 10_240 }}
+      />
+    );
+
+    expect(screen.getByTestId("simulation-footprint-summary")).toBeInTheDocument();
+
+    const slider = screen.getByTestId("fee-priority-slider") as HTMLInputElement;
+    expect(slider.value).toBe("1");
+
+    fireEvent.change(slider, { target: { value: "0" } });
+    expect(handleSelectFee).toHaveBeenLastCalledWith(expect.any(Number), "slow");
+    const slowFee = handleSelectFee.mock.calls.at(-1)?.[0];
+
+    fireEvent.change(slider, { target: { value: "2" } });
+    expect(handleSelectFee).toHaveBeenLastCalledWith(expect.any(Number), "fast");
+    const fastFee = handleSelectFee.mock.calls.at(-1)?.[0];
+
+    expect(fastFee).toBeGreaterThan(slowFee);
   });
 });

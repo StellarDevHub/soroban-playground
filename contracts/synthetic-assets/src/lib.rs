@@ -1,28 +1,15 @@
-//! # Synthetic Asset Synthesizer with Debt Pool Equity Tracking
+//! Collateral-backed synthetic debt positions with fresh-price health checks,
+//! stabilization fees, tier ceilings and delayed settlement.
 //!
-//! ## Overview
-//! Stakers deposit collateral and mint synthetic assets (sXLM, sUSD, sGOLD).
-//! A global **debt index** accrues continuously:
-//!
-//! ```text
-//! DebtIndex_t = DebtIndex_{t-1} × (1 + delta)
-//! ```
-//!
-//! Each staker's share of the global debt is proportional to their issued
-//! synthetics at mint-time relative to the total supply.  Burning synthetics
-//! redeems collateral proportional to the staker's current debt balance.
-//!
-//! Additional features:
-//! - Zero-slippage, fee-free peer-to-contract swaps between synthetics
-//! - Multi-oracle price feeds per synthetic asset
-//! - Liquidation for positions below the minimum collateral ratio
-//! - Post-trade fee delay as front-running protection
+//! Each staker holds one synthetic symbol. Balances are internal debt records;
+//! collateral transfers and reserve payments use the configured token contract.
+//! The legacy debt index remains informational rather than redistributing debt.
 
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
-    String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, String,
+    Vec,
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -37,8 +24,9 @@ const MIN_CR_BPS: u64 = 15_000;
 const LIQUIDATION_BONUS_BPS: u64 = 1_000;
 /// Initial debt index (fixed-point, scaled by 1e18)
 const DEBT_INDEX_SCALE: i128 = 1_000_000_000_000_000_000;
-/// Minimum quorum of collateral before any minting is allowed
-const MIN_COLLATERAL: i128 = 1_000_000;
+/// All token amounts and USD prices use seven decimals.
+const PRICE_SCALE: i128 = 10_000_000;
+const MAX_PRICE_AGE: u64 = 300;
 /// Post-trade fee delay in ledgers (≈ 5 seconds each → ~1 min)
 const FEE_DELAY_LEDGERS: u32 = 12;
 
@@ -67,6 +55,12 @@ pub enum Error {
     ZeroShares = 17,
     Paused = 18,
     InvalidCrBps = 19,
+    Overflow = 20,
+    WrongAsset = 21,
+    DebtCeiling = 22,
+    StalePrice = 23,
+    InvalidRiskConfig = 24,
+    PartialSwap = 25,
 }
 
 // ─── Storage Types ────────────────────────────────────────────────────────────
@@ -115,6 +109,13 @@ pub struct State {
 #[contracttype]
 pub enum DataKey {
     State,
+    Reserve,
+    CollateralOracle,
+    CollateralPrice,
+    CollateralPriceTime,
+    PriceTime(String),
+    Tier(String),
+    MintLedger(Address),
     Asset(String),     // AssetConfig keyed by symbol
     AssetList,         // Vec<String> of registered symbols
     Position(Address), // StakerPosition keyed by staker
@@ -123,6 +124,25 @@ pub enum DataKey {
 }
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
+
+/// USD debt ceilings (7 dp) are enforced per asset, including swap issuance.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AssetTier {
+    Stable,
+    Standard,
+    Experimental,
+}
+
+impl AssetTier {
+    fn ceiling(self) -> i128 {
+        match self {
+            Self::Stable => 1_000_000 * PRICE_SCALE,
+            Self::Standard => 100_000 * PRICE_SCALE,
+            Self::Experimental => 10_000 * PRICE_SCALE,
+        }
+    }
+}
 
 #[contract]
 pub struct SyntheticAssets;
@@ -139,7 +159,7 @@ impl SyntheticAssets {
         admin.require_auth();
 
         let state = State {
-            admin,
+            admin: admin.clone(),
             collateral_token,
             debt_index: DEBT_INDEX_SCALE, // 1.0 in fixed-point
             total_debt: 0,
@@ -150,8 +170,83 @@ impl SyntheticAssets {
             .instance()
             .set(&DataKey::AssetList, &Vec::<String>::new(&env));
 
+        env.storage().instance().set(&DataKey::Reserve, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::CollateralOracle, &admin);
+        // Prices must be explicitly reported before any collateral operation.
         env.events().publish((symbol_short!("init"),), ());
         Ok(())
+    }
+
+    /// Configure a separate fee recipient and collateral price reporter.
+    pub fn configure_risk(
+        env: Env,
+        admin: Address,
+        reserve: Address,
+        oracle: Address,
+    ) -> Result<(), Error> {
+        let state = Self::load_state(&env)?;
+        Self::assert_admin(&state, &admin);
+        admin.require_auth();
+        if reserve == env.current_contract_address() {
+            return Err(Error::InvalidRiskConfig);
+        }
+        env.storage().instance().set(&DataKey::Reserve, &reserve);
+        env.storage()
+            .instance()
+            .set(&DataKey::CollateralOracle, &oracle);
+        env.storage().instance().remove(&DataKey::CollateralPrice);
+        Ok(())
+    }
+
+    pub fn update_collateral_price(env: Env, reporter: Address, price: i128) -> Result<(), Error> {
+        Self::load_state(&env)?;
+        let oracle: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::CollateralOracle)
+            .ok_or(Error::OracleNotSet)?;
+        if reporter != oracle {
+            return Err(Error::Unauthorized);
+        }
+        reporter.require_auth();
+        if price <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::CollateralPrice, &price);
+        env.storage()
+            .instance()
+            .set(&DataKey::CollateralPriceTime, &env.ledger().timestamp());
+        Ok(())
+    }
+
+    /// New assets default to the smallest ceiling until explicitly classified.
+    pub fn set_asset_tier(
+        env: Env,
+        admin: Address,
+        symbol: String,
+        tier: AssetTier,
+    ) -> Result<(), Error> {
+        let state = Self::load_state(&env)?;
+        Self::assert_admin(&state, &admin);
+        admin.require_auth();
+        let cfg = Self::load_asset(&env, &symbol)?;
+        if cfg.total_supply > 0
+            && Self::value_up(cfg.total_supply, Self::get_price_internal(&env, &symbol)?)?
+                > tier.ceiling()
+        {
+            return Err(Error::DebtCeiling);
+        }
+        env.storage().instance().set(&DataKey::Tier(symbol), &tier);
+        Ok(())
+    }
+
+    pub fn debt_ceiling(env: Env, symbol: String) -> Result<i128, Error> {
+        Self::load_asset(&env, &symbol)?;
+        Ok(Self::tier(&env, &symbol).ceiling())
     }
 
     /// Emergency pause – admin only.
@@ -240,6 +335,10 @@ impl SyntheticAssets {
             .instance()
             .set(&DataKey::Price(symbol.clone()), &price_usd_7dp);
 
+        env.storage().instance().set(
+            &DataKey::PriceTime(symbol.clone()),
+            &env.ledger().timestamp(),
+        );
         env.events()
             .publish((symbol_short!("price_upd"),), (symbol, price_usd_7dp));
         Ok(())
@@ -276,35 +375,6 @@ impl SyntheticAssets {
 
         let price = Self::get_price_internal(&env, &synth_symbol)?;
 
-        // Check collateral ratio: collateral_usd / synth_usd >= TARGET_CR_BPS / BPS
-        let synth_usd = Self::mul_price(synth_amount, price);
-        let collateral_usd = collateral_amount; // collateral is a stablecoin, 1:1 USD
-        let required_collateral = synth_usd
-            .checked_mul(TARGET_CR_BPS as i128)
-            .unwrap_or(i128::MAX)
-            / BPS as i128;
-
-        if collateral_usd < required_collateral {
-            return Err(Error::CollateralRatioTooLow);
-        }
-
-        // Transfer collateral from staker
-        let col_client = token::Client::new(&env, &state.collateral_token);
-        col_client.transfer(&staker, &env.current_contract_address(), &collateral_amount);
-
-        // Update asset supply
-        let mut cfg = Self::load_asset(&env, &synth_symbol)?;
-        cfg.total_supply = cfg.total_supply.saturating_add(synth_amount);
-        env.storage()
-            .instance()
-            .set(&DataKey::Asset(synth_symbol.clone()), &cfg);
-
-        // Update global debt (snapshot debt-index for proportional tracking)
-        let debt_share = Self::to_debt_shares(synth_usd, state.total_debt, state.debt_index);
-        state.total_debt = state.total_debt.saturating_add(synth_usd);
-        env.storage().instance().set(&DataKey::State, &state);
-
-        // Record or update the staker position
         let mut pos = env
             .storage()
             .instance()
@@ -316,14 +386,46 @@ impl SyntheticAssets {
                 debt_index_snapshot: state.debt_index,
                 last_swap_ledger: 0,
             });
-
-        pos.collateral = pos.collateral.saturating_add(collateral_amount);
-        pos.synth_amount = pos.synth_amount.saturating_add(synth_amount);
-        pos.debt_index_snapshot = state.debt_index;
-        pos.synth_symbol = synth_symbol.clone();
+        if pos.synth_symbol != synth_symbol {
+            return Err(Error::WrongAsset);
+        }
+        pos.collateral = pos
+            .collateral
+            .checked_add(collateral_amount)
+            .ok_or(Error::Overflow)?;
+        pos.synth_amount = pos
+            .synth_amount
+            .checked_add(synth_amount)
+            .ok_or(Error::Overflow)?;
+        // Reprice the entire position, not just this deposit; fees are paid separately.
+        Self::ensure_health(&env, &pos, TARGET_CR_BPS)?;
+        let mut cfg = Self::load_asset(&env, &synth_symbol)?;
+        cfg.total_supply = cfg
+            .total_supply
+            .checked_add(synth_amount)
+            .ok_or(Error::Overflow)?;
+        Self::check_ceiling(&env, &cfg, price)?;
+        let fee = Self::fee(&env, &cfg, synth_amount, price)?;
+        let col_client = token::Client::new(&env, &state.collateral_token);
+        col_client.transfer(&staker, &env.current_contract_address(), &collateral_amount);
+        Self::pay_fee(&env, &state, &staker, fee)?;
+        let synth_usd = Self::value_up(synth_amount, price)?;
+        let debt_share = synth_usd;
+        state.total_debt = state
+            .total_debt
+            .checked_add(synth_usd)
+            .ok_or(Error::Overflow)?;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage()
+            .instance()
+            .set(&DataKey::Asset(synth_symbol.clone()), &cfg);
         env.storage()
             .instance()
             .set(&DataKey::Position(staker.clone()), &pos);
+        env.storage().instance().set(
+            &DataKey::MintLedger(staker.clone()),
+            &env.ledger().sequence(),
+        );
 
         env.events().publish(
             (symbol_short!("minted"),),
@@ -359,12 +461,16 @@ impl SyntheticAssets {
             .get(&DataKey::Position(staker.clone()))
             .ok_or(Error::PositionNotFound)?;
 
+        if pos.synth_symbol != synth_symbol {
+            return Err(Error::WrongAsset);
+        }
+        Self::check_delay(&env, &staker)?;
         if pos.synth_amount < synth_amount {
             return Err(Error::InsufficientSynthBalance);
         }
 
         let price = Self::get_price_internal(&env, &synth_symbol)?;
-        let synth_usd = Self::mul_price(synth_amount, price);
+        let synth_usd = Self::value_up(synth_amount, price)?;
 
         // Collateral returned is proportional to the fraction burned
         let collateral_to_return = if pos.synth_amount == 0 {
@@ -372,10 +478,13 @@ impl SyntheticAssets {
         } else {
             pos.collateral
                 .checked_mul(synth_amount)
-                .unwrap_or(i128::MAX)
+                .ok_or(Error::Overflow)?
                 / pos.synth_amount
         };
 
+        let cfg_before = Self::load_asset(&env, &synth_symbol)?;
+        let fee = Self::fee(&env, &cfg_before, synth_amount, price)?;
+        Self::pay_fee(&env, &state, &staker, fee)?;
         // Update staker position
         pos.synth_amount -= synth_amount;
         pos.collateral -= collateral_to_return;
@@ -384,6 +493,7 @@ impl SyntheticAssets {
                 .instance()
                 .remove(&DataKey::Position(staker.clone()));
         } else {
+            Self::ensure_health(&env, &pos, MIN_CR_BPS)?;
             env.storage()
                 .instance()
                 .set(&DataKey::Position(staker.clone()), &pos);
@@ -391,7 +501,11 @@ impl SyntheticAssets {
 
         // Update asset supply
         let mut cfg = Self::load_asset(&env, &synth_symbol)?;
-        cfg.total_supply = cfg.total_supply.saturating_sub(synth_amount);
+        cfg.total_supply = cfg
+            .total_supply
+            .checked_sub(synth_amount)
+            .filter(|v| *v >= 0)
+            .ok_or(Error::Overflow)?;
         env.storage()
             .instance()
             .set(&DataKey::Asset(synth_symbol.clone()), &cfg);
@@ -417,7 +531,7 @@ impl SyntheticAssets {
 
     // ── Peer-to-Contract Swaps ────────────────────────────────────────────────
 
-    /// Zero-slippage, fee-free swap between two synthetic assets.
+    /// Zero-slippage, fee-charging swap between two synthetic assets.
     /// `from_amount` of `from_symbol` is burned; the USD-equivalent of
     /// `to_symbol` is minted for the caller.
     ///
@@ -448,47 +562,59 @@ impl SyntheticAssets {
             .get(&DataKey::Position(staker.clone()))
             .ok_or(Error::PositionNotFound)?;
 
-        let current_ledger = env.ledger().sequence();
-        if pos.last_swap_ledger > 0 && current_ledger < pos.last_swap_ledger + FEE_DELAY_LEDGERS {
-            return Err(Error::TradeDelayActive);
+        Self::check_delay(&env, &staker)?;
+        if pos.synth_symbol != from_symbol {
+            return Err(Error::WrongAsset);
         }
-
-        if pos.synth_amount < from_amount {
-            return Err(Error::InsufficientSynthBalance);
+        // The storage model has one symbol per position: partial swaps cannot
+        // represent two balances without mixing differently denominated units.
+        if pos.synth_amount != from_amount {
+            return Err(Error::PartialSwap);
         }
-
-        // Prices for both assets
+        Self::ensure_health(&env, &pos, MIN_CR_BPS)?;
         let from_price = Self::get_price_internal(&env, &from_symbol)?;
         let to_price = Self::get_price_internal(&env, &to_symbol)?;
-
-        // USD value of from_amount (7 dp)
-        let usd_value = Self::mul_price(from_amount, from_price);
-        // Equivalent to_amount (zero-slippage, same USD value)
-        let to_amount = usd_value.checked_mul(10_000_000).unwrap_or(i128::MAX) / to_price;
-
-        // Burn from_symbol from staker's position
-        let mut pos_mut = pos.clone();
-        pos_mut.synth_amount -= from_amount;
+        let usd_value = Self::mul_price(from_amount, from_price)?;
+        let to_amount = usd_value.checked_mul(PRICE_SCALE).ok_or(Error::Overflow)? / to_price;
+        if to_amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
         let mut from_cfg = Self::load_asset(&env, &from_symbol)?;
-        from_cfg.total_supply = from_cfg.total_supply.saturating_sub(from_amount);
+        from_cfg.total_supply = from_cfg
+            .total_supply
+            .checked_sub(from_amount)
+            .filter(|v| *v >= 0)
+            .ok_or(Error::Overflow)?;
+        let mut to_cfg = Self::load_asset(&env, &to_symbol)?;
+        to_cfg.total_supply = to_cfg
+            .total_supply
+            .checked_add(to_amount)
+            .ok_or(Error::Overflow)?;
+        Self::check_ceiling(&env, &to_cfg, to_price)?;
+        // Swaps burn and mint too, so neither stabilization fee can be bypassed.
+        let from_before = Self::load_asset(&env, &from_symbol)?;
+        let fee = Self::fee(&env, &from_before, from_amount, from_price)?
+            .checked_add(Self::fee(&env, &to_cfg, to_amount, to_price)?)
+            .ok_or(Error::Overflow)?;
+        Self::pay_fee(&env, &state, &staker, fee)?;
+        let mut pos_mut = pos;
+        pos_mut.synth_amount = to_amount;
+        pos_mut.synth_symbol = to_symbol.clone();
+        pos_mut.last_swap_ledger = env.ledger().sequence();
+        Self::ensure_health(&env, &pos_mut, MIN_CR_BPS)?;
         env.storage()
             .instance()
             .set(&DataKey::Asset(from_symbol.clone()), &from_cfg);
-
-        // Mint to_symbol into staker's position
-        pos_mut.synth_amount += to_amount;
-        pos_mut.synth_symbol = to_symbol.clone();
-        pos_mut.last_swap_ledger = current_ledger;
-
-        let mut to_cfg = Self::load_asset(&env, &to_symbol)?;
-        to_cfg.total_supply = to_cfg.total_supply.saturating_add(to_amount);
         env.storage()
             .instance()
             .set(&DataKey::Asset(to_symbol.clone()), &to_cfg);
-
         env.storage()
             .instance()
             .set(&DataKey::Position(staker.clone()), &pos_mut);
+        env.storage().instance().set(
+            &DataKey::MintLedger(staker.clone()),
+            &env.ledger().sequence(),
+        );
 
         env.events().publish(
             (symbol_short!("swapped"),),
@@ -501,8 +627,7 @@ impl SyntheticAssets {
 
     /// Admin bumps the global debt index by `delta_bps` basis-points.
     ///
-    /// Reflects aggregate protocol-wide debt growth (e.g. from accrued fees,
-    /// funding rates, or oracle-driven rebalancing).
+    /// Informational legacy counter; health checks use live position balances.
     pub fn accrue_debt(env: Env, admin: Address, delta_bps: u64) -> Result<(), Error> {
         let mut state = Self::load_state(&env)?;
         Self::assert_admin(&state, &admin);
@@ -513,7 +638,7 @@ impl SyntheticAssets {
         state.debt_index = state
             .debt_index
             .checked_mul(multiplier)
-            .unwrap_or(i128::MAX)
+            .ok_or(Error::Overflow)?
             / DEBT_INDEX_SCALE;
 
         env.storage().instance().set(&DataKey::State, &state);
@@ -550,26 +675,28 @@ impl SyntheticAssets {
             .get(&DataKey::Position(staker.clone()))
             .ok_or(Error::PositionNotFound)?;
 
-        let price = Self::get_price_internal(&env, &pos.synth_symbol)?;
-        let synth_usd = Self::mul_price(pos.synth_amount, price);
-        let cr_bps = if synth_usd == 0 {
-            u64::MAX
-        } else {
-            (pos.collateral as u64).saturating_mul(BPS) / (synth_usd as u64)
-        };
-
-        if cr_bps >= MIN_CR_BPS {
+        if synth_amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if Self::ratio(&env, &pos)? >= MIN_CR_BPS {
             return Err(Error::PositionHealthy);
         }
-
+        let price = Self::get_price_internal(&env, &pos.synth_symbol)?;
         let actual_repay = synth_amount.min(pos.synth_amount);
-        let repay_usd = Self::mul_price(actual_repay, price);
-        // Collateral seized = repaid_usd + bonus
-        let seized = repay_usd
+        let repay_usd = Self::value_up(actual_repay, price)?;
+        let collateral_price = Self::collateral_price(&env)?;
+        let payment = Self::div_up(
+            repay_usd.checked_mul(PRICE_SCALE).ok_or(Error::Overflow)?,
+            collateral_price,
+        )?;
+        let seized = payment
             .checked_mul((BPS + LIQUIDATION_BONUS_BPS) as i128)
-            .unwrap_or(i128::MAX)
+            .ok_or(Error::Overflow)?
             / BPS as i128;
         let seized = seized.min(pos.collateral);
+        // Synths are internal debt records, not transferable tokens. Repayment
+        // is therefore real collateral paid to the reserve, never a free seizure.
+        Self::pay_fee(&env, &state, &liquidator, payment)?;
 
         // Update staker position
         let new_synth = pos.synth_amount - actual_repay;
@@ -597,7 +724,11 @@ impl SyntheticAssets {
 
         // Update asset supply
         let mut cfg = Self::load_asset(&env, &pos.synth_symbol)?;
-        cfg.total_supply = cfg.total_supply.saturating_sub(actual_repay);
+        cfg.total_supply = cfg
+            .total_supply
+            .checked_sub(actual_repay)
+            .filter(|v| *v >= 0)
+            .ok_or(Error::Overflow)?;
         env.storage()
             .instance()
             .set(&DataKey::Asset(pos.synth_symbol.clone()), &cfg);
@@ -605,6 +736,9 @@ impl SyntheticAssets {
         // Transfer seized collateral to liquidator
         let col_client = token::Client::new(&env, &state.collateral_token);
         col_client.transfer(&env.current_contract_address(), &liquidator, &seized);
+        if new_synth == 0 && new_collateral > 0 {
+            col_client.transfer(&env.current_contract_address(), &staker, &new_collateral);
+        }
 
         env.events().publish(
             (symbol_short!("liquidate"),),
@@ -623,12 +757,7 @@ impl SyntheticAssets {
             .get(&DataKey::Position(staker))
             .ok_or(Error::PositionNotFound)?;
 
-        let price = Self::get_price_internal(&env, &pos.synth_symbol)?;
-        let synth_usd = Self::mul_price(pos.synth_amount, price);
-        if synth_usd == 0 {
-            return Ok(u64::MAX);
-        }
-        Ok((pos.collateral as u64).saturating_mul(BPS) / (synth_usd as u64))
+        Self::ratio(&env, &pos)
     }
 
     /// Returns the full staker position.
@@ -669,10 +798,134 @@ impl SyntheticAssets {
     }
 
     fn get_price_internal(env: &Env, symbol: &String) -> Result<i128, Error> {
+        Self::fresh(env, &DataKey::PriceTime(symbol.clone()))?;
         env.storage()
             .instance()
             .get(&DataKey::Price(symbol.clone()))
             .ok_or(Error::PriceNotFound)
+    }
+
+    fn fresh(env: &Env, key: &DataKey) -> Result<(), Error> {
+        let time: u64 = env
+            .storage()
+            .instance()
+            .get(key)
+            .ok_or(Error::PriceNotFound)?;
+        if env
+            .ledger()
+            .timestamp()
+            .checked_sub(time)
+            .ok_or(Error::StalePrice)?
+            > MAX_PRICE_AGE
+        {
+            return Err(Error::StalePrice);
+        }
+        Ok(())
+    }
+
+    fn collateral_price(env: &Env) -> Result<i128, Error> {
+        Self::fresh(env, &DataKey::CollateralPriceTime)?;
+        env.storage()
+            .instance()
+            .get(&DataKey::CollateralPrice)
+            .ok_or(Error::PriceNotFound)
+    }
+
+    fn tier(env: &Env, symbol: &String) -> AssetTier {
+        env.storage()
+            .instance()
+            .get(&DataKey::Tier(symbol.clone()))
+            .unwrap_or(AssetTier::Experimental)
+    }
+
+    fn check_ceiling(env: &Env, cfg: &AssetConfig, price: i128) -> Result<(), Error> {
+        if Self::value_up(cfg.total_supply, price)? > Self::tier(env, &cfg.symbol).ceiling() {
+            return Err(Error::DebtCeiling);
+        }
+        Ok(())
+    }
+
+    fn div_up(n: i128, d: i128) -> Result<i128, Error> {
+        if n < 0 || d <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        (n / d)
+            .checked_add(i128::from(n % d != 0))
+            .ok_or(Error::Overflow)
+    }
+
+    fn value_up(amount: i128, price: i128) -> Result<i128, Error> {
+        Self::div_up(
+            amount.checked_mul(price).ok_or(Error::Overflow)?,
+            PRICE_SCALE,
+        )
+    }
+
+    fn ratio(env: &Env, pos: &StakerPosition) -> Result<u64, Error> {
+        let debt = Self::value_up(
+            pos.synth_amount,
+            Self::get_price_internal(env, &pos.synth_symbol)?,
+        )?;
+        if debt == 0 {
+            return Ok(u64::MAX);
+        }
+        let collateral = Self::mul_price(pos.collateral, Self::collateral_price(env)?)?;
+        let ratio = collateral.checked_mul(BPS as i128).ok_or(Error::Overflow)? / debt;
+        Ok(ratio.min(u64::MAX as i128) as u64)
+    }
+
+    fn ensure_health(env: &Env, pos: &StakerPosition, minimum: u64) -> Result<(), Error> {
+        if Self::ratio(env, pos)? < minimum.max(MIN_CR_BPS) {
+            return Err(Error::CollateralRatioTooLow);
+        }
+        Ok(())
+    }
+
+    // Nonzero base (25 bps) plus up to 75 bps as debt approaches its tier
+    // ceiling. Rounding up prevents small transactions from avoiding fees.
+    fn fee(env: &Env, cfg: &AssetConfig, amount: i128, price: i128) -> Result<i128, Error> {
+        let ceiling = Self::tier(env, &cfg.symbol).ceiling();
+        let used = Self::value_up(cfg.total_supply, price)?.min(ceiling);
+        let bps = 25 + used.checked_mul(75).ok_or(Error::Overflow)? / ceiling;
+        let usd = Self::value_up(amount, price)?;
+        let fee_usd = Self::div_up(usd.checked_mul(bps).ok_or(Error::Overflow)?, BPS as i128)?;
+        Self::div_up(
+            fee_usd.checked_mul(PRICE_SCALE).ok_or(Error::Overflow)?,
+            Self::collateral_price(env)?,
+        )
+    }
+
+    fn pay_fee(env: &Env, state: &State, payer: &Address, fee: i128) -> Result<(), Error> {
+        let reserve: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Reserve)
+            .ok_or(Error::InvalidRiskConfig)?;
+        // Prevent a self-transfer from silently waiving the stabilization fee.
+        if &reserve == payer {
+            return Err(Error::InvalidRiskConfig);
+        }
+        token::Client::new(env, &state.collateral_token).transfer(payer, &reserve, &fee);
+        Ok(())
+    }
+
+    fn check_delay(env: &Env, staker: &Address) -> Result<(), Error> {
+        if let Some(ledger) = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::MintLedger(staker.clone()))
+        {
+            if env
+                .ledger()
+                .sequence()
+                .checked_sub(ledger)
+                .ok_or(Error::TradeDelayActive)?
+                < FEE_DELAY_LEDGERS
+            {
+                return Err(Error::TradeDelayActive);
+            }
+        }
+        Ok(())
     }
 
     fn assert_admin(state: &State, caller: &Address) {
@@ -689,19 +942,9 @@ impl SyntheticAssets {
         }
     }
 
-    /// Convert a USD value to debt shares (simple proportional calculation).
-    fn to_debt_shares(usd_value: i128, total_debt: i128, _debt_index: i128) -> i128 {
-        if total_debt == 0 {
-            usd_value
-        } else {
-            usd_value
-        }
-    }
-
-    /// Multiply an asset amount by its 7-dp USD price to get USD value.
-    /// Both are 7 decimal-place integers; result is also 7 dp.
-    fn mul_price(amount: i128, price_7dp: i128) -> i128 {
-        amount.checked_mul(price_7dp).unwrap_or(i128::MAX) / 10_000_000
+    /// Collateral is valued down; debt and fees are rounded up separately.
+    fn mul_price(amount: i128, price_7dp: i128) -> Result<i128, Error> {
+        Ok(amount.checked_mul(price_7dp).ok_or(Error::Overflow)? / PRICE_SCALE)
     }
 }
 
@@ -712,12 +955,15 @@ mod test {
     use super::*;
     use soroban_sdk::{
         testutils::{Address as _, Ledger},
-        token::{Client as TokenClient, StellarAssetClient},
+        token::StellarAssetClient,
         Address, Env, String,
     };
 
     fn setup_env() -> (Env, Address, Address, Address) {
-        let env = Env::default();
+        let mut env = Env::default();
+        env.set_config(soroban_sdk::testutils::EnvTestConfig {
+            capture_snapshot_at_drop: false,
+        });
         env.mock_all_auths();
 
         let admin = Address::generate(&env);
@@ -728,13 +974,14 @@ mod test {
         let col_addr = col_token_id.address();
 
         // Initialize contract
-        let contract_id = env.register(SyntheticAssets, ());
+        let contract_id = env.register_contract(None, SyntheticAssets);
         let client = SyntheticAssetsClient::new(&env, &contract_id);
         client.initialize(&admin, &col_addr);
+        client.update_collateral_price(&admin, &PRICE_SCALE);
 
         // Mint collateral to staker
         let col_client = StellarAssetClient::new(&env, &col_addr);
-        col_client.mint(&staker, &1_000_000_000_0); // 10 000 units (7 dp)
+        col_client.mint(&staker, &10_000_000_000); // 1,000 units (7 dp)
 
         (env, contract_id, admin, staker)
     }
@@ -774,10 +1021,8 @@ mod test {
         // price: $1.00 with 7 dp = 10_000_000
         client.update_price(&oracle, &String::from_str(&env, "sXLM"), &10_000_000);
 
-        // Mint 10 sXLM (10 * 10_000_000 = 100_000_000 synth units, 7dp)
-        // At $1 each = $10 USD debt
-        // At 400% CR we need $40 collateral
-        let synth_amount = 1_000_000_0_i128; // 1 unit (7dp)
+        // Mint one sXLM at $1; the 400% target requires $4 collateral.
+        let synth_amount = 10_000_000_i128; // 1 unit (7dp)
         let synth_usd = synth_amount; // price is $1 so usd = synth_amount
         let collateral = synth_usd * 4; // 400% CR
 
@@ -792,7 +1037,9 @@ mod test {
         assert_eq!(pos.synth_amount, synth_amount);
         assert_eq!(pos.collateral, collateral);
 
-        // Burn half
+        // Burn half after the settlement delay.
+        env.ledger()
+            .with_mut(|l| l.sequence_number += FEE_DELAY_LEDGERS);
         let returned = client.burn(
             &staker,
             &String::from_str(&env, "sXLM"),
@@ -838,3 +1085,6 @@ mod test {
         client.unpause(&admin);
     }
 }
+
+#[cfg(test)]
+mod safety_tests;

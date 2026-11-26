@@ -8,9 +8,25 @@ import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
 const router = express.Router();
 
 const FLAG_KEY_RE = /^[a-z0-9_.-]{1,64}$/;
+const ENVIRONMENTS = new Set(['development', 'staging', 'production']);
+const SEGMENTS = new Set(['admin', 'beta-testers', 'network-specific']);
 
 function validateFlagKey(key) {
   return typeof key === 'string' && FLAG_KEY_RE.test(key);
+}
+
+function validateRolloutPct(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+function validateEnvironment(env) {
+  return env === undefined || env === null || ENVIRONMENTS.has(env);
+}
+
+function validateSegments(segments) {
+  if (segments === undefined || segments === null) return true;
+  if (!Array.isArray(segments)) return false;
+  return segments.every((s) => typeof s === 'string' && SEGMENTS.has(s));
 }
 
 // GET /api/feature-flags — list all flags
@@ -31,6 +47,8 @@ router.post(
       enabled = 0,
       rollout_pct = 0,
       description = '',
+      environment = null,
+      segments = [],
     } = req.body ?? {};
 
     if (!validateFlagKey(key)) {
@@ -39,15 +57,14 @@ router.post(
         'key must be 1–64 lowercase alphanumeric characters, underscores, hyphens, or dots'
       );
     }
-    if (
-      typeof rollout_pct !== 'number' ||
-      rollout_pct < 0 ||
-      rollout_pct > 100
-    ) {
-      throw createHttpError(
-        400,
-        'rollout_pct must be a number between 0 and 100'
-      );
+    if (!validateRolloutPct(rollout_pct)) {
+      throw createHttpError(400, 'rollout_pct must be a number between 0 and 100');
+    }
+    if (!validateEnvironment(environment)) {
+      throw createHttpError(400, `environment must be one of: ${[...ENVIRONMENTS].join(', ')}`);
+    }
+    if (!validateSegments(segments)) {
+      throw createHttpError(400, `segments must be an array of: ${[...SEGMENTS].join(', ')}`);
     }
 
     const flag = await featureFlagService.createFlag({
@@ -55,6 +72,8 @@ router.post(
       enabled,
       rollout_pct,
       description,
+      environment,
+      segments,
     });
     res.status(201).json({ success: true, data: flag });
   })
@@ -75,25 +94,25 @@ router.get(
 router.patch(
   '/:key',
   asyncHandler(async (req, res) => {
-    const { enabled, rollout_pct, description } = req.body ?? {};
+    const { enabled, rollout_pct, description, environment, segments } =
+      req.body ?? {};
 
-    if (rollout_pct !== undefined) {
-      if (
-        typeof rollout_pct !== 'number' ||
-        rollout_pct < 0 ||
-        rollout_pct > 100
-      ) {
-        throw createHttpError(
-          400,
-          'rollout_pct must be a number between 0 and 100'
-        );
-      }
+    if (rollout_pct !== undefined && !validateRolloutPct(rollout_pct)) {
+      throw createHttpError(400, 'rollout_pct must be a number between 0 and 100');
+    }
+    if (!validateEnvironment(environment)) {
+      throw createHttpError(400, `environment must be one of: ${[...ENVIRONMENTS].join(', ')}`);
+    }
+    if (segments !== undefined && !validateSegments(segments)) {
+      throw createHttpError(400, `segments must be an array of: ${[...SEGMENTS].join(', ')}`);
     }
 
     const flag = await featureFlagService.updateFlag(req.params.key, {
       enabled,
       rollout_pct,
       description,
+      environment,
+      segments,
     });
     if (!flag)
       throw createHttpError(404, `Feature flag '${req.params.key}' not found`);
@@ -112,14 +131,24 @@ router.delete(
   })
 );
 
-// POST /api/feature-flags/:key/evaluate — evaluate flag for a user/cohort
+// POST /api/feature-flags/:key/evaluate — evaluate flag for a user/cohort/segment
 router.post(
   '/:key/evaluate',
   asyncHandler(async (req, res) => {
-    const { userId, cohortId } = req.body ?? {};
+    const { userId, userPublicKey, cohortId, environment, roles, network } =
+      req.body ?? {};
+
+    if (!validateEnvironment(environment)) {
+      throw createHttpError(400, `environment must be one of: ${[...ENVIRONMENTS].join(', ')}`);
+    }
+
     const enabled = await featureFlagService.evaluate(req.params.key, {
       userId,
+      userPublicKey,
       cohortId,
+      environment,
+      roles: Array.isArray(roles) ? roles : [],
+      network,
     });
     res.json({ success: true, data: { flag: req.params.key, enabled } });
   })

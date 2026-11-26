@@ -73,6 +73,24 @@ pub struct VerificationResult {
     pub verified_at: u64,
 }
 
+/// One section of a WASM module, as discovered by the chunked, offset-indexed
+/// header walker in `lib.rs`. Offsets are absolute positions in the module:
+/// the section starts at the 1-byte ID byte and the payload starts at
+/// `payload_offset` (after the ID and ULEB128 size prefix); the next section
+/// begins at `end_offset`.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct WasmSectionSummary {
+    /// Section identifier byte (0=custom, 1=type, 2=import, ...).
+    pub id: u32,
+    /// Section payload length as encoded by the ULEB128 size prefix.
+    pub size_bytes: u32,
+    /// Absolute offset of the first payload byte.
+    pub payload_offset: u32,
+    /// Absolute offset of the end of this section (start of the next one).
+    pub end_offset: u32,
+}
+
 /// Instance-storage singleton keys.
 #[contracttype]
 pub enum InstanceKey {

@@ -14,6 +14,7 @@ export interface PeerUser {
 interface UseCollaborativeEditorOptions {
   wsUrl?: string;
   docId?: string;
+  projectId?: string;
   userName?: string;
   enabled?: boolean;
 }
@@ -21,6 +22,7 @@ interface UseCollaborativeEditorOptions {
 export function useCollaborativeEditor({
   wsUrl = "ws://localhost:3001/ws",
   docId = "default-doc",
+  projectId,
   userName = "User",
   enabled = true,
 }: UseCollaborativeEditorOptions = {}) {
@@ -50,6 +52,7 @@ export function useCollaborativeEditor({
             type: "collaboration-join",
             docId,
             user: { name: userName, color: userColor },
+            projectId,
           }),
         );
       };
@@ -90,7 +93,7 @@ export function useCollaborativeEditor({
         socketRef.current.close();
       }
     };
-  }, [enabled, wsUrl, docId, userName, userColor]);
+  }, [enabled, wsUrl, docId, userName, userColor, projectId]);
 
   const sendCursorUpdate = useCallback(
     (cursor: { line: number; column: number }) => {

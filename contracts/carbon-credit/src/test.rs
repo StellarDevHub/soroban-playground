@@ -239,6 +239,365 @@ fn test_retirement_not_found_fails() {
     assert_eq!(result, Err(Ok(Error::RetirementNotFound)));
 }
 
+// ── Retirement certificates ───────────────────────────────────────────────────
+
+fn make_oracle(env: &Env, client: &CarbonCreditContractClient<'_>, admin: &Address) -> Address {
+    let oracle = Address::generate(env);
+    client.register_oracle(admin, &oracle);
+    oracle
+}
+
+fn registry(env: &Env) -> String {
+    String::from_str(env, "Verra")
+}
+
+fn project(env: &Env) -> String {
+    String::from_str(env, "VCS-1234")
+}
+
+#[test]
+fn test_retire_with_certificate_records_serial_range() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    let cert_id = client.retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &300,
+        &300,
+        &String::from_str(&env, "QmCert"),
+    );
+    assert_eq!(cert_id, 1);
+
+    let cert = client.get_certificate(&cert_id);
+    assert_eq!(cert.cert_id, 1);
+    assert_eq!(cert.registry, registry(&env));
+    assert_eq!(cert.project_id, project(&env));
+    assert_eq!(cert.vintage, 2024);
+    assert_eq!(cert.serial_start, 1);
+    assert_eq!(cert.serial_end, 300);
+    assert_eq!(cert.amount, 300);
+    assert_eq!(cert.retiree, holder);
+    assert_eq!(cert.oracle, oracle);
+
+    // Fungible balance burned and counters updated.
+    assert_eq!(client.get_balance(&holder), 700);
+    assert_eq!(client.total_supply(), 700);
+    assert_eq!(client.total_retired(), 300);
+    assert_eq!(client.retirement_count(), 1);
+    assert_eq!(
+        client.retired_serial_cursor(&registry(&env), &project(&env), &2024),
+        300
+    );
+}
+
+#[test]
+fn test_certificate_queryable_by_hash() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    let cert_id = client.retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "QmCert"),
+    );
+    let cert = client.get_certificate(&cert_id);
+    let by_hash = client.get_certificate_by_hash(&cert.cert_hash);
+    assert_eq!(by_hash.cert_id, cert_id);
+    assert_eq!(by_hash.cert_hash, cert.cert_hash);
+}
+
+#[test]
+fn test_certificate_hashes_are_unique() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    let id1 = client.retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    let id2 = client.retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &101,
+        &250,
+        &150,
+        &String::from_str(&env, "Qm2"),
+    );
+    assert_ne!(id1, id2);
+    let c1 = client.get_certificate(&id1);
+    let c2 = client.get_certificate(&id2);
+    assert_ne!(c1.cert_hash, c2.cert_hash);
+    assert_eq!(
+        client.retired_serial_cursor(&registry(&env), &project(&env), &2024),
+        250
+    );
+}
+
+#[test]
+fn test_overlapping_serial_range_rejected() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    client.retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    let result = client.try_retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &50,
+        &149,
+        &100,
+        &String::from_str(&env, "Qm2"),
+    );
+    assert_eq!(result, Err(Ok(Error::SerialRangeAlreadyRetired)));
+    // Nothing was burned by the rejected retirement.
+    assert_eq!(client.get_balance(&holder), 900);
+    assert_eq!(client.retirement_count(), 1);
+}
+
+#[test]
+fn test_duplicate_serial_range_rejected() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    client.retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    let result = client.try_retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    assert_eq!(result, Err(Ok(Error::SerialRangeAlreadyRetired)));
+}
+
+#[test]
+fn test_unregistered_oracle_rejected() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = Address::generate(&env);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    let result = client.try_retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    assert_eq!(result, Err(Ok(Error::OracleNotFound)));
+    assert_eq!(client.get_balance(&holder), 1000);
+}
+
+#[test]
+fn test_revoked_oracle_rejected() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+    client.revoke_oracle(&admin, &oracle);
+    assert!(!client.is_oracle(&oracle));
+
+    let result = client.try_retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    assert_eq!(result, Err(Ok(Error::OracleNotFound)));
+}
+
+#[test]
+fn test_register_oracle_requires_admin() {
+    let (env, client, _admin) = setup();
+    let impostor = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let result = client.try_register_oracle(&impostor, &oracle);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_register_duplicate_oracle_fails() {
+    let (env, client, admin) = setup();
+    let oracle = make_oracle(&env, &client, &admin);
+    let result = client.try_register_oracle(&admin, &oracle);
+    assert_eq!(result, Err(Ok(Error::OracleAlreadyRegistered)));
+}
+
+#[test]
+fn test_serial_range_must_match_amount() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    let result = client.try_retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &99,
+        &String::from_str(&env, "Qm1"),
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidSerialRange)));
+}
+
+#[test]
+fn test_inverted_serial_range_rejected() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    let result = client.try_retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &100,
+        &1,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidSerialRange)));
+}
+
+#[test]
+fn test_certificate_requires_balance() {
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    client.mint(&issuer, &holder, &10);
+
+    let result = client.try_retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    assert_eq!(result, Err(Ok(Error::InsufficientBalance)));
+}
+
+#[test]
+fn test_certificate_not_found() {
+    let (_env, client, _admin) = setup();
+    let result = client.try_get_certificate(&42u32);
+    assert_eq!(result, Err(Ok(Error::CertificateNotFound)));
+}
+
+#[test]
+fn test_certificate_is_non_transferable() {
+    // The contract exposes no transfer entry point for certificates: the only
+    // way to obtain one is to burn credits, and the retiree is fixed at mint.
+    let (env, client, admin) = setup();
+    let issuer = make_issuer(&env, &client, &admin);
+    let oracle = make_oracle(&env, &client, &admin);
+    let holder = Address::generate(&env);
+    let other = Address::generate(&env);
+    client.mint(&issuer, &holder, &1000);
+
+    let cert_id = client.retire_with_certificate(
+        &holder,
+        &oracle,
+        &registry(&env),
+        &project(&env),
+        &2024,
+        &1,
+        &100,
+        &100,
+        &String::from_str(&env, "Qm1"),
+    );
+    let cert = client.get_certificate(&cert_id);
+    assert_eq!(cert.retiree, holder);
+    assert_ne!(cert.retiree, other);
+    // Certificates do not confer a spendable balance.
+    assert_eq!(client.get_balance(&other), 0);
+}
+
 // ── Full lifecycle ────────────────────────────────────────────────────────────
 
 #[test]

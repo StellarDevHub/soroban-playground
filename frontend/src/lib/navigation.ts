@@ -115,6 +115,22 @@ export const NAVIGATION: NavigationGroup[] = [
         keywords: ["documentation", "help", "guide", "manual", "sdk"],
       },
       {
+        name: "Docs: Soroban SDK Reference",
+        href: "/docs?topic=sdk",
+        icon: "book",
+        description: "Guides, Rust and JavaScript SDK documentation and API endpoints.",
+        keywords: ["docs", "documentation", "guide", "sdk", "quick-link", "manual"],
+        hiddenInSidebar: true,
+      },
+      {
+        name: "Docs: Smart Contract Architecture",
+        href: "/docs?topic=architecture",
+        icon: "book",
+        description: "Storage types, authorization models and contract security patterns.",
+        keywords: ["docs", "architecture", "security", "auth", "storage", "quick-link"],
+        hiddenInSidebar: true,
+      },
+      {
         name: "Audit Explorer",
         href: "/audit",
         icon: "shield",
@@ -197,6 +213,13 @@ export const NAVIGATION: NavigationGroup[] = [
         icon: "coins",
         description: "Synthetic asset minting, collateral and backing.",
         keywords: ["synthetic", "mint", "collateral", "home", "overview"],
+      },
+      {
+        name: "Cross-Chain Bridge",
+        href: "/bridge",
+        icon: "globe",
+        description: "Simulate cross-chain transfers, relayer proofs and replay protection.",
+        keywords: ["teleport", "bridge", "relayer", "merkle", "cosmos", "evm"],
       },
       {
         name: "Limit Order Book",
@@ -312,6 +335,23 @@ export const NAVIGATION: NavigationGroup[] = [
   {
     groupName: "Real World Assets",
     items: [
+      {
+        name: "Crop Insurance",
+        href: "/crop-insurance",
+        icon: "shield",
+        description: "Parametric agricultural coverage with satellite weather radar.",
+        keywords: [
+          "crop",
+          "insurance",
+          "parametric",
+          "weather",
+          "radar",
+          "satellite",
+          "drought",
+          "payout",
+          "oracle",
+        ],
+      },
       {
         name: "Tokenized REIT",
         href: "/reit",
