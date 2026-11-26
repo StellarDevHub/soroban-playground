@@ -1,4 +1,4 @@
-﻿import { EventEmitter } from 'node:events';
+import { EventEmitter } from 'node:events';
 
 // Isolate application services while exercising real gRPC proto initialization.
 jest.mock('../src/grpc/sorobanService.js', () => ({
