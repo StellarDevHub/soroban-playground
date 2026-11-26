@@ -26,8 +26,8 @@ import {
   toGrpcError,
 } from './sorobanService.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const moduleFilename = fileURLToPath(import.meta.url);
+const __dirname = dirname(moduleFilename);
 
 const PROTO_PATH = join(__dirname, 'soroban_indexer.proto');
 
