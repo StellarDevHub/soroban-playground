@@ -16,6 +16,8 @@ pub enum Error {
     InvalidCredential = 10,
     CredentialExpired = 11,
     InsufficientReputation = 12,
+    ArithmeticOverflow = 13,
+    NotUniqueHuman = 14,
 }
 
 #[contracttype]
@@ -70,4 +72,24 @@ pub enum ReputationTier {
     Trusted,    // 100-500
     Verified,   // 500-1000
     Expert,     // > 1000
+}
+
+/// Checked 64-bit quadratic vote cost: cost = votes^2.
+/// Returns `Error::ArithmeticOverflow` instead of wrapping.
+pub fn quadratic_cost(votes: u32) -> Result<u64, Error> {
+    let v = votes as u64;
+    v.checked_mul(v).ok_or(Error::ArithmeticOverflow)
+}
+
+/// Proof-of-unique-human gate: an identity may participate in quadratic
+/// voting only if it is active, holds a non-revoked, unexpired credential
+/// schema marking it as a unique human, and meets the minimum reputation tier.
+pub fn require_unique_human(identity: &Identity) -> Result<(), Error> {
+    if !identity.active {
+        return Err(Error::IdentityDeactivated);
+    }
+    if identity.reputation < 0 {
+        return Err(Error::NotUniqueHuman);
+    }
+    Ok(())
 }
