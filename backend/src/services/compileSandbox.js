@@ -18,7 +18,9 @@
 // orphaned processes survive a crash or shutdown.
 
 import { spawn } from 'child_process';
+import fs from 'fs/promises';
 import os from 'os';
+import path from 'path';
 import { trackChildProcess } from './childProcessManager.js';
 
 const DOCKER_PROBE_TIMEOUT_MS = 3000;
@@ -31,7 +33,7 @@ const SANDBOX_MEMORY_MB = Number.parseInt(
   10
 );
 const SANDBOX_CPU_CORES = Number.parseInt(
-  process.env.COMPILE_SANDBOX_CPU_CORES || '2',
+  process.env.COMPILE_SANDBOX_CPU_CORES || '1',
   10
 );
 const SANDBOX_PIDS_LIMIT = Number.parseInt(
@@ -39,6 +41,61 @@ const SANDBOX_PIDS_LIMIT = Number.parseInt(
   10
 );
 const SANDBOX_USER = process.env.COMPILE_SANDBOX_USER || '1000:1000';
+
+/**
+ * Validates and hardens a Cargo.toml string so untrusted contracts cannot
+ * execute build scripts (`build.rs`) or pull in `[build-dependencies]`.
+ * Throws if an explicit build script or `[build-dependencies]` section is
+ * present; otherwise guarantees `build = false` under `[package]`.
+ */
+export function sanitizeCargoTomlForSandbox(cargoToml) {
+  if (typeof cargoToml !== 'string' || cargoToml.trim().length === 0) {
+    throw new Error('Invalid Cargo.toml: must be a non-empty string');
+  }
+
+  if (/^\s*\[build-dependencies(?:\.[^\]]+)?\]/m.test(cargoToml)) {
+    throw new Error(
+      'Sandbox policy violation: [build-dependencies] is forbidden during contract compilation'
+    );
+  }
+
+  const buildDirectiveMatch = cargoToml.match(/^\s*build\s*=\s*(.+)$/m);
+  if (buildDirectiveMatch) {
+    const value = buildDirectiveMatch[1].split('#')[0].trim();
+    if (value !== 'false') {
+      throw new Error(
+        'Sandbox policy violation: custom build scripts (build.rs) are disabled'
+      );
+    }
+    return cargoToml;
+  }
+
+  if (/^\s*\[package\]/m.test(cargoToml)) {
+    return cargoToml.replace(/^(\s*\[package\]\s*)$/m, '$1\nbuild = false');
+  }
+
+  return cargoToml;
+}
+
+/**
+ * Rejects any crate workspace that contains a `build.rs` file to prevent
+ * arbitrary host or container code execution during `cargo build`.
+ */
+export async function assertNoBuildScriptInWorkspace(crateRoot) {
+  if (!crateRoot) return;
+  const buildScriptPath = path.join(crateRoot, 'build.rs');
+  try {
+    await fs.access(buildScriptPath);
+    throw new Error(
+      'Sandbox policy violation: build.rs is forbidden in untrusted contract workspaces'
+    );
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return;
+    }
+    throw err;
+  }
+}
 
 let dockerProbe = null;
 
@@ -124,6 +181,10 @@ export function buildDockerArgs({
     'RUSTFLAGS=',
     '--env',
     'CARGO_TERM_COLOR=never',
+    '--env',
+    'CARGO_NET_OFFLINE=true',
+    '--env',
+    `CARGO_BUILD_JOBS=${cpuCores}`,
     '--volume',
     `${workspaceDir}:/build`,
     '--workdir',
@@ -134,6 +195,7 @@ export function buildDockerArgs({
     '--target',
     'wasm32-unknown-unknown',
     '--release',
+    '--offline',
   ];
 }
 
@@ -148,7 +210,7 @@ export function buildProcessLimitWrapper({
     `ulimit -v ${memoryMb * 1024} 2>/dev/null`,
     `ulimit -t ${cpuCores * 30} 2>/dev/null`,
   ];
-  return `${limits.join('; ')}; exec cargo build --target wasm32-unknown-unknown --release`;
+  return `${limits.join('; ')}; exec cargo build --target wasm32-unknown-unknown --release --offline`;
 }
 
 function parseContainerId(output) {
@@ -287,7 +349,13 @@ function runProcessCompile({
         })
       : spawn(
           'cargo',
-          ['build', '--target', 'wasm32-unknown-unknown', '--release'],
+          [
+            'build',
+            '--target',
+            'wasm32-unknown-unknown',
+            '--release',
+            '--offline',
+          ],
           {
             cwd: crateRoot,
             shell: false,
@@ -362,6 +430,7 @@ export async function runSandboxedCargoBuild({
   useLimitWrapper = process.platform !== 'win32' &&
     process.env.DISABLE_SANDBOX_LIMITS !== 'true',
 }) {
+  await assertNoBuildScriptInWorkspace(crateRoot);
   const resolvedMode = await resolveSandboxMode(mode);
 
   if (resolvedMode === 'docker') {
