@@ -1,7 +1,15 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Activity, ChevronDown, RefreshCw, Server } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  RefreshCw,
+  Server,
+} from "lucide-react";
+import { readJson } from "@/lib/offline/storage";
+import { DEPLOYED_CONTRACTS_STORAGE_KEY } from "@/hooks/useDeployedContracts";
 
 export type NetworkId = "mainnet" | "testnet" | "futurenet" | "local";
 
@@ -45,6 +53,11 @@ export function getNetworkPreset(id: NetworkId): NetworkConfig {
   return NETWORKS[id] ?? NETWORKS.testnet;
 }
 
+export const NETWORK_STORAGE_KEY = "soroban_playground_network";
+export const CONTRACT_REGISTERS_KEY_PREFIX = "soroban_contract_register_";
+export const ACTIVE_CONTRACT_KEY = "soroban_active_contract_id";
+const LEGACY_ACTIVE_CONTRACT_KEY = "soroban_contract_id";
+
 export interface NetworkHealth {
   status: "healthy" | "degraded" | "offline" | "checking";
   latencyMs: number | null;
@@ -53,20 +66,111 @@ export interface NetworkHealth {
 }
 
 export interface NetworkSwitcherProps {
+  isWalletConnected?: boolean;
+  walletNetwork?: string | null;
   selectedNetwork?: NetworkId;
   onNetworkChange?: (network: NetworkConfig) => void;
 }
 
+/** Map wallet names and network passphrases onto the playground network ids. */
+export function normalizeNetwork(
+  network: string | null | undefined,
+): NetworkId | null {
+  if (!network) return null;
+  const value = network.trim().toLowerCase();
+  if (!value) return null;
+  if (value.includes("future")) return "futurenet";
+  if (value.includes("standalone") || value.includes("local")) return "local";
+  if (value.includes("main") || value.includes("public")) return "mainnet";
+  if (value.includes("test")) return "testnet";
+  return null;
+}
+
+function parseContractIds(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    return [];
+  }
+}
+
+function readNetworkContracts(networkId: NetworkId): string[] {
+  const entries = readJson<unknown>(DEPLOYED_CONTRACTS_STORAGE_KEY, []);
+  if (!Array.isArray(entries)) return [];
+  return entries.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const contract = entry as { contractId?: unknown; network?: unknown };
+    if (
+      typeof contract.contractId !== "string" ||
+      normalizeNetwork(
+        typeof contract.network === "string" ? contract.network : null,
+      ) !== networkId
+    ) {
+      return [];
+    }
+    return [contract.contractId];
+  });
+}
+
+/**
+ * Drop cross-network contract selections and reload the register belonging to
+ * the newly selected network so invocations never reuse a stale contract id.
+ */
+export function clearAndReloadContractRegisters(
+  networkId: NetworkId,
+): string[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    window.localStorage.removeItem(ACTIVE_CONTRACT_KEY);
+    window.localStorage.removeItem(LEGACY_ACTIVE_CONTRACT_KEY);
+
+    const reloadedContracts = Array.from(
+      new Set([
+        ...parseContractIds(
+          window.localStorage.getItem(
+            `${CONTRACT_REGISTERS_KEY_PREFIX}${networkId}`,
+          ),
+        ),
+        ...readNetworkContracts(networkId),
+      ]),
+    );
+    const detail = {
+      network: networkId,
+      reloadedContracts,
+    };
+
+    window.dispatchEvent(
+      new CustomEvent("soroban-contract-cache-invalidation", { detail }),
+    );
+    window.dispatchEvent(
+      new CustomEvent("soroban-contracts-invalidated", { detail }),
+    );
+
+    return reloadedContracts;
+  } catch {
+    return [];
+  }
+}
+
 export default function NetworkSwitcher({
+  isWalletConnected: connectedProp,
+  walletNetwork: walletNetworkProp,
   selectedNetwork: controlledNetwork,
   onNetworkChange,
 }: NetworkSwitcherProps = {}) {
-  const [internalNetwork, setInternalNetwork] = useState<NetworkId>(() => {
+  const isWalletConnected = connectedProp ?? false;
+  const walletNetwork = normalizeNetwork(walletNetworkProp);
+
+  const [selectedNetwork, setSelectedNetwork] = useState<NetworkId>(() => {
     if (controlledNetwork && controlledNetwork in NETWORKS) {
       return controlledNetwork;
     }
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("soroban_playground_network");
+      const saved = window.localStorage.getItem(NETWORK_STORAGE_KEY);
       if (saved && saved in NETWORKS) {
         return saved as NetworkId;
       }
@@ -74,18 +178,11 @@ export default function NetworkSwitcher({
     return "testnet";
   });
 
-  const selectedNetwork: NetworkId =
-    controlledNetwork && controlledNetwork in NETWORKS
-      ? controlledNetwork
-      : internalNetwork;
-
-  const handleSelectNetwork = useCallback(
-    (id: NetworkId) => {
-      setInternalNetwork(id);
-      onNetworkChange?.(NETWORKS[id]);
-    },
-    [onNetworkChange],
-  );
+  useEffect(() => {
+    if (controlledNetwork && controlledNetwork in NETWORKS) {
+      setSelectedNetwork(controlledNetwork);
+    }
+  }, [controlledNetwork]);
 
   const [healthMap, setHealthMap] = useState<Record<NetworkId, NetworkHealth>>({
     mainnet: { status: "checking", latencyMs: null, lastChecked: null },
@@ -97,16 +194,22 @@ export default function NetworkSwitcher({
   const [isOpen, setIsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+  const controllersRef = useRef<Set<AbortController>>(new Set());
+  const previousNetworkRef = useRef<NetworkId>(selectedNetwork);
 
-  const checkNetworkLatency = useCallback(async (netId: NetworkId) => {
-    const net = NETWORKS[netId];
+  const hasNetworkMismatch = Boolean(
+    isWalletConnected && walletNetwork && walletNetwork !== selectedNetwork,
+  );
+
+  const checkNetworkLatency = useCallback(async (networkId: NetworkId) => {
+    const controller = new AbortController();
+    controllersRef.current.add(controller);
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
     const start = performance.now();
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-      const res = await fetch(net.rpcUrl, {
+      const response = await fetch(NETWORKS[networkId].rpcUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -116,90 +219,115 @@ export default function NetworkSwitcher({
         }),
         signal: controller.signal,
       });
-
       clearTimeout(timeoutId);
-      const end = performance.now();
-      const latency = Math.round(end - start);
 
-      if (res.ok) {
-        const data = await res.json();
-        const isHealthy =
-          data.result?.status === "healthy" || Boolean(data.result);
-        const status = !isHealthy
-          ? "offline"
-          : latency < 300
-            ? "healthy"
-            : "degraded";
+      if (!mountedRef.current) return;
+      const latencyMs = Math.round(performance.now() - start);
 
-        setHealthMap((prev) => ({
-          ...prev,
-          [netId]: {
-            status,
-            latencyMs: latency,
-            lastChecked: Date.now(),
-            error: !isHealthy ? "Unhealthy response" : undefined,
-          },
-        }));
-      } else {
-        setHealthMap((prev) => ({
-          ...prev,
-          [netId]: {
+      if (!response.ok) {
+        setHealthMap((previous) => ({
+          ...previous,
+          [networkId]: {
             status: "offline",
-            latencyMs: latency,
+            latencyMs,
             lastChecked: Date.now(),
-            error: `HTTP ${res.status}`,
+            error: `HTTP ${response.status}`,
           },
         }));
+        return;
       }
-    } catch (err) {
-      let errorMessage = "Network Error";
-      if (err instanceof Error) {
-        if (err.name === "AbortError") {
-          errorMessage = "Timeout";
-        } else {
-          errorMessage = err.message;
-        }
-      }
-      setHealthMap((prev) => ({
-        ...prev,
-        [netId]: {
+
+      const data = await response.json();
+      const isHealthy = Boolean(data?.result);
+      setHealthMap((previous) => ({
+        ...previous,
+        [networkId]: {
+          status: isHealthy
+            ? latencyMs < 300
+              ? "healthy"
+              : "degraded"
+            : "offline",
+          latencyMs,
+          lastChecked: Date.now(),
+          error: isHealthy ? undefined : "Unhealthy response",
+        },
+      }));
+    } catch (error) {
+      if (!mountedRef.current) return;
+      const errorMessage =
+        error instanceof Error && error.name === "AbortError"
+          ? "Timeout"
+          : error instanceof Error
+            ? error.message
+            : "Network Error";
+      setHealthMap((previous) => ({
+        ...previous,
+        [networkId]: {
           status: "offline",
           latencyMs: null,
           lastChecked: Date.now(),
           error: errorMessage,
         },
       }));
+    } finally {
+      clearTimeout(timeoutId);
+      controllersRef.current.delete(controller);
     }
   }, []);
 
-  const pingAllNetworks = useCallback(async () => {
-    setIsRefreshing(true);
-    await Promise.all(
-      (Object.keys(NETWORKS) as NetworkId[]).map((id) =>
-        checkNetworkLatency(id),
-      ),
-    );
-    setIsRefreshing(false);
-  }, [checkNetworkLatency]);
+  const pingAllNetworks = useCallback(
+    async (showSpinner = false) => {
+      if (showSpinner && mountedRef.current) setIsRefreshing(true);
+      try {
+        await Promise.all(
+          (Object.keys(NETWORKS) as NetworkId[]).map((id) =>
+            checkNetworkLatency(id),
+          ),
+        );
+      } finally {
+        if (showSpinner && mountedRef.current) setIsRefreshing(false);
+      }
+    },
+    [checkNetworkLatency],
+  );
 
   useEffect(() => {
-    pingAllNetworks();
-    const interval = setInterval(pingAllNetworks, 15000);
-    return () => clearInterval(interval);
+    mountedRef.current = true;
+    const controllers = controllersRef.current;
+    void pingAllNetworks();
+    const interval = setInterval(() => {
+      void pingAllNetworks();
+    }, 15000);
+
+    return () => {
+      clearInterval(interval);
+      controllers.forEach((controller) => controller.abort());
+      controllers.clear();
+      mountedRef.current = false;
+    };
   }, [pingAllNetworks]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("soroban_playground_network", selectedNetwork);
-      window.dispatchEvent(new Event("soroban-network-change"));
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(NETWORK_STORAGE_KEY, selectedNetwork);
+
+    if (previousNetworkRef.current !== selectedNetwork) {
+      clearAndReloadContractRegisters(selectedNetwork);
+      previousNetworkRef.current = selectedNetwork;
     }
+
+    window.dispatchEvent(
+      new CustomEvent("soroban-network-change", {
+        detail: { network: selectedNetwork },
+      }),
+    );
   }, [selectedNetwork]);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (event: MouseEvent) => {
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
+        !dropdownRef.current.contains(event.target as Node)
       ) {
         setIsOpen(false);
       }
@@ -207,6 +335,16 @@ export default function NetworkSwitcher({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const handleSelectNetwork = useCallback(
+    (networkId: NetworkId) => {
+      setSelectedNetwork(networkId);
+      setIsOpen(false);
+      onNetworkChange?.(NETWORKS[networkId]);
+      void checkNetworkLatency(networkId);
+    },
+    [checkNetworkLatency, onNetworkChange],
+  );
 
   const currentNet = NETWORKS[selectedNetwork];
   const currentHealth = healthMap[selectedNetwork];
@@ -228,7 +366,11 @@ export default function NetworkSwitcher({
     <div className="relative inline-block text-left" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-600 text-slate-200 text-xs font-medium transition-all shadow-sm group"
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border ${
+          hasNetworkMismatch
+            ? "border-amber-500/70 text-amber-200 hover:border-amber-400"
+            : "border-slate-700/60 hover:border-slate-600 text-slate-200"
+        } text-xs font-medium transition-all shadow-sm group`}
         aria-label="Select Network"
         aria-expanded={isOpen}
       >
@@ -245,6 +387,15 @@ export default function NetworkSwitcher({
         ) : (
           <span className="font-mono text-[10px] text-slate-500">--</span>
         )}
+        {hasNetworkMismatch && (
+          <span
+            data-testid="network-mismatch-warning"
+            title={`Wallet network mismatch: wallet is on ${walletNetwork}, playground is on ${selectedNetwork}`}
+            className="flex items-center gap-1 text-amber-400 pl-0.5"
+          >
+            <AlertTriangle size={13} className="animate-pulse" />
+          </span>
+        )}
         <ChevronDown
           size={14}
           className={`text-slate-400 group-hover:text-slate-200 transition-transform duration-200 ${
@@ -254,20 +405,21 @@ export default function NetworkSwitcher({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-slate-950 border border-slate-800 shadow-2xl backdrop-blur-xl z-50 p-2 space-y-1">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/60">
+        <div className="absolute right-0 mt-2 w-80 rounded-2xl bg-slate-950 border border-slate-800 shadow-2xl backdrop-blur-xl z-50 p-2 space-y-2">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/60">
             <div className="flex items-center gap-2 text-slate-400 text-xs font-semibold uppercase tracking-wider">
               <Server size={14} className="text-teal-400" />
               <span>RPC Networks</span>
             </div>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                pingAllNetworks();
+              onClick={(event) => {
+                event.stopPropagation();
+                void pingAllNetworks(true);
               }}
               disabled={isRefreshing}
               className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
               title="Ping RPC Endpoints"
+              aria-label="Ping RPC Endpoints"
             >
               <RefreshCw
                 size={12}
@@ -276,7 +428,40 @@ export default function NetworkSwitcher({
             </button>
           </div>
 
-          <div className="space-y-1 py-1">
+          {hasNetworkMismatch && (
+            <div
+              role="alert"
+              data-testid="wallet-network-mismatch-banner"
+              className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-1.5"
+            >
+              <div className="flex items-center gap-1.5 font-semibold text-amber-300">
+                <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+                <span>Wallet Network Mismatch</span>
+              </div>
+              <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                Connected wallet is on{" "}
+                <strong className="uppercase font-mono text-amber-100">
+                  {walletNetwork}
+                </strong>
+                , but playground is targeting{" "}
+                <strong className="uppercase font-mono text-amber-100">
+                  {currentNet.name}
+                </strong>
+                . Deployed contract invocations and signatures may fail.
+              </p>
+              {walletNetwork && walletNetwork !== selectedNetwork && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectNetwork(walletNetwork)}
+                  className="mt-1 text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 border border-amber-500/40 transition-colors w-full text-center"
+                >
+                  Switch Playground to {NETWORKS[walletNetwork].name}
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-1 py-0.5">
             {(Object.keys(NETWORKS) as NetworkId[]).map((id) => {
               const net = NETWORKS[id];
               const health = healthMap[id];
@@ -285,10 +470,7 @@ export default function NetworkSwitcher({
               return (
                 <button
                   key={id}
-                  onClick={() => {
-                    handleSelectNetwork(id);
-                    setIsOpen(false);
-                  }}
+                  onClick={() => handleSelectNetwork(id)}
                   className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all ${
                     isSelected
                       ? "bg-teal-500/10 border border-teal-500/30 text-white"
@@ -330,7 +512,11 @@ export default function NetworkSwitcher({
                       </div>
                     ) : health.latencyMs !== null ? (
                       <span
-                        className={`font-mono text-[10px] font-medium ${health.status === "degraded" ? "text-amber-400" : "text-teal-300"}`}
+                        className={`font-mono text-[10px] font-medium ${
+                          health.status === "degraded"
+                            ? "text-amber-400"
+                            : "text-teal-300"
+                        }`}
                       >
                         {health.latencyMs}ms
                       </span>
@@ -341,6 +527,14 @@ export default function NetworkSwitcher({
                 </button>
               );
             })}
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-1.5 border-t border-slate-800/60 text-[10px] text-slate-400 font-mono">
+            <span>Contract Cache</span>
+            <span className="text-emerald-400 flex items-center gap-1">
+              <CheckCircle2 size={10} />
+              Synchronized ({currentNet.name})
+            </span>
           </div>
         </div>
       )}

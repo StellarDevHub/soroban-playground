@@ -554,7 +554,12 @@ export default function ResponsiveNav({
 
           <div className="flex items-center gap-3">
             {/* Multi-Network RPC Switcher with Latency Monitor */}
-            <NetworkSwitcher />
+            <NetworkSwitcher
+              isWalletConnected={
+                wallet.status === "connected" && Boolean(wallet.address)
+              }
+              walletNetwork={wallet.network}
+            />
 
             {/* Main Action Wallet Button */}
             {wallet.status === "connected" && wallet.address ? (
