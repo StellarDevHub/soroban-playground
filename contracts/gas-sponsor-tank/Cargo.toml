@@ -12,6 +12,7 @@ soroban-sdk = "21.0.6"
 
 [dev-dependencies]
 soroban-sdk = { version = "21.0.6", features = ["testutils"] }
+ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
 
 [profile.release]
 opt-level = "z"
