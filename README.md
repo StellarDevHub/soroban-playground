@@ -143,6 +143,13 @@ cd backend && STELLAR_LOCAL_RPC_URL=http://localhost:8000/rpc \
 
 We welcome contributions! Please see our [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on how to get started.
 
+## Music licensing
+
+The music contracts support ISRC/ISWC metadata, typed synchronization and commercial
+public-performance agreements, and exact publisher payments. See
+[Music licensing rights](./docs/music-licensing-rights.md) for the new APIs,
+compatibility rules, rounding policy, errors and local verification commands.
+
 ## Yield Optimizer (Issue #316)
 
 This repository includes a smallest-complete implementation across contract, backend, and frontend:

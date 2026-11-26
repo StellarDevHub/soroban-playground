@@ -26,7 +26,7 @@ fn test_register_and_purchase() {
     let track = client.get_track(&track_id);
     assert_eq!(track.artist, artist);
     assert_eq!(track.price, price);
-    assert_eq!(track.is_active, true);
+    assert!(track.is_active);
 
     // Purchase License
     client.purchase_license(&buyer, &track_id);
