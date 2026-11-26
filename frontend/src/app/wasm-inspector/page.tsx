@@ -13,6 +13,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { WasmArtifactAnalysis } from "@/utils/wasmInspector";
+import type { WasmAnalysisPayload } from "@/utils/wasmAnalysis";
 import {
   formatBytes,
   parseSorobanMetadata,
@@ -39,6 +40,8 @@ export default function WasmInspectorPage() {
   const [analysis, setAnalysis] = useState<WasmArtifactAnalysis | null>(null);
   const [metadata, setMetadata] = useState<SorobanMetadataReport | null>(null);
   const [meta, setMeta] = useState<ArtifactMeta | null>(null);
+  const [workerSummary, setWorkerSummary] = useState<WasmAnalysisPayload | null>(null);
+  const [workerError, setWorkerError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
 
@@ -47,10 +50,18 @@ export default function WasmInspectorPage() {
     setParseError(null);
     setAnalysis(null);
     setMetadata(null);
+    setWorkerSummary(null);
+    setWorkerError(null);
 
     try {
       const buffer = new Uint8Array(await file.arrayBuffer());
       setMetadata(parseSorobanMetadata(buffer));
+
+      // Offload the heavy static analysis (chunked section walk, instruction
+      // budget estimate, SHA-256) to the Web Worker.
+      const { analyzeWasmInWorker } = await import("@/lib/wasmAnalysisClient");
+      const summary = await analyzeWasmInWorker(buffer);
+      setWorkerSummary(summary);
 
       const { parseWasmArtifact } = await import("@/utils/wasmInspector");
       const result = await parseWasmArtifact(buffer);
@@ -68,11 +79,12 @@ export default function WasmInspectorPage() {
         size: file.size,
         lastModified: file.lastModified || Date.now(),
       });
-      setParseError(
+      const message =
         cause instanceof Error
           ? `Could not decompile "${file.name}": ${cause.message}`
-          : `Could not decompile "${file.name}".`,
-      );
+          : `Could not decompile "${file.name}".`;
+      setParseError(message);
+      setWorkerError(message);
     } finally {
       setIsAnalyzing(false);
     }
@@ -164,7 +176,29 @@ export default function WasmInspectorPage() {
               </p>
               <p className="mt-1 text-sm text-slate-200">{metadata.customSections.length}</p>
             </div>
+
+            {workerSummary && (
+              <div className="rounded-xl border border-teal-900/60 bg-teal-950/30 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                  Bytecode Summary
+                </p>
+                <p className="mt-1 break-all text-sm text-slate-200" title={workerSummary.sha256Hex}>
+                  SHA-256: <code className="font-mono text-[11px] text-teal-300">{workerSummary.sha256Hex.slice(0, 24)}…</code>
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {formatBytes(workerSummary.sizeBytes)} · {workerSummary.functionCount} functions · ~
+                  {workerSummary.instructionEstimate.toLocaleString()} instructions
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Code section: {formatBytes(workerSummary.codeSectionBytes)}
+                </p>
+              </div>
+            )}
           </div>
+
+          {workerError && (
+            <p className="mt-3 text-xs text-red-400">{workerError}</p>
+          )}
 
           {metadata.customSections.length > 0 && (
             <div className="mt-4 overflow-hidden rounded-xl border border-slate-800">
