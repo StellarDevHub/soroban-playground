@@ -221,4 +221,64 @@ describe('deployService', () => {
       error: 'bad deploy',
     });
   });
+
+  it('automatically fee-bumps and resubmits a stalled CLI deployment', async () => {
+    const firstChild = createChildProcess();
+    const secondChild = createChildProcess();
+
+    mockSpawn
+      .mockReturnValueOnce(firstChild)
+      .mockImplementationOnce(() => {
+        queueSuccessfulClose(secondChild, 'E'.repeat(56));
+        return secondChild;
+      });
+
+    let feeCalls = 0;
+    const mockFetch = jest.fn().mockImplementation(async () => {
+      feeCalls += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          last_ledger_base_fee: '100',
+          fee_charged: { p90: feeCalls === 1 ? '200' : '500' },
+          max_fee: { p90: feeCalls === 1 ? '250' : '600' },
+        }),
+      };
+    });
+
+    const onProgress = jest.fn();
+    const onFeeBump = jest.fn();
+
+    const result = await deployContract(
+      {
+        contractName: 'stalled-demo',
+        id: 'stalled-demo',
+        wasmPath: '/tmp/stalled.wasm',
+        sourceAccount: 'GABC123',
+        network: 'testnet',
+        feeBump: {
+          stallTimeoutMs: 25,
+          maxBumps: 2,
+          fetchImpl: mockFetch,
+          onFeeBump,
+        },
+      },
+      { onProgress }
+    );
+
+    expect(result).toMatchObject({
+      contractId: 'E'.repeat(56),
+      fee: 600,
+      feeBumps: 1,
+    });
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    expect(mockSpawn.mock.calls[0][1]).toContain('--fee');
+    expect(mockSpawn.mock.calls[0][1]).toContain('250');
+    expect(mockSpawn.mock.calls[1][1]).toContain('600');
+    expect(onFeeBump).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith(
+      'fee-bumping',
+      expect.stringContaining('250 to 600')
+    );
+  });
 });
