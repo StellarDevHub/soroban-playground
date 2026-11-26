@@ -10,9 +10,11 @@ import {
   createInitialState,
   findMergeBase,
   getCommitGraph,
+  getUnpushedCommits,
   getWorkingTreeStatus,
   mergeBranch,
   rebaseBranch,
+  recordPush,
 } from "@/lib/git/repository";
 import type { GitAuthor, GitState } from "@/lib/git/types";
 
@@ -147,6 +149,63 @@ describe("git/repository – branches", () => {
     expect(
       findMergeBase(state, state.head, branched.branches["feature/x"].head),
     ).toBe(state.head);
+  });
+
+  it("chains commits made on a feature branch", () => {
+    const base = seedRepo();
+    let state = createBranch(base, { name: "feature/chain" });
+    state = commitOn(
+      state,
+      "feature/chain",
+      "First change",
+      { "src/first.rs": "first\n" },
+      2_000,
+    );
+    const second = commitOn(
+      state,
+      "feature/chain",
+      "Second change",
+      { "src/second.rs": "second\n" },
+      3_000,
+    );
+
+    const tip = second.commits[second.head as string];
+    const parent = second.commits[tip.parents[0]];
+    expect(tip.message).toBe("Second change");
+    expect(parent.message).toBe("First change");
+    expect(parent.parents).toEqual([base.head]);
+    expect(tip.tree["src/first.rs"]).toBe("first\n");
+    expect(tip.tree["src/second.rs"]).toBe("second\n");
+  });
+
+  it("tracks the remote head and only returns unpushed commits", () => {
+    let state = seedRepo();
+    const pushedId = state.head as string;
+    state = recordPush(state, {
+      branch: "main",
+      sha: "remote-sha-1",
+      localCommitId: pushedId,
+      commitIds: [pushedId],
+    });
+    expect(getUnpushedCommits(state, "main")).toEqual([]);
+    expect(state.remoteHeads.main).toEqual({
+      sha: "remote-sha-1",
+      localCommitId: pushedId,
+    });
+
+    state = commitOn(state, "main", "Follow up", { "src/new.rs": "new\n" }, 2_000);
+    const unpushed = getUnpushedCommits(state, "main");
+    expect(unpushed).toHaveLength(1);
+    expect(unpushed[0].message).toBe("Follow up");
+
+    state = recordPush(state, {
+      branch: "main",
+      sha: "remote-sha-2",
+      localCommitId: unpushed[0].id,
+      commitIds: [unpushed[0].id],
+    });
+    expect(getUnpushedCommits(state, "main")).toEqual([]);
+    expect(state.pushedCommits).toContain(unpushed[0].id);
   });
 });
 

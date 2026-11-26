@@ -38,6 +38,7 @@ function buildState(): GitState {
     stagedTree: {},
     remote: null,
     pushedCommits: [],
+    remoteHeads: {},
   };
 }
 

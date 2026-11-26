@@ -27,18 +27,26 @@ import {
 } from "lucide-react";
 import FileTree from "@/components/FileTree";
 import CommitGraph from "@/components/Git/CommitGraph";
+import CommitDiffReview from "@/components/Git/CommitDiffReview";
 import ConflictEditor from "@/components/Git/ConflictEditor";
 import GitHubRemotePanel from "@/components/Git/GitHubRemotePanel";
 import { buildFileTreeNodes } from "@/lib/git/fileTree";
 import {
   getCommitGraph,
   getCommitHistory,
+  getUnpushedCommits,
   getWorkingTreeStatus,
+  hasUncommittedChanges,
 } from "@/lib/git/repository";
 import {
+  createPullRequest,
+  getRemoteBranchHead,
   pullBranch as pullRemoteBranch,
   pushBranch as pushRemoteBranch,
+  validateBranchName,
   type GitHubClient,
+  type PullRequestDraft,
+  type PullRequestResult,
 } from "@/lib/git/github";
 import type {
   GitAuthor,
@@ -99,6 +107,8 @@ const BranchConflictResolver: React.FC<BranchConflictResolverProps> = ({
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [isRemoteBusy, setIsRemoteBusy] = useState(false);
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
+  const [review, setReview] = useState({ key: "", reviewed: false });
+  const [prUrl, setPrUrl] = useState<string | null>(null);
 
   // ── Author identity ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -158,13 +168,19 @@ const BranchConflictResolver: React.FC<BranchConflictResolverProps> = ({
     (entry) => entry.status !== "clean" && !entry.staged,
   ).length;
 
+  const changeKey = status
+    .map((entry) => `${entry.path}:${entry.status}:${entry.staged}`)
+    .join("|");
+  const reviewed = review.reviewed && review.key === changeKey;
+
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleCommit = useCallback(() => {
     const message = commitMessage.trim();
-    if (!message) return;
+    if (!message || !reviewed) return;
     useGitStore.getState().commit(message);
     setCommitMessage("");
-  }, [commitMessage]);
+    setReview({ key: "", reviewed: false });
+  }, [commitMessage, reviewed]);
 
   const handleCreateBranch = useCallback(() => {
     const name = newBranchName.trim();
@@ -230,27 +246,131 @@ const BranchConflictResolver: React.FC<BranchConflictResolverProps> = ({
       setRemoteStatus(null);
       try {
         const store = useGitStore.getState();
-        const history = getCommitHistory(store.repo, store.repo.currentBranch)
-          .slice()
-          .reverse();
+        const branch = store.repo.currentBranch;
+        const history = getCommitHistory(store.repo, branch).slice().reverse();
         if (history.length === 0) {
           throw new Error("There is nothing to push — commit your changes first.");
         }
+
         const tip = history[history.length - 1];
+        const tracking = store.repo.remoteHeads[branch];
+        let expectedHeadSha: string | null = tracking?.sha ?? null;
+        let parentSha: string | null = tracking?.sha ?? null;
+        let commits = getUnpushedCommits(store.repo, branch);
+
+        if (!tracking) {
+          parentSha = await getRemoteBranchHead(client, {
+            owner: remote.owner,
+            repo: remote.repo,
+            branch,
+          });
+          expectedHeadSha = parentSha;
+          commits = parentSha ? [tip] : history;
+        } else if (commits.length === 0) {
+          setRemoteStatus(`Branch "${branch}" is already up to date.`);
+          return;
+        } else if (
+          tracking.localCommitId &&
+          !history.some((commit) => commit.id === tracking.localCommitId)
+        ) {
+          commits = [tip];
+        }
+
         const result = await pushRemoteBranch(client, {
           owner: remote.owner,
           repo: remote.repo,
-          branch: store.repo.currentBranch,
-          commits: history,
+          branch,
+          commits,
           tree: tip.tree,
+          parentSha,
+          expectedHeadSha,
         });
-        store.markPushed(history.map((commit) => commit.id));
+        store.recordPush({
+          branch,
+          sha: result.sha,
+          localCommitId: tip.id,
+          commitIds: commits.map((commit) => commit.id),
+        });
         setRemoteStatus(
-          `Pushed ${history.length} commit(s) to ${remote.owner}/${remote.repo} (${result.sha.slice(0, 7)}).`,
+          `Pushed ${commits.length} commit(s) to ${remote.owner}/${remote.repo} (${result.sha.slice(0, 7)}).`,
         );
       } catch (cause) {
         setRemoteError(
           cause instanceof Error ? cause.message : "The push failed.",
+        );
+        throw cause;
+      } finally {
+        setIsRemoteBusy(false);
+      }
+    },
+    [],
+  );
+
+  const handlePublishPR = useCallback(
+    async (
+      client: GitHubClient,
+      remote: GitRemoteConfig,
+      draft: PullRequestDraft,
+    ): Promise<PullRequestResult> => {
+      setIsRemoteBusy(true);
+      setRemoteError(null);
+      setRemoteStatus(null);
+      try {
+        const branch = validateBranchName(draft.branch);
+        const base = validateBranchName(draft.base);
+        const title = draft.title.trim();
+        if (!title) throw new Error("A pull request title is required.");
+
+        const store = useGitStore.getState();
+        if (hasUncommittedChanges(store.repo)) {
+          store.commit(title);
+        }
+        if (useGitStore.getState().repo.branches[branch]) {
+          throw new Error(`The branch "${branch}" already exists locally.`);
+        }
+
+        store.createBranch(branch);
+        store.checkoutBranch(branch);
+        const current = useGitStore.getState().repo;
+        const tip = current.head ? current.commits[current.head] : null;
+        if (!tip) {
+          throw new Error("Commit your changes before creating a pull request.");
+        }
+
+        const baseSha = await getRemoteBranchHead(client, {
+          owner: remote.owner,
+          repo: remote.repo,
+          branch: base,
+        });
+        const pushed = await pushRemoteBranch(client, {
+          owner: remote.owner,
+          repo: remote.repo,
+          branch,
+          commits: [tip],
+          tree: tip.tree,
+          parentSha: baseSha,
+          expectedHeadSha: null,
+        });
+        const pr = await createPullRequest(client, {
+          owner: remote.owner,
+          repo: remote.repo,
+          title,
+          head: branch,
+          base,
+          body: draft.body,
+        });
+        useGitStore.getState().recordPush({
+          branch,
+          sha: pushed.sha,
+          localCommitId: tip.id,
+          commitIds: [tip.id],
+        });
+        setPrUrl(pr.url);
+        setRemoteStatus(`Created PR #${pr.number}: ${pr.url}`);
+        return pr;
+      } catch (cause) {
+        setRemoteError(
+          cause instanceof Error ? cause.message : "The pull request failed.",
         );
         throw cause;
       } finally {
@@ -405,6 +525,13 @@ const BranchConflictResolver: React.FC<BranchConflictResolverProps> = ({
         </div>
       </div>
 
+      {/* ── Diff review ──────────────────────────────────────────────────── */}
+      <CommitDiffReview
+        state={repo}
+        reviewed={reviewed}
+        onReviewedChange={(value) => setReview({ key: changeKey, reviewed: value })}
+      />
+
       {/* ── Commit ────────────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-white/8 bg-slate-950/50 p-3">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -423,7 +550,7 @@ const BranchConflictResolver: React.FC<BranchConflictResolverProps> = ({
             type="button"
             data-testid="commit-button"
             onClick={handleCommit}
-            disabled={commitMessage.trim().length === 0}
+            disabled={commitMessage.trim().length === 0 || !reviewed || dirtyCount === 0}
             className="inline-flex items-center gap-1.5 rounded-full border border-teal-400/30 bg-teal-400/10 px-3 py-1.5 text-xs font-medium text-teal-200 transition hover:bg-teal-400/20 disabled:opacity-40"
           >
             <GitCommitHorizontal size={12} />
@@ -534,6 +661,8 @@ const BranchConflictResolver: React.FC<BranchConflictResolverProps> = ({
         branch={repo.currentBranch}
         onPush={handlePush}
         onPull={handlePull}
+        onPublishPR={handlePublishPR}
+        prUrl={prUrl}
         busy={isRemoteBusy}
       />
 
