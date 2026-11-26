@@ -1,7 +1,12 @@
 "use client";
 
 import React from "react";
-import XdrDecoderInspector from "@/components/XdrDecoderInspector";
+import dynamic from "next/dynamic";
+
+const XdrDecoderInspector = dynamic(
+  () => import("@/components/XdrDecoderInspector"),
+  { ssr: false },
+);
 
 export default function XdrDecoderPage() {
   return (

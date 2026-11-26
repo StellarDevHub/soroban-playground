@@ -188,6 +188,8 @@ const nextConfig: NextConfig = {
         ...config.resolve.fallback,
         fs: false,
         path: false,
+        "sodium-native": false,
+        "require-addon": false,
       };
 
       // Split large vendor libraries into dedicated async chunks so they do not
