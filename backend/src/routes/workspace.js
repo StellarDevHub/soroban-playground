@@ -30,6 +30,12 @@ import {
   validateWorkspace,
   WORKSPACE_LIMITS,
 } from '../services/workspaceService.js';
+import {
+  applyYjsUpdate,
+  getYjsDocumentState,
+  getYjsUpdatesSince,
+} from '../services/yjsDocumentService.js';
+import { broadcastProjectRoom } from '../websocket.js';
 
 const router = express.Router();
 
@@ -305,6 +311,58 @@ router.post(
       success: true,
       data: { ...stored, revision: current.revision + 1 },
     });
+  })
+);
+
+router.get(
+  '/projects/:projectId/documents/:documentId/state',
+  requireTenantContext(),
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const state = await getYjsDocumentState(
+      req.params.projectId,
+      req.params.documentId
+    );
+    res.json({ success: true, data: state });
+  })
+);
+
+router.get(
+  '/projects/:projectId/documents/:documentId/updates',
+  requireTenantContext(),
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const updates = await getYjsUpdatesSince(
+      req.params.projectId,
+      req.params.documentId,
+      req.query.since
+    );
+    res.json({ success: true, data: { updates } });
+  })
+);
+
+router.post(
+  '/projects/:projectId/documents/:documentId/updates',
+  requireTenantContext(),
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.body?.update) {
+      return res.status(400).json({
+        success: false,
+        message: 'update is required',
+      });
+    }
+    const result = await applyYjsUpdate(
+      req.params.projectId,
+      req.params.documentId,
+      req.body.update
+    );
+    await broadcastProjectRoom(req.params.projectId, {
+      documentId: req.params.documentId,
+      update: result.update,
+      stateVector: result.stateVector,
+    });
+    res.status(200).json({ success: true, data: result });
   })
 );
 

@@ -143,6 +143,9 @@ importers:
       ws:
         specifier: ^8.18.3
         version: 8.22.0
+      yjs:
+        specifier: ^13.6.33
+        version: 13.6.33
       zod:
         specifier: ^3.23.8
         version: 3.25.76
