@@ -432,8 +432,8 @@ fn rejects_empty_splitter() {
 fn rejects_tree_deeper_than_max_depth() {
     let env = Env::default();
     let mut tree = Node::Beneficiary(Address::generate(&env));
-    // 10 nested splitters exceeds MAX_DEPTH (8).
-    for _ in 0..10 {
+    // 5 nested splitters exceeds MAX_DEPTH (3).
+    for _ in 0..5 {
         tree = Node::Splitter(vec![
             &env,
             Child {
@@ -443,6 +443,45 @@ fn rejects_tree_deeper_than_max_depth() {
         ]);
     }
     assert_eq!(init_error(&tree), Error::TooDeep);
+}
+
+#[test]
+fn test_circular_dependency_rejected() {
+    let env = Env::default();
+    let shared = Address::generate(&env);
+    let tree = Node::Splitter(vec![
+        &env,
+        Child {
+            share_bps: 5_000,
+            node: Node::Beneficiary(shared.clone()),
+        },
+        Child {
+            share_bps: 5_000,
+            node: Node::Beneficiary(shared.clone()),
+        },
+    ]);
+    assert_eq!(init_error(&tree), Error::CircularDependency);
+}
+
+#[test]
+fn test_deeply_nested_10_party_split() {
+    let env = Env::default();
+    let mut children = Vec::new(&env);
+    let mut addrs = Vec::new(&env);
+    for _ in 0..10 {
+        let addr = Address::generate(&env);
+        addrs.push_back(addr.clone());
+        children.push_back(Child {
+            share_bps: 1_000,
+            node: Node::Beneficiary(addr),
+        });
+    }
+    let tree = Node::Splitter(children);
+    let h = Harness::new(false, &tree, 100_000);
+    h.distribute(100_000);
+    for addr in addrs.iter() {
+        assert_eq!(h.claim_if_any(&addr), 10_000);
+    }
 }
 
 #[test]

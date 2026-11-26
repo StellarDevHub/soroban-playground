@@ -24,6 +24,8 @@ use crate::storage::{
 };
 use crate::types::{Error, Holding, InstanceKey, ReitTrust};
 
+const SCALE_1E18: i128 = 1_000_000_000_000_000_000;
+
 #[contract]
 pub struct TokenizedReitContract;
 
@@ -75,6 +77,8 @@ impl TokenizedReitContract {
             total_dividends_deposited: 0,
             annual_yield_bps,
             is_active: true,
+            acc_dividend_per_share: 0,
+            dust_reserve: 0,
         };
         set_trust(&env, id, &trust);
         set_trust_count(&env, id);
@@ -96,7 +100,7 @@ impl TokenizedReitContract {
         Ok(())
     }
 
-    /// Deposit dividend income for a trust. Distributed pro-rata to shareholders.
+    /// Deposit dividend income for a trust. Distributed pro-rata using 10^18 scaling and dust retention.
     pub fn deposit_dividends(
         env: Env,
         admin: Address,
@@ -108,7 +112,34 @@ impl TokenizedReitContract {
             return Err(Error::ZeroDividend);
         }
         let mut trust = get_trust(&env, trust_id)?;
-        trust.total_dividends_deposited += amount;
+        if trust.total_shares == 0 {
+            return Err(Error::ZeroTotalShares);
+        }
+
+        trust.total_dividends_deposited = trust
+            .total_dividends_deposited
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+
+        // Dividend accumulator with 10^18 scaling and dust retention
+        let total_distributable = amount
+            .checked_add(trust.dust_reserve)
+            .ok_or(Error::ArithmeticOverflow)?;
+
+        let delta_acc = total_distributable
+            .checked_mul(SCALE_1E18)
+            .ok_or(Error::ArithmeticOverflow)?
+            / (trust.total_shares as i128);
+
+        let distributed = (delta_acc * (trust.total_shares as i128)) / SCALE_1E18;
+        let remaining_dust = total_distributable - distributed;
+
+        trust.acc_dividend_per_share = trust
+            .acc_dividend_per_share
+            .checked_add(delta_acc)
+            .ok_or(Error::ArithmeticOverflow)?;
+        trust.dust_reserve = remaining_dust;
+
         set_trust(&env, trust_id, &trust);
 
         env.events()
@@ -160,14 +191,16 @@ impl TokenizedReitContract {
 
         let cost = (shares as i128).saturating_mul(trust.price_per_share);
 
-        // Snapshot dividends_claimed so new investor doesn't retroactively
-        // claim dividends deposited before their purchase.
         let mut holding = if has_holding(&env, trust_id, &investor) {
-            get_holding(&env, trust_id, &investor)?
+            let mut h = get_holding(&env, trust_id, &investor)?;
+            Self::settle_accrual(&mut h, &trust);
+            h
         } else {
             Holding {
                 shares: 0,
-                dividends_claimed: trust.total_dividends_deposited,
+                dividends_claimed: 0,
+                last_acc_dividend_per_share: trust.acc_dividend_per_share,
+                accrued_dividends: 0,
             }
         };
 
@@ -206,17 +239,20 @@ impl TokenizedReitContract {
             return Err(Error::InsufficientShares);
         }
 
-        // Settle unclaimed dividends for sender before transfer
-        let claimable = Self::compute_claimable(&from_holding, &trust);
-        from_holding.dividends_claimed += claimable;
+        // Lazy evaluation: settle unclaimed accrued dividends for sender before transfer
+        Self::settle_accrual(&mut from_holding, &trust);
         from_holding.shares -= shares;
 
         let mut to_holding = if has_holding(&env, trust_id, &to) {
-            get_holding(&env, trust_id, &to)?
+            let mut h = get_holding(&env, trust_id, &to)?;
+            Self::settle_accrual(&mut h, &trust);
+            h
         } else {
             Holding {
                 shares: 0,
-                dividends_claimed: trust.total_dividends_deposited,
+                dividends_claimed: 0,
+                last_acc_dividend_per_share: trust.acc_dividend_per_share,
+                accrued_dividends: 0,
             }
         };
         to_holding.shares += shares;
@@ -243,12 +279,17 @@ impl TokenizedReitContract {
         let trust = get_trust(&env, trust_id)?;
         let mut holding = get_holding(&env, trust_id, &investor)?;
 
-        let claimable = Self::compute_claimable(&holding, &trust);
+        Self::settle_accrual(&mut holding, &trust);
+        let claimable = holding.accrued_dividends;
         if claimable == 0 {
             return Err(Error::NothingToClaim);
         }
 
-        holding.dividends_claimed += claimable;
+        holding.dividends_claimed = holding
+            .dividends_claimed
+            .checked_add(claimable)
+            .ok_or(Error::ArithmeticOverflow)?;
+        holding.accrued_dividends = 0;
         set_holding(&env, trust_id, &investor, &holding);
 
         env.events()
@@ -292,18 +333,31 @@ impl TokenizedReitContract {
 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
-    /// Pro-rata claimable = (shares / total_shares) * (total_deposited - claimed_snapshot)
+    /// Settle pending accrued dividends into holding via lazy evaluation
+    fn settle_accrual(holding: &mut Holding, trust: &ReitTrust) {
+        if holding.shares > 0 {
+            let acc_diff = trust
+                .acc_dividend_per_share
+                .saturating_sub(holding.last_acc_dividend_per_share);
+            if acc_diff > 0 {
+                let pending = (acc_diff * (holding.shares as i128)) / SCALE_1E18;
+                holding.accrued_dividends = holding.accrued_dividends.saturating_add(pending);
+            }
+        }
+        holding.last_acc_dividend_per_share = trust.acc_dividend_per_share;
+    }
+
+    /// Pro-rata claimable = accrued_dividends + pending from (acc_dividend_per_share - last_snapshot)
     fn compute_claimable(holding: &Holding, trust: &ReitTrust) -> i128 {
-        if trust.shares_sold == 0 || holding.shares == 0 {
-            return 0;
-        }
-        let new_dividends = trust
-            .total_dividends_deposited
-            .saturating_sub(holding.dividends_claimed);
-        if new_dividends <= 0 {
-            return 0;
-        }
-        new_dividends.saturating_mul(holding.shares as i128) / (trust.total_shares as i128)
+        let acc_diff = trust
+            .acc_dividend_per_share
+            .saturating_sub(holding.last_acc_dividend_per_share);
+        let pending = if holding.shares > 0 && acc_diff > 0 {
+            (acc_diff * (holding.shares as i128)) / SCALE_1E18
+        } else {
+            0
+        };
+        holding.accrued_dividends.saturating_add(pending)
     }
 
     fn assert_initialized(env: &Env) -> Result<(), Error> {
