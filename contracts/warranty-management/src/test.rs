@@ -3,7 +3,10 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, String,
+};
 
 use crate::types::{ClaimStatus, Error};
 use crate::{WarrantyManagement, WarrantyManagementClient};
@@ -234,7 +237,32 @@ fn test_file_claim_ok() {
     let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Screen cracked"));
     assert_eq!(claim_id, 1);
     let claim = client.get_claim(&claim_id);
-    assert_eq!(claim.status, ClaimStatus::Pending);
+    assert_eq!(claim.status, ClaimStatus::Filed);
+}
+
+#[test]
+fn test_file_claim_at_exact_expiry_ok() {
+    let (env, _, buyer, _, war_id, client) = setup_with_warranty();
+    let warranty = client.get_warranty(&war_id);
+    env.ledger().with_mut(|li| {
+        li.timestamp = warranty.expiry_ts;
+    });
+    let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Last second"));
+    let claim = client.get_claim(&claim_id);
+    assert_eq!(claim.status, ClaimStatus::Filed);
+}
+
+#[test]
+fn test_file_claim_expired_rejected() {
+    let (env, _, buyer, _, war_id, client) = setup_with_warranty();
+    let warranty = client.get_warranty(&war_id);
+    env.ledger().with_mut(|li| {
+        li.timestamp = warranty.expiry_ts + 1;
+    });
+    assert_eq!(
+        client.try_file_claim(&buyer, &war_id, &String::from_str(&env, "Too late")),
+        Err(Ok(Error::WarrantyExpired))
+    );
 }
 
 #[test]
@@ -251,6 +279,8 @@ fn test_file_claim_not_owner() {
 fn test_resolve_claim_approve() {
     let (env, manufacturer, buyer, _, war_id, client) = setup_with_warranty();
     let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Defective"));
+    client.review_claim(&manufacturer, &claim_id);
+    assert_eq!(client.get_claim(&claim_id).status, ClaimStatus::InReview);
     client.resolve_claim(&manufacturer, &claim_id, &true);
     let claim = client.get_claim(&claim_id);
     assert_eq!(claim.status, ClaimStatus::Approved);
@@ -260,6 +290,7 @@ fn test_resolve_claim_approve() {
 fn test_resolve_claim_reject() {
     let (env, manufacturer, buyer, _, war_id, client) = setup_with_warranty();
     let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Defective"));
+    client.review_claim(&manufacturer, &claim_id);
     client.resolve_claim(&manufacturer, &claim_id, &false);
     let claim = client.get_claim(&claim_id);
     assert_eq!(claim.status, ClaimStatus::Rejected);
@@ -269,6 +300,7 @@ fn test_resolve_claim_reject() {
 fn test_resolve_claim_already_processed() {
     let (env, manufacturer, buyer, _, war_id, client) = setup_with_warranty();
     let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Defective"));
+    client.review_claim(&manufacturer, &claim_id);
     client.resolve_claim(&manufacturer, &claim_id, &true);
     assert_eq!(
         client.try_resolve_claim(&manufacturer, &claim_id, &false),
@@ -278,12 +310,96 @@ fn test_resolve_claim_already_processed() {
 
 #[test]
 fn test_resolve_claim_unauthorized() {
-    let (env, _, buyer, _, war_id, client) = setup_with_warranty();
+    let (env, manufacturer, buyer, _, war_id, client) = setup_with_warranty();
     let rando = Address::generate(&env);
     let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Defective"));
     assert_eq!(
+        client.try_review_claim(&rando, &claim_id),
+        Err(Ok(Error::Unauthorized))
+    );
+    client.review_claim(&manufacturer, &claim_id);
+    assert_eq!(
         client.try_resolve_claim(&rando, &claim_id, &true),
         Err(Ok(Error::Unauthorized))
+    );
+}
+
+#[test]
+fn test_claim_lifecycle_full_replacement_voids_warranty() {
+    let (env, manufacturer, buyer, _, war_id, client) = setup_with_warranty();
+    let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Total failure"));
+    assert_eq!(client.get_claim(&claim_id).status, ClaimStatus::Filed);
+
+    client.review_claim(&manufacturer, &claim_id);
+    assert_eq!(client.get_claim(&claim_id).status, ClaimStatus::InReview);
+
+    client.resolve_claim(&manufacturer, &claim_id, &true);
+    assert_eq!(client.get_claim(&claim_id).status, ClaimStatus::Approved);
+
+    client.reimburse_claim(&manufacturer, &claim_id, &true);
+    assert_eq!(client.get_claim(&claim_id).status, ClaimStatus::Reimbursed);
+
+    // Warranty must be voided/burned after full product replacement
+    let warranty = client.get_warranty(&war_id);
+    assert!(!warranty.is_active);
+
+    // Subsequent claims against the voided warranty must be rejected
+    assert_eq!(
+        client.try_file_claim(&buyer, &war_id, &String::from_str(&env, "Second claim")),
+        Err(Ok(Error::WarrantyInactive))
+    );
+}
+
+#[test]
+fn test_claim_lifecycle_partial_reimbursement_keeps_warranty_active() {
+    let (env, manufacturer, buyer, _, war_id, client) = setup_with_warranty();
+    let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Minor repair"));
+    client.review_claim(&manufacturer, &claim_id);
+    client.resolve_claim(&manufacturer, &claim_id, &true);
+    client.reimburse_claim(&manufacturer, &claim_id, &false);
+
+    assert_eq!(client.get_claim(&claim_id).status, ClaimStatus::Reimbursed);
+    assert!(client.get_warranty(&war_id).is_active);
+
+    // Reimbursing again must fail
+    assert_eq!(
+        client.try_reimburse_claim(&manufacturer, &claim_id, &false),
+        Err(Ok(Error::ClaimAlreadyProcessed))
+    );
+}
+
+#[test]
+fn test_invalid_claim_state_transitions() {
+    let (env, manufacturer, buyer, _, war_id, client) = setup_with_warranty();
+    let claim_id = client.file_claim(&buyer, &war_id, &String::from_str(&env, "Defect"));
+
+    // Cannot resolve or reimburse directly from Filed
+    assert_eq!(
+        client.try_resolve_claim(&manufacturer, &claim_id, &true),
+        Err(Ok(Error::InvalidClaimTransition))
+    );
+    assert_eq!(
+        client.try_reimburse_claim(&manufacturer, &claim_id, &false),
+        Err(Ok(Error::InvalidClaimTransition))
+    );
+
+    client.review_claim(&manufacturer, &claim_id);
+
+    // Cannot review twice or reimburse while InReview
+    assert_eq!(
+        client.try_review_claim(&manufacturer, &claim_id),
+        Err(Ok(Error::InvalidClaimTransition))
+    );
+    assert_eq!(
+        client.try_reimburse_claim(&manufacturer, &claim_id, &false),
+        Err(Ok(Error::InvalidClaimTransition))
+    );
+
+    // Reject claim; cannot reimburse a rejected claim
+    client.resolve_claim(&manufacturer, &claim_id, &false);
+    assert_eq!(
+        client.try_reimburse_claim(&manufacturer, &claim_id, &true),
+        Err(Ok(Error::InvalidClaimTransition))
     );
 }
 
