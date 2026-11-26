@@ -19,7 +19,36 @@ export type ToastSubscriber = (toasts: ToastItem[]) => void;
 export class ToastManager {
   private toasts: Map<string, ToastItem> = new Map();
   private subscribers: Set<ToastSubscriber> = new Set();
-  private timers: Map<string, any> = new Map();
+  private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private maxVisible: number = 3;
+  private soundEnabled: boolean = true;
+  private audioContext: AudioContext | null = null;
+
+  constructor(options?: { maxVisible?: number; soundEnabled?: boolean }) {
+    if (options?.maxVisible !== undefined) {
+      this.maxVisible = options.maxVisible;
+    }
+    if (options?.soundEnabled !== undefined) {
+      this.soundEnabled = options.soundEnabled;
+    }
+  }
+
+  public setMaxVisible(max: number): void {
+    this.maxVisible = Math.max(1, max);
+    this.notify();
+  }
+
+  public getMaxVisible(): number {
+    return this.maxVisible;
+  }
+
+  public setSoundEnabled(enabled: boolean): void {
+    this.soundEnabled = enabled;
+  }
+
+  public isSoundEnabled(): boolean {
+    return this.soundEnabled;
+  }
 
   public subscribe(subscriber: ToastSubscriber): () => void {
     this.subscribers.add(subscriber);
@@ -38,6 +67,61 @@ export class ToastManager {
         console.error('Error notifying toast subscriber:', err);
       }
     });
+  }
+
+  /**
+   * Generates a sound cue using the Web Audio API for success or error events.
+   * Degrades gracefully when audio context is unavailable or permissions are restricted.
+   */
+  public playSoundCue(type: ToastType): void {
+    if (!this.soundEnabled || typeof window === 'undefined') return;
+
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        this.audioContext = new AudioCtx();
+      }
+      if (this.audioContext.state === 'suspended') {
+        void this.audioContext.resume();
+      }
+
+      const ctx = this.audioContext;
+      const now = ctx.currentTime;
+
+      if (type === 'success') {
+        // Melodic ascending chime: C5 (523.25Hz) to G5 (783.99Hz)
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.15);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.2);
+      } else if (type === 'error') {
+        // Soft cautionary low double-tone: 260Hz descending to 180Hz
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(180, now + 0.25);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      }
+    } catch {
+      // Audio playback restrictions or headless test runner
+    }
   }
 
   public show(options: {
@@ -59,10 +143,13 @@ export class ToastManager {
       groupId,
     } = options;
 
-    // Deduplicate / group related events if groupId exists
-    if (groupId) {
+    // Automatic grouping: use explicit groupId or auto-group identical error notifications
+    const effectiveGroupId =
+      groupId || (type === 'error' ? `auto-error:${title}:${message || ''}` : undefined);
+
+    if (effectiveGroupId) {
       for (const [existingId, item] of this.toasts.entries()) {
-        if (item.groupId === groupId) {
+        if (item.groupId === effectiveGroupId) {
           const updated: ToastItem = {
             ...item,
             title,
@@ -77,6 +164,7 @@ export class ToastManager {
           this.toasts.set(existingId, updated);
           this.resetTimer(existingId, durationMs);
           this.notify();
+          this.playSoundCue(type);
           return existingId;
         }
       }
@@ -91,7 +179,7 @@ export class ToastManager {
       priority,
       durationMs,
       explorerUrl,
-      groupId,
+      groupId: effectiveGroupId,
       groupCount: 1,
       createdAt: Date.now(),
     };
@@ -99,12 +187,14 @@ export class ToastManager {
     this.toasts.set(id, toastItem);
     this.resetTimer(id, durationMs);
     this.notify();
+    this.playSoundCue(type);
     return id;
   }
 
   private resetTimer(id: string, durationMs: number): void {
     if (this.timers.has(id)) {
       clearTimeout(this.timers.get(id));
+      this.timers.delete(id);
     }
 
     if (durationMs > 0) {
@@ -133,7 +223,10 @@ export class ToastManager {
     this.notify();
   }
 
-  public getToasts(): ToastItem[] {
+  /**
+   * Returns all active toasts sorted by priority then timestamp.
+   */
+  public getAllToasts(): ToastItem[] {
     const list = Array.from(this.toasts.values());
     const priorityWeight: Record<ToastPriority, number> = {
       critical: 4,
@@ -148,6 +241,13 @@ export class ToastManager {
       }
       return b.createdAt - a.createdAt;
     });
+  }
+
+  /**
+   * Returns prioritized toasts capped at maxVisible (default 3) to prevent screen overflow.
+   */
+  public getToasts(): ToastItem[] {
+    return this.getAllToasts().slice(0, this.maxVisible);
   }
 }
 

@@ -67,6 +67,7 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dataloader": "^2.2.3",
+    "dompurify": "^3.4.11",
     "dotenv": "^17.3.1",
     "envalid": "^8.2.0",
     "express": "^4.21.2",
@@ -77,6 +78,7 @@
     "graphql-yoga": "^5.21.0",
     "helmet": "^8.1.0",
     "ioredis": "^5.10.1",
+    "jsdom": "^26.1.0",
     "jsonwebtoken": "^9.0.3",
     "kafkajs": "^2.2.4",
     "knex": "^3.3.0",
@@ -94,6 +96,7 @@
     "tar": "^7.5.19",
     "uuid": "^14.0.1",
     "ws": "^8.18.3",
+    "yjs": "^13.6.33",
     "zod": "^3.23.8"
   },
   "devDependencies": {

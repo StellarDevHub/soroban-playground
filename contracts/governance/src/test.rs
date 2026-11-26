@@ -15,7 +15,7 @@ fn setup() -> (Env, Address, GovernanceClient<'static>) {
     let id = env.register_contract(None, Governance);
     let client = GovernanceClient::new(&env, &id);
     let admin = Address::generate(&env);
-    // Short periods for testing: 100s voting, 50s exec delay.
+    // Short voting period; execution still enforces the mandatory 48-hour floor.
     client.initialize(&admin, &None, &Some(100), &Some(50), &None);
     (env, admin, client)
 }
@@ -259,11 +259,18 @@ fn test_vote_abstain() {
 #[test]
 fn test_multiple_voters() {
     let (env, admin, client) = setup();
-    let (proposer, id) = mint_and_propose(&env, &admin, &client);
+    let proposer = Address::generate(&env);
     let voter2 = Address::generate(&env);
     let voter3 = Address::generate(&env);
+    client.mint(&admin, &proposer, &1_000_000);
     client.mint(&admin, &voter2, &400_000);
     client.mint(&admin, &voter3, &200_000);
+    let id = client.propose(
+        &proposer,
+        &String::from_str(&env, "Voting"),
+        &String::from_str(&env, "desc"),
+        &0,
+    );
     client.vote(&proposer, &id, &VoteChoice::For);
     client.vote(&voter2, &id, &VoteChoice::Against);
     client.vote(&voter3, &id, &VoteChoice::Abstain);
@@ -319,17 +326,15 @@ fn test_delegation_transfers_vote() {
     let delegator = Address::generate(&env);
     let delegate = Address::generate(&env);
     client.mint(&admin, &delegator, &1_000_000);
-    // delegator delegates to delegate
+    client.mint(&admin, &delegate, &500_000);
+    // Delegation is established before the proposal snapshot.
     client.delegate(&delegator, &Some(delegate.clone()));
-    // propose with delegator's tokens
     let id = client.propose(
         &delegator,
         &String::from_str(&env, "title"),
         &String::from_str(&env, "desc"),
         &0,
     );
-    // Give delegate their own tokens so they can vote
-    client.mint(&admin, &delegate, &500_000);
     client.vote(&delegate, &id, &VoteChoice::For);
     let p = client.get_proposal(&id);
     assert_eq!(p.votes_for, 500_000);
@@ -455,7 +460,7 @@ fn test_execute_after_timelock() {
     client.vote(&proposer, &id, &VoteChoice::For);
     env.ledger().with_mut(|l| l.timestamp += 101);
     client.finalise(&id);
-    env.ledger().with_mut(|l| l.timestamp += 51);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
     client.execute(&proposer, &id);
     assert_eq!(client.get_proposal(&id).status, ProposalStatus::Executed);
 }
@@ -489,7 +494,7 @@ fn test_execute_defeated_proposal_fails() {
     client.vote(&against, &id, &VoteChoice::Against);
     env.ledger().with_mut(|l| l.timestamp += 101);
     client.finalise(&id);
-    env.ledger().with_mut(|l| l.timestamp += 51);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
     let result = client.try_execute(&proposer, &id);
     assert_eq!(result, Err(Ok(Error::ProposalNotPassed)));
 }
@@ -501,7 +506,7 @@ fn test_execute_twice_fails() {
     client.vote(&proposer, &id, &VoteChoice::For);
     env.ledger().with_mut(|l| l.timestamp += 101);
     client.finalise(&id);
-    env.ledger().with_mut(|l| l.timestamp += 51);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
     client.execute(&proposer, &id);
     let result = client.try_execute(&proposer, &id);
     assert_eq!(result, Err(Ok(Error::ProposalNotPassed)));
@@ -724,7 +729,7 @@ fn test_full_proposal_lifecycle() {
     let status = client.finalise(&id);
     assert_eq!(status, ProposalStatus::Passed);
 
-    env.ledger().with_mut(|l| l.timestamp += 51);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
     client.execute(&proposer, &id);
     assert_eq!(client.get_proposal(&id).status, ProposalStatus::Executed);
 }
@@ -803,4 +808,86 @@ fn test_delegation_cycle_resolves_without_panicking() {
     let resolved_first = client.get_delegate(&a);
     assert!(resolved_first == a || resolved_first == b);
     assert_eq!(client.get_delegate(&a), resolved_first);
+}
+
+
+#[test]
+fn test_snapshot_balance_ignores_tokens_minted_after_proposal() {
+    let (env, admin, client) = setup();
+    let (proposer, id) = mint_and_propose(&env, &admin, &client);
+    let late_voter = Address::generate(&env);
+    client.mint(&admin, &late_voter, &900_000);
+    let result = client.try_vote(&late_voter, &id, &VoteChoice::For);
+    assert_eq!(result, Err(Ok(Error::InsufficientVotingPower)));
+    client.vote(&proposer, &id, &VoteChoice::For);
+    assert_eq!(client.get_proposal(&id).votes_for, 1_000_000);
+}
+
+#[test]
+fn test_guardian_can_veto_passed_proposal_during_timelock() {
+    let (env, admin, client) = setup();
+    let guardian = Address::generate(&env);
+    let (proposer, id) = mint_and_propose(&env, &admin, &client);
+    client.set_guardian(&admin, &Some(guardian.clone()));
+    client.vote(&proposer, &id, &VoteChoice::For);
+    env.ledger().with_mut(|l| l.timestamp += 101);
+    assert_eq!(client.finalise(&id), ProposalStatus::Passed);
+    client.guardian_veto(&guardian, &id);
+    assert_eq!(client.get_proposal(&id).status, ProposalStatus::Cancelled);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
+    assert_eq!(client.try_execute(&proposer, &id), Err(Ok(Error::ProposalCancelled)));
+}
+
+#[test]
+fn test_non_guardian_cannot_veto() {
+    let (env, admin, client) = setup();
+    let guardian = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let (proposer, id) = mint_and_propose(&env, &admin, &client);
+    client.set_guardian(&admin, &Some(guardian));
+    client.vote(&proposer, &id, &VoteChoice::For);
+    env.ledger().with_mut(|l| l.timestamp += 101);
+    client.finalise(&id);
+    assert_eq!(client.try_guardian_veto(&attacker, &id), Err(Ok(Error::NotGuardian)));
+}
+
+
+#[test]
+fn test_delegation_change_after_snapshot_does_not_redirect_vote() {
+    let (env, admin, client) = setup();
+    let delegator = Address::generate(&env);
+    let original_delegate = Address::generate(&env);
+    let later_delegate = Address::generate(&env);
+    client.mint(&admin, &delegator, &100);
+    client.mint(&admin, &original_delegate, &200);
+    client.mint(&admin, &later_delegate, &300);
+    client.delegate(&delegator, &Some(original_delegate.clone()));
+    let id = client.propose(
+        &delegator,
+        &String::from_str(&env, "Snapshot delegation"),
+        &String::from_str(&env, "desc"),
+        &0,
+    );
+
+    // Changing delegation after proposal creation must not change this vote.
+    client.delegate(&delegator, &Some(later_delegate));
+    client.vote(&delegator, &id, &VoteChoice::For);
+    assert_eq!(client.get_proposal(&id).votes_for, 200);
+}
+
+
+#[test]
+fn test_guardian_cannot_veto_after_window_closes() {
+    let (env, admin, client) = setup();
+    let guardian = Address::generate(&env);
+    let (proposer, id) = mint_and_propose(&env, &admin, &client);
+    client.set_guardian(&admin, &Some(guardian.clone()));
+    client.vote(&proposer, &id, &VoteChoice::For);
+    env.ledger().with_mut(|l| l.timestamp += 101);
+    client.finalise(&id);
+    env.ledger().with_mut(|l| l.timestamp += 172_800);
+    assert_eq!(
+        client.try_guardian_veto(&guardian, &id),
+        Err(Ok(Error::VetoWindowClosed))
+    );
 }

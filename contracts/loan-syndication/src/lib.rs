@@ -6,6 +6,12 @@
 //! Collateral-backed multi-lender term loans with senior and junior tranches.
 //! Senior lenders are paid first from repayments and recoveries; junior lenders
 //! receive the residual and therefore provide first-loss default protection.
+//!
+//! Collateral is posted by the borrower before drawdown. After default anyone
+//! can liquidate it at the fixed `liquidation_price`, and the proceeds flow
+//! through the same senior-first waterfall as ordinary repayments. Rounding
+//! remainders from pro-rata claims accumulate in a reserve that the admin can
+//! sweep once all lenders of a tranche have claimed.
 #![no_std]
 
 mod storage;
@@ -14,9 +20,7 @@ mod types;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol,
-};
+use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
 
 use crate::storage::{
     enter, exit, get_admin, get_loan, get_loan_count, get_position, is_initialized, is_paused,
@@ -114,6 +118,13 @@ impl LoanSyndication {
             repaid: 0,
             total_claimed: 0,
             created_at: env.ledger().timestamp(),
+            collateral_asset: None,
+            collateral_held: 0,
+            liquidation_price: 0,
+            senior_claimed_principal: 0,
+            junior_claimed_principal: 0,
+            senior_paid: 0,
+            junior_paid: 0,
         };
         set_loan(&env, &loan);
         env.events().publish(
@@ -121,6 +132,41 @@ impl LoanSyndication {
             (borrower, principal_target, senior_target),
         );
         Ok(id)
+    }
+
+    /// Lock collateral for a loan that is still funding. The borrower also
+    /// fixes the price at which a liquidator can buy all of it after default.
+    pub fn post_collateral(
+        env: Env,
+        loan_id: u32,
+        asset: Address,
+        amount: i128,
+        liquidation_price: i128,
+    ) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        ensure_not_paused(&env)?;
+        validate_amount(amount)?;
+        validate_amount(liquidation_price)?;
+        let mut loan = get_loan(&env, loan_id)?;
+        loan.borrower.require_auth();
+        if loan.status != LoanStatus::Funding || loan.collateral_held > 0 {
+            return Err(Error::InvalidLoanStatus);
+        }
+
+        enter(&env)?;
+        loan.collateral_asset = Some(asset.clone());
+        loan.collateral_held = amount;
+        loan.liquidation_price = liquidation_price;
+        set_loan(&env, &loan);
+        token::Client::new(&env, &asset).transfer(
+            &loan.borrower,
+            &env.current_contract_address(),
+            &amount,
+        );
+        exit(&env);
+        env.events()
+            .publish((symbol_short!("collat"), loan_id), (asset, amount));
+        Ok(())
     }
 
     /// Fund either the senior (`0`) or junior (`1`) tranche.
@@ -178,7 +224,8 @@ impl LoanSyndication {
         Ok(())
     }
 
-    /// Draw the loan principal after both tranches reach their exact targets.
+    /// Draw the loan principal after both tranches reach their exact targets
+    /// and collateral has been posted.
     pub fn drawdown(env: Env, loan_id: u32) -> Result<(), Error> {
         ensure_initialized(&env)?;
         ensure_not_paused(&env)?;
@@ -189,6 +236,9 @@ impl LoanSyndication {
         }
         if loan.senior_funded != loan.senior_target || loan.junior_funded != loan.junior_target {
             return Err(Error::LoanNotFunded);
+        }
+        if loan.collateral_held <= 0 {
+            return Err(Error::CollateralRequired);
         }
         if env.ledger().timestamp() >= loan.maturity {
             return Err(Error::InvalidLoanStatus);
@@ -273,6 +323,101 @@ impl LoanSyndication {
         Ok(())
     }
 
+    /// Liquidate the borrower's collateral of a defaulted loan.
+    ///
+    /// The liquidator pays up to `liquidation_price` (capped at the debt still
+    /// outstanding) in the loan asset and receives collateral pro-rata. The
+    /// payment is added to `repaid`, so the senior-first waterfall distributes
+    /// it exactly like a normal repayment. If the debt is fully covered the
+    /// loan becomes `Repaid` and the borrower can reclaim leftover collateral.
+    pub fn liquidate(env: Env, liquidator: Address, loan_id: u32) -> Result<i128, Error> {
+        ensure_initialized(&env)?;
+        liquidator.require_auth();
+        let mut loan = get_loan(&env, loan_id)?;
+        if loan.status != LoanStatus::Defaulted || loan.collateral_held <= 0 {
+            return Err(Error::NothingToLiquidate);
+        }
+        let due = total_due(&loan)?;
+        let outstanding = due
+            .checked_sub(loan.repaid)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let pay = core::cmp::min(loan.liquidation_price, outstanding);
+        let seized = if pay >= loan.liquidation_price {
+            loan.collateral_held
+        } else {
+            mul_div_floor(loan.collateral_held, pay, loan.liquidation_price)?
+        };
+        if pay <= 0 || seized <= 0 {
+            return Err(Error::NothingToLiquidate);
+        }
+        let collateral_asset = loan
+            .collateral_asset
+            .clone()
+            .ok_or(Error::CollateralRequired)?;
+
+        enter(&env)?;
+        loan.repaid = loan
+            .repaid
+            .checked_add(pay)
+            .ok_or(Error::ArithmeticOverflow)?;
+        loan.collateral_held = loan
+            .collateral_held
+            .checked_sub(seized)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if loan.repaid == due {
+            loan.status = LoanStatus::Repaid;
+        }
+        set_loan(&env, &loan);
+        token::Client::new(&env, &loan.asset).transfer(
+            &liquidator,
+            &env.current_contract_address(),
+            &pay,
+        );
+        token::Client::new(&env, &collateral_asset).transfer(
+            &env.current_contract_address(),
+            &liquidator,
+            &seized,
+        );
+        exit(&env);
+        env.events().publish(
+            (symbol_short!("liquidate"), loan_id),
+            (liquidator, pay, seized),
+        );
+        Ok(pay)
+    }
+
+    /// Return the remaining collateral to the borrower once the loan is
+    /// repaid in full (or was cancelled before drawdown).
+    pub fn reclaim_collateral(env: Env, loan_id: u32) -> Result<i128, Error> {
+        ensure_initialized(&env)?;
+        let mut loan = get_loan(&env, loan_id)?;
+        loan.borrower.require_auth();
+        if loan.status != LoanStatus::Repaid && loan.status != LoanStatus::Cancelled {
+            return Err(Error::InvalidLoanStatus);
+        }
+        let amount = loan.collateral_held;
+        if amount <= 0 {
+            return Err(Error::NothingToClaim);
+        }
+        let collateral_asset = loan
+            .collateral_asset
+            .clone()
+            .ok_or(Error::CollateralRequired)?;
+
+        enter(&env)?;
+        loan.collateral_held = 0;
+        set_loan(&env, &loan);
+        token::Client::new(&env, &collateral_asset).transfer(
+            &env.current_contract_address(),
+            &loan.borrower,
+            &amount,
+        );
+        exit(&env);
+        env.events()
+            .publish((symbol_short!("reclaim"), loan_id), amount);
+        Ok(amount)
+    }
+
     /// Cancel a loan before drawdown. The borrower or contract admin may call.
     pub fn cancel_loan(env: Env, caller: Address, loan_id: u32) -> Result<(), Error> {
         ensure_initialized(&env)?;
@@ -354,6 +499,8 @@ impl LoanSyndication {
 
     /// Claim a lender's pro-rata settlement. Senior allocation is calculated
     /// before junior allocation, making the junior tranche absorb defaults first.
+    /// For a defaulted loan with collateral left, claims wait until the
+    /// collateral has been liquidated so the recovery is fully counted.
     pub fn claim(env: Env, lender: Address, loan_id: u32, tranche: u32) -> Result<i128, Error> {
         ensure_initialized(&env)?;
         lender.require_auth();
@@ -362,6 +509,9 @@ impl LoanSyndication {
         if loan.status != LoanStatus::Repaid && loan.status != LoanStatus::Defaulted {
             return Err(Error::InvalidLoanStatus);
         }
+        if loan.status == LoanStatus::Defaulted && loan.collateral_held > 0 {
+            return Err(Error::RecoveryPending);
+        }
         let mut position = get_position(&env, loan_id, &lender, tranche);
         let amount = position_claim(&loan, &position)?;
         if amount <= 0 {
@@ -369,6 +519,36 @@ impl LoanSyndication {
         }
 
         enter(&env)?;
+        if position.claimed == 0 {
+            match tranche {
+                Tranche::Senior => {
+                    loan.senior_claimed_principal = loan
+                        .senior_claimed_principal
+                        .checked_add(position.principal)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                }
+                Tranche::Junior => {
+                    loan.junior_claimed_principal = loan
+                        .junior_claimed_principal
+                        .checked_add(position.principal)
+                        .ok_or(Error::ArithmeticOverflow)?;
+                }
+            }
+        }
+        match tranche {
+            Tranche::Senior => {
+                loan.senior_paid = loan
+                    .senior_paid
+                    .checked_add(amount)
+                    .ok_or(Error::ArithmeticOverflow)?;
+            }
+            Tranche::Junior => {
+                loan.junior_paid = loan
+                    .junior_paid
+                    .checked_add(amount)
+                    .ok_or(Error::ArithmeticOverflow)?;
+            }
+        }
         position.claimed = position
             .claimed
             .checked_add(amount)
@@ -390,6 +570,47 @@ impl LoanSyndication {
             (lender, tranche, amount),
         );
         Ok(amount)
+    }
+
+    /// Rounding remainders ("dust") left in the contract once every lender of
+    /// a tranche has claimed. Always zero until a tranche is fully claimed.
+    pub fn reserve(env: Env, loan_id: u32) -> Result<i128, Error> {
+        let loan = get_loan(&env, loan_id)?;
+        final_dust(&loan)
+    }
+
+    /// Admin withdraws the reserve of fully claimed tranches.
+    pub fn sweep_reserve(env: Env, loan_id: u32) -> Result<i128, Error> {
+        ensure_initialized(&env)?;
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        let mut loan = get_loan(&env, loan_id)?;
+        let senior_dust = tranche_dust(&loan, Tranche::Senior)?;
+        let junior_dust = tranche_dust(&loan, Tranche::Junior)?;
+        let dust = senior_dust
+            .checked_add(junior_dust)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if dust <= 0 {
+            return Err(Error::NothingToClaim);
+        }
+
+        enter(&env)?;
+        if senior_dust > 0 {
+            loan.senior_paid = tranche_allocation(&loan, Tranche::Senior)?;
+        }
+        if junior_dust > 0 {
+            loan.junior_paid = tranche_allocation(&loan, Tranche::Junior)?;
+        }
+        set_loan(&env, &loan);
+        token::Client::new(&env, &loan.asset).transfer(
+            &env.current_contract_address(),
+            &admin,
+            &dust,
+        );
+        exit(&env);
+        env.events()
+            .publish((symbol_short!("sweep"), loan_id), dust);
+        Ok(dust)
     }
 
     pub fn get_loan(env: Env, loan_id: u32) -> Result<Loan, Error> {
@@ -549,6 +770,35 @@ fn tranche_allocation(loan: &Loan, tranche: Tranche) -> Result<i128, Error> {
     }
 }
 
+/// Dust of one tranche: its allocation minus what lenders were paid, but only
+/// once every lender of that tranche has claimed (so nobody's share is touched).
+fn tranche_dust(loan: &Loan, tranche: Tranche) -> Result<i128, Error> {
+    let (funded, claimed_principal, paid) = match tranche {
+        Tranche::Senior => (
+            loan.senior_funded,
+            loan.senior_claimed_principal,
+            loan.senior_paid,
+        ),
+        Tranche::Junior => (
+            loan.junior_funded,
+            loan.junior_claimed_principal,
+            loan.junior_paid,
+        ),
+    };
+    if funded <= 0 || claimed_principal != funded {
+        return Ok(0);
+    }
+    tranche_allocation(loan, tranche)?
+        .checked_sub(paid)
+        .ok_or(Error::ArithmeticOverflow)
+}
+
+fn final_dust(loan: &Loan) -> Result<i128, Error> {
+    tranche_dust(loan, Tranche::Senior)?
+        .checked_add(tranche_dust(loan, Tranche::Junior)?)
+        .ok_or(Error::ArithmeticOverflow)
+}
+
 fn position_claim(loan: &Loan, position: &TranchePosition) -> Result<i128, Error> {
     if position.principal <= 0 {
         return Ok(0);
@@ -591,26 +841,4 @@ fn gcd(mut left: i128, mut right: i128) -> i128 {
         right = remainder;
     }
     left
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TrancheType {
-    Senior,
-    Junior,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LoanPool {
-    pub borrower: Address,
-    pub total_senior: i128,
-    pub total_junior: i128,
-    pub default_occurred: bool,
-}
-
-#[contracttype]
-pub enum DataKey {
-    Pool,
-    Contribution(Address, TrancheType),
 }

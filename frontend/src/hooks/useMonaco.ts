@@ -12,6 +12,7 @@ import { getAppliedTheme } from "@/lib/theme/engine";
 import { MONACO_THEME_NAME, registerMonacoTheme } from "@/lib/theme/monaco";
 import { observeTheme } from "@/lib/theme/observe";
 import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
+import { loadVimModeEnabled } from "@/lib/shortcuts/storage";
 import "monaco-editor/min/vs/style.css";
 
 let instanceCounter = 0;
@@ -20,34 +21,47 @@ interface UseMonacoProps {
   language: string;
   value: string;
   onChange: (value: string) => void;
+  modelKey?: string;
   viewStateKey?: string;
   onFormat?: (source?: string) => void;
   formatDiagnostics?: RustFormatDiagnostic[];
+  vimMode?: boolean;
 }
 
 interface UseMonacoResult {
   containerRef: RefObject<HTMLDivElement | null>;
   isEditorReady: boolean;
   languageServiceStatus?: string | null;
+  vimModeActive?: boolean;
 }
 
 export function useMonaco({
   language,
   value,
   onChange,
+  modelKey,
   viewStateKey,
   onFormat,
   formatDiagnostics,
+  vimMode,
 }: UseMonacoProps): UseMonacoResult {
+  const activeModelKey = modelKey ?? viewStateKey ?? "editor";
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const modelRef = useRef<monaco.editor.ITextModel | null>(null);
+  const modelsRef = useRef(new Map<string, monaco.editor.ITextModel>());
+  const activeModelKeyRef = useRef(activeModelKey);
   const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
+  const scopeRef = useRef<MonacoLifecycleScope | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const onChangeRef = useRef(onChange);
   const onFormatRef = useRef(onFormat);
   const valueRef = useRef(value);
   const [isEditorReady, setIsEditorReady] = useState(false);
+  const [vimModeActive, setVimModeActive] = useState<boolean>(() => {
+    if (typeof vimMode === "boolean") return vimMode;
+    return loadVimModeEnabled();
+  });
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -56,6 +70,66 @@ export function useMonaco({
   useEffect(() => {
     onFormatRef.current = onFormat;
   }, [onFormat]);
+
+  useEffect(() => {
+    valueRef.current = value;
+    const model = modelRef.current;
+    if (
+      model &&
+      activeModelKeyRef.current === activeModelKey &&
+      value !== model.getValue()
+    ) {
+      model.setValue(value);
+    }
+  }, [activeModelKey, value]);
+
+  useEffect(() => {
+    if (!isEditorReady || activeModelKeyRef.current === activeModelKey) return;
+
+    const editor = editorRef.current;
+    const monacoAPI = monacoRef.current;
+    const currentModel = modelRef.current;
+    const scope = scopeRef.current;
+    if (!editor || !monacoAPI || !scope) return;
+
+    const previousKey = activeModelKeyRef.current;
+    const previousViewState = editor.saveViewState();
+    if (previousViewState) {
+      monacoViewStates.save(previousKey, previousViewState);
+    }
+
+    let nextModel = modelsRef.current.get(activeModelKey);
+    if (!nextModel) {
+      nextModel = monacoAPI.editor.createModel(valueRef.current, language);
+      modelsRef.current.set(activeModelKey, nextModel);
+      scope.track({
+        kind: "model",
+        label: `${language} model (${activeModelKey})`,
+        disposable: nextModel,
+      });
+    }
+
+    editor.setModel(nextModel);
+    modelRef.current = nextModel;
+    activeModelKeyRef.current = activeModelKey;
+
+    const savedState = monacoViewStates.restore(activeModelKey);
+    if (savedState) {
+      editor.restoreViewState(
+        savedState as monaco.editor.ICodeEditorViewState,
+      );
+    }
+
+    workerRef.current?.postMessage({
+      uri: nextModel.uri.toString(),
+      code: nextModel.getValue(),
+    });
+
+    if (currentModel) {
+      monacoAPI.editor.setModelMarkers(currentModel, "rustfmt", []);
+      monacoAPI.editor.setModelMarkers(currentModel, "rustAnalyzer", []);
+    }
+  }, [activeModelKey, isEditorReady, language, viewStateKey]);
 
   useEffect(() => {
     const model = modelRef.current;
@@ -75,15 +149,7 @@ export function useMonaco({
         source: "rustfmt",
       })),
     );
-  }, [formatDiagnostics, isEditorReady]);
-
-  useEffect(() => {
-    valueRef.current = value;
-    const model = modelRef.current;
-    if (model && value !== model.getValue()) {
-      model.setValue(value);
-    }
-  }, [value]);
+  }, [activeModelKey, formatDiagnostics, isEditorReady]);
 
   useEffect(() => {
     let disposed = false;
@@ -114,10 +180,18 @@ export function useMonaco({
           scope = createMonacoScope(
             `${viewStateKey ?? "editor"}#${++instanceCounter}`,
           );
+          scopeRef.current = scope;
+          const model = monacoAPI.editor.createModel(
+            valueRef.current,
+            language,
+          );
+          modelsRef.current.set(activeModelKey, model);
+          modelRef.current = model;
+          activeModelKeyRef.current = activeModelKey;
 
           const editor = monacoAPI.editor.create(containerRef.current, {
+            model,
             language,
-            value: valueRef.current,
             ariaLabel: "Rust contract source editor",
             accessibilitySupport: "on",
             theme: MONACO_THEME_NAME,
@@ -139,37 +213,30 @@ export function useMonaco({
 
           if (disposed) {
             editor.dispose();
-            const model = editor.getModel();
-            if (model) model.dispose();
+            model.dispose();
             return;
           }
 
           editorRef.current = editor;
-          const model = editor.getModel() ?? null;
-          modelRef.current = model;
 
-          if (model) {
-            scope.track({
-              kind: "model",
-              label: `${language} model`,
-              disposable: model,
-            });
-          }
+          scope.track({
+            kind: "model",
+            label: `${language} model (${activeModelKey})`,
+            disposable: model,
+          });
           scope.track({
             kind: "editor",
             label: "Soroban contract editor",
             disposable: editor,
           });
 
-          if (viewStateKey) {
-            const persistedViewState = monacoViewStates.restore(viewStateKey);
-            if (persistedViewState) {
-              try {
-                editor.restoreViewState(
-                  persistedViewState as monaco.editor.ICodeEditorViewState,
-                );
-              } catch {}
-            }
+          const persistedViewState = monacoViewStates.restore(activeModelKey);
+          if (persistedViewState) {
+            try {
+              editor.restoreViewState(
+                persistedViewState as monaco.editor.ICodeEditorViewState,
+              );
+            } catch {}
           }
 
           setIsEditorReady(true);
@@ -287,11 +354,11 @@ export function useMonaco({
       disposed = true;
       if (cancel) cancel();
 
-      if (viewStateKey && editorRef.current) {
+      if (editorRef.current) {
         try {
           const snapshot = editorRef.current.saveViewState();
           if (snapshot) {
-            monacoViewStates.save(viewStateKey, snapshot);
+            monacoViewStates.save(activeModelKeyRef.current, snapshot);
           }
         } catch {}
       }
@@ -320,6 +387,8 @@ export function useMonaco({
 
       editorRef.current = null;
       modelRef.current = null;
+      modelsRef.current.clear();
+      scopeRef.current = null;
       workerRef.current = null;
       monacoRef.current = null;
       setIsEditorReady(false);
@@ -327,5 +396,55 @@ export function useMonaco({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { containerRef, isEditorReady };
+  useEffect(() => {
+    if (typeof vimMode === "boolean") {
+      setVimModeActive(vimMode);
+    }
+  }, [vimMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleVimModeChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ enabled: boolean }>;
+      if (typeof customEvent.detail?.enabled === "boolean") {
+        setVimModeActive(customEvent.detail.enabled);
+      }
+    };
+    window.addEventListener("soroban:vim-mode-change", handleVimModeChange);
+    return () => {
+      window.removeEventListener("soroban:vim-mode-change", handleVimModeChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!isEditorReady || !editor) return;
+
+    let vimAdapter: any = null;
+    let cancelled = false;
+
+    if (vimModeActive) {
+      import("monaco-vim")
+        .then(({ initVimMode }) => {
+          if (!cancelled && editorRef.current) {
+            vimAdapter = initVimMode(editorRef.current, null);
+          }
+        })
+        .catch((err) => {
+          console.warn("Could not initialize monaco-vim:", err);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+      if (vimAdapter) {
+        try {
+          vimAdapter.dispose();
+        } catch {}
+        vimAdapter = null;
+      }
+    };
+  }, [isEditorReady, vimModeActive]);
+
+  return { containerRef, isEditorReady, vimModeActive };
 }

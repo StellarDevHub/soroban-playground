@@ -2,12 +2,13 @@ import crypto from 'crypto';
 import {
   generateSignature,
   verifySignature,
+  generateTimestampedSignature,
+  verifyTimestampedSignature,
   retryDelayMs,
   nextAttemptAt,
   buildDeliveryHeaders,
   MAX_ATTEMPTS,
-  BASE_DELAY_MS,
-  MAX_DELAY_MS,
+  RETRY_DELAYS_MS,
   TIMEOUT_MS,
 } from '../src/services/webhookUtils.js';
 
@@ -76,23 +77,36 @@ describe('verifySignature', () => {
   });
 });
 
-// ── Exponential backoff ───────────────────────────────────────────────────────
+describe('timestamped signatures', () => {
+  const payload = '{"event":"signed"}';
+  const secret = 'timestamped-signature-secret';
+  const now = 1_753_401_600;
+
+  it('signs the timestamp and raw payload and verifies within the replay window', () => {
+    const signature = generateTimestampedSignature(payload, secret, now);
+    expect(signature).toMatch(/^t=\d+,v1=[a-f0-9]{64}$/);
+    expect(verifyTimestampedSignature(payload, secret, signature, now)).toBe(
+      true
+    );
+  });
+
+  it('rejects tampered payloads and stale timestamps', () => {
+    const signature = generateTimestampedSignature(payload, secret, now);
+    expect(
+      verifyTimestampedSignature('{"event":"tampered"}', secret, signature, now)
+    ).toBe(false);
+    expect(
+      verifyTimestampedSignature(payload, secret, signature, now + 301)
+    ).toBe(false);
+  });
+});
+
+// ── Retry schedule ────────────────────────────────────────────────────────────
 
 describe('retryDelayMs', () => {
-  it('starts at BASE_DELAY_MS on attempt 0', () => {
-    expect(retryDelayMs(0)).toBe(BASE_DELAY_MS);
-  });
-
-  it('doubles on each attempt', () => {
-    expect(retryDelayMs(1)).toBe(BASE_DELAY_MS * 2);
-    expect(retryDelayMs(2)).toBe(BASE_DELAY_MS * 4);
-    expect(retryDelayMs(3)).toBe(BASE_DELAY_MS * 8);
-    expect(retryDelayMs(4)).toBe(BASE_DELAY_MS * 16);
-  });
-
-  it('caps at MAX_DELAY_MS', () => {
-    expect(retryDelayMs(6)).toBe(MAX_DELAY_MS);
-    expect(retryDelayMs(20)).toBe(MAX_DELAY_MS);
+  it('uses the required 1m, 5m, 15m, and 1h retry schedule', () => {
+    expect([0, 1, 2, 3].map(retryDelayMs)).toEqual(RETRY_DELAYS_MS);
+    expect(retryDelayMs(4)).toBe(RETRY_DELAYS_MS[3]);
   });
 
   it('MAX_ATTEMPTS is 5', () => {
@@ -138,6 +152,19 @@ describe('buildDeliveryHeaders', () => {
   it('includes X-Playground-Signature as sha256=<hex>', () => {
     const headers = buildDeliveryHeaders(payload, secret, deliveryId);
     expect(headers['X-Playground-Signature']).toMatch(/^sha256=[a-f0-9]{64}$/);
+  });
+
+  it('includes a timestamped Stellar-Signature header', () => {
+    const headers = buildDeliveryHeaders(payload, secret, deliveryId, 123456);
+    expect(headers['Stellar-Signature']).toMatch(/^t=123456,v1=[a-f0-9]{64}$/);
+    expect(
+      verifyTimestampedSignature(
+        payload,
+        secret,
+        headers['Stellar-Signature'],
+        123456
+      )
+    ).toBe(true);
   });
 
   it('includes X-Playground-Delivery with the delivery ID', () => {

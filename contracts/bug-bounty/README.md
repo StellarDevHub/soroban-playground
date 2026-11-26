@@ -59,6 +59,35 @@ This contract manages the full lifecycle of a bug bounty programme:
 | `reward_for_severity(severity)` | Configured reward for a tier        |
 | `has_open_report(reporter)`     | Whether reporter has an open report |
 
+## Researcher Protections
+
+These guard against a sponsor cancelling or under-paying while valid reports are awaiting triage.
+
+> The contract keeps one shared reward pool (an accounting counter) rather than per-bounty escrows, so the protections apply to the program as a whole. There is no per-bounty `cancel_bounty`.
+
+### Escrow tier locks
+- `submit_report` escrows the report's severity tier out of the *available* pool (`pool_balance - locked_balance`). If the unlocked pool cannot cover the tier, submission fails with `InsufficientPool`, so every accepted report is payable.
+- The tier is a snapshot (`Report.locked_reward`): later `set_reward` calls cannot shrink or inflate the payout.
+- The lock is released when the report is accepted (paid from the pool), rejected or withdrawn. `locked_balance`, `available_balance` and `active_report_count` expose the state.
+
+### 30-day cancellation notice
+| Function | Who | Effect |
+|----------|-----|--------|
+| `request_cancellation` | admin | Starts the notice clock. Submissions stay open and still lock their tier. |
+| `abort_cancellation` | admin | Cancels the request; the clock resets. |
+| `execute_cancellation` | admin | After `CANCELLATION_NOTICE_SECS` (30 days) **and** with zero open reports, marks the program cancelled and releases the unlocked pool. Fails with `NoticePeriodActive` or `ActiveSubmissionsLocked` otherwise. |
+
+A cancelled program refuses new reports and funding (`ProgramCancelled`).
+
+### Triager arbitration of severity
+1. Admin sets a third-party triager with `set_triager`.
+2. For an open report the admin may `propose_severity` with a different severity. The report cannot be accepted (`SeverityProposalPending`) until the reporter answers.
+3. The reporter either `accept_proposal` (escrow re-locked to the new tier) or `dispute_severity` (needs a triager).
+4. While disputed, the admin can neither accept nor reject the report (`DisputeOpen`). Only the triager can `resolve_dispute` with a final severity, which re-locks the escrow; raising it needs unlocked pool funds.
+
+### Proof of prior art
+`attach_prior_art(reporter, report_id, commitment)` records a write-once 32-byte commitment (e.g. SHA-256 of the **encrypted** write-up) and the ledger timestamp. The plaintext and key never touch the chain. A second call fails with `PriorArtAlreadySet`; read it with `get_prior_art`.
+
 ## Security Patterns
 
 - **Checks-Effects-Interactions**: State is updated before any token transfer.

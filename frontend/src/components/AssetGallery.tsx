@@ -2,20 +2,24 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * AssetGallery – Issue #949
+ * AssetGallery – Issue #949 & [FRONTEND-290] #2060
  *
- * A responsive gallery component for displaying Soroban/Stellar asset cards.
+ * A high-performance, virtualized responsive gallery component for displaying Soroban/Stellar asset cards.
  * Features:
- *  - Display a list of asset items in a grid layout
+ *  - Virtualized grid layout with configurable item sizing and scroll windowing
+ *  - Progressive image loading with lightweight animated SVG shimmer placeholder
+ *  - Responsive WebP format preference via HTML5 <picture> and srcset
+ *  - Native lazy image decoding (loading="lazy", decoding="async")
+ *  - Graceful image error fallback to token symbol initials
  *  - Filter assets by search term (name / symbol / issuer)
  *  - Loading state via LoadingSkeleton
  *  - Error state with optional retry
  *  - Empty / no-results states
  *  - Item selection callback
- *  - Accessible markup (listbox / option roles)
+ *  - Accessible markup (listbox / option roles, aria-selected)
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useCallback } from "react";
 import LoadingSkeleton from "./LoadingSkeleton";
 
 // ---------------------------------------------------------------------------
@@ -66,13 +70,32 @@ export interface AssetGalleryProps {
   className?: string;
   /** Number of skeleton cards to show while loading. Defaults to 6. */
   skeletonCount?: number;
+  /** Enable virtual windowing for large asset collections. */
+  virtualized?: boolean;
+  /** Virtualized scroll viewport height in pixels (defaults to 600). */
+  viewportHeight?: number;
+  /** Estimated card height in pixels for virtualization (defaults to 180). */
+  estimatedCardHeight?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+export function toWebPUrl(url: string): string {
+  if (!url) return "";
+  if (url.endsWith(".webp")) return url;
+  if (/\.(png|jpg|jpeg)(\?.*)?$/i.test(url)) {
+    return url.replace(/\.(png|jpg|jpeg)(\?.*)?$/i, ".webp$2");
+  }
+  return `${url}${url.includes("?") ? "&" : "?"}format=webp`;
 }
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function AssetCard({
+export function AssetCard({
   asset,
   isSelected,
   onSelect,
@@ -81,6 +104,9 @@ function AssetCard({
   isSelected: boolean;
   onSelect?: (asset: AssetItem) => void;
 }): React.ReactElement {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
   const handleClick = (): void => onSelect?.(asset);
   const handleKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === "Enter" || e.key === " ") {
@@ -88,6 +114,8 @@ function AssetCard({
       onSelect?.(asset);
     }
   };
+
+  const webpUrl = asset.imageUrl ? toWebPUrl(asset.imageUrl) : undefined;
 
   return (
     <li
@@ -107,21 +135,59 @@ function AssetCard({
         flexDirection: "column",
         gap: "6px",
         outline: "none",
+        boxSizing: "border-box",
       }}
     >
-      {/* Logo */}
-      {asset.imageUrl ? (
-        <img
-          src={asset.imageUrl}
-          alt={`${asset.symbol} logo`}
-          data-testid={`asset-image-${asset.id}`}
-          style={{
-            width: "40px",
-            height: "40px",
-            borderRadius: "50%",
-            objectFit: "cover",
-          }}
-        />
+      {/* Logo with progressive SVG shimmer & WebP */}
+      {asset.imageUrl && !hasError ? (
+        <div
+          data-testid={`asset-image-container-${asset.id}`}
+          style={{ position: "relative", width: "40px", height: "40px", minWidth: "40px" }}
+        >
+          {!isLoaded && (
+            <svg
+              data-testid={`asset-shimmer-${asset.id}`}
+              width="40"
+              height="40"
+              viewBox="0 0 40 40"
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                borderRadius: "50%",
+                background: "#e2e8f0",
+              }}
+              aria-hidden="true"
+            >
+              <rect width="40" height="40" rx="20" fill="#e2e8f0" />
+              <rect width="20" height="40" rx="10" fill="#cbd5e1" opacity="0.6">
+                <animate attributeName="x" from="-20" to="40" dur="1.2s" repeatCount="indefinite" />
+              </rect>
+            </svg>
+          )}
+          <picture data-testid={`asset-picture-${asset.id}`}>
+            {webpUrl && <source srcSet={webpUrl} type="image/webp" />}
+            <img
+              src={asset.imageUrl}
+              alt={`${asset.symbol} logo`}
+              data-testid={`asset-image-${asset.id}`}
+              loading="lazy"
+              decoding="async"
+              data-loading="lazy"
+              onLoad={() => setIsLoaded(true)}
+              onError={() => setHasError(true)}
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                objectFit: "cover",
+                opacity: isLoaded ? 1 : 0.001,
+                transition: "opacity 0.2s ease-in-out",
+                display: "block",
+              }}
+            />
+          </picture>
+        </div>
       ) : (
         <span
           aria-hidden="true"
@@ -206,23 +272,56 @@ export function AssetGallery({
   emptyState,
   noResultsState,
   showSearch = true,
-  ariaLabel = "Asset gallery",
-  className = "",
+  ariaLabel = "Assets gallery",
+  className,
   skeletonCount = 6,
+  virtualized = false,
+  viewportHeight = 600,
+  estimatedCardHeight = 180,
 }: AssetGalleryProps): React.ReactElement {
   const [searchTerm, setSearchTerm] = useState("");
+  const [scrollTop, setScrollTop] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // --- Filter ---
+  // Filter assets
   const filtered = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return assets;
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return assets;
     return assets.filter(
       (a) =>
-        a.symbol.toLowerCase().includes(term) ||
-        a.name.toLowerCase().includes(term) ||
-        (a.issuer ?? "").toLowerCase().includes(term),
+        a.symbol.toLowerCase().includes(q) ||
+        a.name.toLowerCase().includes(q) ||
+        (a.issuer && a.issuer.toLowerCase().includes(q)),
     );
   }, [assets, searchTerm]);
+
+  // Virtual windowing calculations
+  const isVirtualizedActive = virtualized && filtered.length > 12;
+  const columnsCount = 3; // Standard grid columns
+  const rowCount = Math.ceil(filtered.length / columnsCount);
+  const totalHeight = rowCount * estimatedCardHeight;
+
+  const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+  }, []);
+
+  const visibleIndices = useMemo(() => {
+    if (!isVirtualizedActive) {
+      return { startRow: 0, endRow: rowCount };
+    }
+    const overscan = 2;
+    const startRow = Math.max(0, Math.floor(scrollTop / estimatedCardHeight) - overscan);
+    const visibleRowCount = Math.ceil(viewportHeight / estimatedCardHeight);
+    const endRow = Math.min(rowCount, startRow + visibleRowCount + overscan * 2);
+    return { startRow, endRow };
+  }, [isVirtualizedActive, rowCount, scrollTop, estimatedCardHeight, viewportHeight]);
+
+  const visibleAssets = useMemo(() => {
+    if (!isVirtualizedActive) return filtered;
+    const startIdx = visibleIndices.startRow * columnsCount;
+    const endIdx = Math.min(filtered.length, visibleIndices.endRow * columnsCount);
+    return filtered.slice(startIdx, endIdx);
+  }, [isVirtualizedActive, filtered, visibleIndices, columnsCount]);
 
   // --- Error state ---
   if (error) {
@@ -243,7 +342,6 @@ export function AssetGallery({
         isLoading={true}
         rows={skeletonCount}
         variant="card"
-        ariaLabel="Loading assets"
         className={className}
       />
     );
@@ -329,6 +427,53 @@ export function AssetGallery({
               No assets match your search.
             </p>
           )}
+        </div>
+      ) : isVirtualizedActive ? (
+        <div
+          ref={scrollContainerRef}
+          data-testid="asset-gallery-virtualized-container"
+          onScroll={onScroll}
+          style={{
+            height: `${viewportHeight}px`,
+            overflowY: "auto",
+            position: "relative",
+          }}
+        >
+          <div
+            style={{
+              height: `${totalHeight}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            <ul
+              role="listbox"
+              aria-label={ariaLabel}
+              data-testid="asset-gallery-list"
+              style={{
+                listStyle: "none",
+                margin: 0,
+                padding: 0,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                gap: "16px",
+                transform: `translateY(${visibleIndices.startRow * estimatedCardHeight}px)`,
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+              }}
+            >
+              {visibleAssets.map((asset) => (
+                <AssetCard
+                  key={asset.id}
+                  asset={asset}
+                  isSelected={selectedId === asset.id}
+                  onSelect={onSelect}
+                />
+              ))}
+            </ul>
+          </div>
         </div>
       ) : (
         <ul

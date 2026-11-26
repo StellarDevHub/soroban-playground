@@ -1,8 +1,12 @@
 #![no_std]
 
+#[path = "../../music-licensing/src/rights.rs"]
+pub mod rights;
 mod storage;
 mod types;
 
+#[cfg(test)]
+mod rights_test;
 #[cfg(test)]
 mod test;
 
@@ -11,7 +15,22 @@ use crate::storage::{
     set_license, set_revenue_share, set_song, set_usage_record,
 };
 use crate::types::{Error, License, RevenueShare, Song, Split, UsageRecord};
+use rights::{
+    allocate, transfer_payment, validate_metadata, validate_terms, LicenseKind, LicenseTerms,
+    MusicMetadata, RightsError, RoyaltyPayment,
+};
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
+
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RightsAgreement {
+    pub metadata: MusicMetadata,
+    pub terms: LicenseTerms,
+    pub payment_token: Address,
+    pub price: i128,
+    pub expires_at: u64,
+    pub purchased: bool,
+}
 
 /// Basis points for 100% (used for split validation)
 const TOTAL_SHARE_BASIS_POINTS: u32 = 10000;
@@ -52,6 +71,15 @@ impl MusicRoyalty {
     ) -> Result<(), Error> {
         artist.require_auth();
 
+        // Metadata-backed split tables cannot be replaced through the legacy API.
+        if env
+            .storage()
+            .persistent()
+            .has(&storage::DataKey::MusicMetadata(id.clone()))
+        {
+            return Err(Error::Unauthorized);
+        }
+
         if id.is_empty() || id.len() > MAX_SONG_ID_LENGTH {
             return Err(Error::InvalidSongId);
         }
@@ -79,6 +107,13 @@ impl MusicRoyalty {
     }
 
     pub fn distribute_royalty(env: Env, song_id: String, amount: i128) -> Result<(), Error> {
+        if env
+            .storage()
+            .persistent()
+            .has(&storage::DataKey::MusicMetadata(song_id.clone()))
+        {
+            return Err(Error::Unauthorized);
+        }
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
@@ -120,6 +155,13 @@ impl MusicRoyalty {
 
         // Verify song exists
         let _song = get_song(&env, song_id.clone()).ok_or(Error::SongNotFound)?;
+        if env
+            .storage()
+            .persistent()
+            .has(&storage::DataKey::MusicMetadata(song_id.clone()))
+        {
+            return Err(Error::Unauthorized);
+        }
 
         // Validate license parameters
         validate_license_params(&license_type, royalty_rate, duration_seconds)?;
@@ -170,6 +212,13 @@ impl MusicRoyalty {
         usage_count: u32,
         payment_amount: i128,
     ) -> Result<(), Error> {
+        if env
+            .storage()
+            .persistent()
+            .has(&storage::DataKey::MusicMetadata(song_id.clone()))
+        {
+            return Err(Error::Unauthorized);
+        }
         // Validate inputs
         if usage_count == 0 || payment_amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -278,6 +327,211 @@ impl MusicRoyalty {
         licensee: Address,
     ) -> Result<License, Error> {
         get_license(&env, song_id, licensee).ok_or(Error::LicenseNotFound)
+    }
+
+    pub fn register_song_with_metadata(
+        env: Env,
+        artist: Address,
+        id: String,
+        title: String,
+        metadata: MusicMetadata,
+    ) -> Result<(), RightsError> {
+        artist.require_auth();
+        if !is_initialized(&env) {
+            return Err(RightsError::NotInitialized);
+        }
+        validate_metadata(&metadata)?;
+        if get_song(&env, id.clone()).is_some() {
+            return Err(RightsError::AlreadyRegistered);
+        }
+        if id.is_empty() || id.len() > MAX_SONG_ID_LENGTH {
+            return Err(RightsError::InvalidSongId);
+        }
+        if title.is_empty() || title.len() > MAX_TITLE_LENGTH {
+            return Err(RightsError::InvalidTitle);
+        }
+        let mut splits = Vec::new(&env);
+        for publisher in metadata.publisher_splits.iter() {
+            splits.push_back(Split {
+                account: publisher.account,
+                share: publisher.share,
+            });
+        }
+        let song = Song {
+            id: id.clone(),
+            title,
+            artist,
+            splits,
+            total_royalty_earned: 0,
+        };
+        set_song(&env, id.clone(), &song);
+        env.storage()
+            .persistent()
+            .set(&storage::DataKey::MusicMetadata(id), &metadata);
+        Ok(())
+    }
+
+    pub fn get_music_metadata(env: Env, song_id: String) -> Result<MusicMetadata, RightsError> {
+        env.storage()
+            .persistent()
+            .get(&storage::DataKey::MusicMetadata(song_id))
+            .ok_or(RightsError::MetadataNotFound)
+    }
+
+    pub fn issue_rights_license(
+        env: Env,
+        artist: Address,
+        song_id: String,
+        licensee: Address,
+        terms: LicenseTerms,
+        payment_token: Address,
+        price: i128,
+    ) -> Result<(), RightsError> {
+        artist.require_auth();
+        let song = get_song(&env, song_id.clone()).ok_or(RightsError::MetadataNotFound)?;
+        if song.artist != artist {
+            return Err(RightsError::Unauthorized);
+        }
+        let metadata = Self::get_music_metadata(env.clone(), song_id.clone())?;
+        validate_terms(&terms)?;
+        if price <= 0 {
+            return Err(RightsError::InvalidAmount);
+        }
+        let key = storage::DataKey::RightsAgreement(song_id.clone(), licensee.clone());
+        if env.storage().persistent().has(&key) {
+            return Err(RightsError::AlreadyRegistered);
+        }
+        let now = env.ledger().timestamp();
+        let expires_at = now
+            .checked_add(terms.duration_seconds)
+            .ok_or(RightsError::Overflow)?;
+        // Revenue totals are keyed by song, so every offer must use the same
+        // asset. Pin it on the first valid issuance, before any payment.
+        let token_key = storage::DataKey::SongPaymentToken(song_id.clone());
+        if let Some(token) = Self::get_song_payment_token(env.clone(), song_id.clone()) {
+            if token != payment_token {
+                return Err(RightsError::PaymentTokenMismatch);
+            }
+        } else {
+            env.storage().persistent().set(&token_key, &payment_token);
+        }
+        let license_type = match &terms.kind {
+            LicenseKind::Sync => String::from_str(&env, "sync"),
+            LicenseKind::CommercialPerformance => {
+                String::from_str(&env, "commercial_public_performance")
+            }
+        };
+        // An issued offer becomes an active license only after payment.
+        set_license(
+            &env,
+            song_id.clone(),
+            licensee.clone(),
+            &License {
+                song_id: song_id.clone(),
+                licensee,
+                license_type,
+                royalty_rate: 0,
+                active: false,
+                created_at: now,
+                expires_at,
+            },
+        );
+        env.storage().persistent().set(
+            &key,
+            &RightsAgreement {
+                metadata,
+                terms,
+                payment_token,
+                price,
+                expires_at,
+                purchased: false,
+            },
+        );
+        Ok(())
+    }
+
+    /// Currency of the song's paid revenue; absent until the first valid offer.
+    pub fn get_song_payment_token(env: Env, song_id: String) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&storage::DataKey::SongPaymentToken(song_id))
+    }
+
+    pub fn get_rights_agreement(
+        env: Env,
+        song_id: String,
+        licensee: Address,
+    ) -> Result<RightsAgreement, RightsError> {
+        env.storage()
+            .persistent()
+            .get(&storage::DataKey::RightsAgreement(song_id, licensee))
+            .ok_or(RightsError::LicenseNotFound)
+    }
+
+    pub fn purchase_rights_license(
+        env: Env,
+        song_id: String,
+        licensee: Address,
+    ) -> Result<Vec<RoyaltyPayment>, RightsError> {
+        licensee.require_auth();
+        let mut agreement =
+            Self::get_rights_agreement(env.clone(), song_id.clone(), licensee.clone())?;
+        if agreement.purchased {
+            return Err(RightsError::AlreadyRegistered);
+        }
+        if env.ledger().timestamp() >= agreement.expires_at {
+            return Err(RightsError::LicenseExpired);
+        }
+        if Self::get_song_payment_token(env.clone(), song_id.clone())
+            != Some(agreement.payment_token.clone())
+        {
+            return Err(RightsError::PaymentTokenMismatch);
+        }
+        let mut song = get_song(&env, song_id.clone()).ok_or(RightsError::MetadataNotFound)?;
+        let payments = allocate(&env, &agreement.metadata.publisher_splits, agreement.price)?;
+        song.total_royalty_earned = song
+            .total_royalty_earned
+            .checked_add(agreement.price)
+            .ok_or(RightsError::Overflow)?;
+        let mut revenue = get_revenue_share(&env, song_id.clone()).unwrap_or(RevenueShare {
+            song_id: song_id.clone(),
+            total_revenue: 0,
+            distributed_revenue: 0,
+            pending_distribution: 0,
+            last_distribution_timestamp: 0,
+        });
+        revenue.total_revenue = revenue
+            .total_revenue
+            .checked_add(agreement.price)
+            .ok_or(RightsError::Overflow)?;
+        revenue.distributed_revenue = revenue
+            .distributed_revenue
+            .checked_add(agreement.price)
+            .ok_or(RightsError::Overflow)?;
+        revenue.last_distribution_timestamp = env.ledger().timestamp();
+        agreement.purchased = true;
+        env.storage().persistent().set(
+            &storage::DataKey::RightsAgreement(song_id.clone(), licensee.clone()),
+            &agreement,
+        );
+        set_song(&env, song_id.clone(), &song);
+        set_revenue_share(&env, song_id.clone(), &revenue);
+        let mut license = get_license(&env, song_id.clone(), licensee.clone())
+            .ok_or(RightsError::LicenseNotFound)?;
+        license.active = true;
+        set_license(&env, song_id.clone(), licensee.clone(), &license);
+        transfer_payment(
+            &env,
+            &agreement.payment_token,
+            &licensee,
+            agreement.price,
+            &payments,
+        )?;
+        env.events().publish(
+            (symbol_short!("purchase"),),
+            (song_id, licensee, agreement.price),
+        );
+        Ok(payments)
     }
 }
 

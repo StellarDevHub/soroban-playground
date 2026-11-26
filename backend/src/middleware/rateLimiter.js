@@ -3,10 +3,12 @@
 
 import crypto from 'crypto';
 import { LRUCache } from 'lru-cache';
+import { Keypair } from '@stellar/stellar-sdk';
 import redisService from '../services/redisService.js';
 import { getStrategy } from '../services/rateLimitStrategies.js';
 import { createHttpError } from './errorHandler.js';
 import { resolveClientIp } from './clientIp.js';
+import { verifyAccessToken } from './challengeAuth.js';
 import config from '../config/index.js';
 
 /**
@@ -67,6 +69,44 @@ export async function resolveRateLimitIdentity(req, options = {}) {
   const validateApiKey = options.validateApiKey || defaultApiKeyValidator;
   const ip = req.clientIp || resolveClientIp(req);
 
+  const userPublicKey = req.user?.publicKey || req.user?.sub;
+  if (typeof userPublicKey === 'string') {
+    try {
+      Keypair.fromPublicKey(userPublicKey);
+      return {
+        id: `stellar:${userPublicKey}`,
+        publicKey: userPublicKey,
+        tier: req.user.tier || 'free',
+        verified: true,
+        ip,
+      };
+    } catch {
+      // Ignore malformed user identities and continue with other credentials.
+    }
+  }
+
+  const authorization = req.headers?.authorization;
+  if (
+    typeof authorization === 'string' &&
+    authorization.startsWith('Bearer ')
+  ) {
+    try {
+      const payload = await verifyAccessToken(authorization.slice(7).trim());
+      if (typeof payload.sub === 'string') {
+        Keypair.fromPublicKey(payload.sub);
+        return {
+          id: `stellar:${payload.sub}`,
+          publicKey: payload.sub,
+          tier: payload.tier || 'free',
+          verified: true,
+          ip,
+        };
+      }
+    } catch {
+      // Invalid, revoked, or non-Stellar bearer tokens remain IP-limited.
+    }
+  }
+
   const rawKey = req.headers?.['x-api-key'];
   if (
     typeof rawKey === 'string' &&
@@ -84,7 +124,7 @@ export async function resolveRateLimitIdentity(req, options = {}) {
     }
   }
 
-  // req.user is only ever populated by our own auth middleware.
+  // Preserve identities populated by trusted non-Stellar auth middleware.
   if (req.user?.id !== undefined && req.user?.id !== null) {
     return {
       id: `user:${req.user.id}`,
@@ -124,18 +164,40 @@ export const rateLimiter = (options = {}) => {
     scope = 'default',
     applyTierMultiplier = true,
     validateApiKey,
+    internalServiceAccounts = process.env
+      .RATE_LIMIT_INTERNAL_SERVICE_ACCOUNTS || '',
   } = options;
 
   const strategy = getStrategy(strategyName);
+  const internalAccounts = new Set(
+    (Array.isArray(internalServiceAccounts)
+      ? internalServiceAccounts
+      : String(internalServiceAccounts).split(',')
+    )
+      .map((account) => account.trim())
+      .filter(Boolean)
+  );
 
   return async (req, res, next) => {
     let identity;
     try {
       identity = await resolveRateLimitIdentity(req, { validateApiKey });
-    } catch {
+    } catch (err) {
+      console.warn('[RateLimiter] Identity resolution failed:', err.message);
       const ip = req.clientIp || resolveClientIp(req);
       identity = { id: `ip:${ip}`, tier: 'anonymous', verified: false, ip };
     }
+
+    const baseLimit =
+      typeof limit === 'function' ? limit(req, identity) : limit;
+    const multiplier = applyTierMultiplier
+      ? (TIER_MULTIPLIERS[identity.tier] ?? 1)
+      : 1;
+    const requestLimit = Math.max(1, Math.floor(baseLimit * multiplier));
+    const requestWindowMs =
+      typeof windowMs === 'function' ? windowMs(req, identity) : windowMs;
+    const isInternalService =
+      identity.publicKey && internalAccounts.has(identity.publicKey);
 
     let id;
     if (identifier === 'ip') {
@@ -146,19 +208,28 @@ export const rateLimiter = (options = {}) => {
       id = identity.id;
     }
 
+    if (isInternalService) {
+      const resetTimestamp = Math.ceil((Date.now() + requestWindowMs) / 1000);
+      res.set({
+        'X-RateLimit-Limit': requestLimit,
+        'X-RateLimit-Remaining': requestLimit,
+        'X-RateLimit-Reset': String(resetTimestamp),
+        'Retry-After': '0',
+      });
+      req.rateLimit = {
+        scope,
+        tier: identity.tier,
+        limit: requestLimit,
+        remaining: requestLimit,
+        bypassed: true,
+      };
+      return next();
+    }
+
     const key = `ratelimit:${scope}:${id}`;
 
     try {
       const start = performance.now();
-      const baseLimit =
-        typeof limit === 'function' ? limit(req, identity) : limit;
-      const multiplier = applyTierMultiplier
-        ? (TIER_MULTIPLIERS[identity.tier] ?? 1)
-        : 1;
-      const requestLimit = Math.max(1, Math.floor(baseLimit * multiplier));
-      const requestWindowMs =
-        typeof windowMs === 'function' ? windowMs(req, identity) : windowMs;
-
       const result = await strategy.check(
         redisService,
         key,
@@ -172,10 +243,14 @@ export const rateLimiter = (options = {}) => {
         console.warn(`Rate limiter took ${duration.toFixed(2)}ms for ${key}`);
       }
 
-      const retryAfterSec =
-        result.retryAfter || Math.ceil(requestWindowMs / 1000);
+      const retryAfterSec = result.allowed
+        ? 0
+        : result.retryAfter || Math.ceil(requestWindowMs / 1000);
+      const resetAfterSec = result.allowed
+        ? Math.ceil(requestWindowMs / 1000)
+        : retryAfterSec;
       const resetTimestamp = Math.ceil(
-        (Date.now() + retryAfterSec * 1000) / 1000
+        (Date.now() + resetAfterSec * 1000) / 1000
       );
       const remaining = Math.max(0, requestLimit - (result.current || 0));
 
@@ -183,6 +258,7 @@ export const rateLimiter = (options = {}) => {
         'X-RateLimit-Limit': requestLimit,
         'X-RateLimit-Remaining': remaining,
         'X-RateLimit-Reset': String(resetTimestamp),
+        'Retry-After': String(retryAfterSec),
       });
       req.rateLimit = {
         scope,
@@ -192,8 +268,6 @@ export const rateLimiter = (options = {}) => {
       };
 
       if (!result.allowed) {
-        res.set('Retry-After', String(retryAfterSec));
-
         await redisService.logAnalytics(
           requestPath(req),
           identity.ip,
@@ -212,6 +286,16 @@ export const rateLimiter = (options = {}) => {
       next();
     } catch (err) {
       console.error('Rate Limiter Middleware Error:', err);
+      if (!req.rateLimit) {
+        res.set({
+          'X-RateLimit-Limit': requestLimit,
+          'X-RateLimit-Remaining': requestLimit,
+          'X-RateLimit-Reset': String(
+            Math.ceil((Date.now() + requestWindowMs) / 1000)
+          ),
+          'Retry-After': '0',
+        });
+      }
       next(); // Fail open to maintain availability during service failure
     }
   };

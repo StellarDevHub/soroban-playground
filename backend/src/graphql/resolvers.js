@@ -131,23 +131,22 @@ export const resolvers = {
 
     project: checkGraphQLPermission('project:read')(
       async (_parent, { id }, context) => {
-        const db = getDatabase();
-        const project = await db.get('SELECT * FROM projects WHERE id = ?', [
-          id,
-        ]);
+        const project = await context.loaders.project.load(id);
         if (!project) return null;
+
+        const creatorId =
+          project.creatorId !== undefined
+            ? project.creatorId
+            : project.creator_id;
 
         if (
           context.user.role !== 'admin' &&
-          project.creator_id !== context.user.id
+          creatorId !== context.user.id
         ) {
           throw new Error('Forbidden: You do not own this project');
         }
 
-        return {
-          ...project,
-          tags: project.tags ? JSON.parse(project.tags) : [],
-        };
+        return project;
       }
     ),
 

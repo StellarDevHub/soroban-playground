@@ -2,20 +2,68 @@
 // SPDX-License-Identifier: MIT
 
 import express from 'express';
-import { asyncHandler, createHttpError } from '../middleware/errorHandler.js';
+import { z } from 'zod';
+import { asyncHandler } from '../middleware/errorHandler.js';
 import { notaryRateLimiter } from '../middleware/notaryRateLimiter.js';
+import { validateZod } from '../middleware/validationMiddleware.js';
 import {
   notarizeFile,
   verifyFile,
   revokeNotarization,
   listNotarizations,
-  validateFileHash,
-  NotaryError,
 } from '../services/notaryService.js';
 
 const router = express.Router();
 
 const FILE_HASH_PARAM_REGEX = /^[0-9a-fA-F]{64}$/;
+
+const fileHashParamsSchema = z
+  .object({
+    fileHash: z
+      .string({
+        required_error: 'fileHash is required and must be a string',
+        invalid_type_error: 'fileHash is required and must be a string',
+      })
+      .regex(
+        FILE_HASH_PARAM_REGEX,
+        'fileHash must be a 64-character hex string'
+      ),
+  })
+  .strict();
+
+const notarizeBodySchema = z
+  .object({
+    fileHash: z
+      .string({
+        required_error: 'fileHash is required and must be a string',
+        invalid_type_error: 'fileHash is required and must be a string',
+      })
+      .regex(
+        FILE_HASH_PARAM_REGEX,
+        'fileHash must be a 64-character hex string'
+      ),
+    metadata: z
+      .string({
+        required_error: 'metadata is required and must be a string',
+        invalid_type_error: 'metadata is required and must be a string',
+      })
+      .min(1, 'metadata must not be empty')
+      .max(500, 'metadata must not exceed 500 characters'),
+    callerAddress: z.string().min(1).max(128).optional().default('anonymous'),
+  })
+  .strict();
+
+const revokeBodySchema = z
+  .object({
+    callerAddress: z
+      .string({
+        required_error: 'callerAddress is required',
+        invalid_type_error: 'callerAddress is required',
+      })
+      .min(1, 'callerAddress is required')
+      .max(128, 'callerAddress must not exceed 128 characters'),
+  })
+  .strict();
 
 /**
  * POST /api/notary/notarize
@@ -24,16 +72,9 @@ const FILE_HASH_PARAM_REGEX = /^[0-9a-fA-F]{64}$/;
 router.post(
   '/notarize',
   notaryRateLimiter,
+  validateZod({ body: notarizeBodySchema }, { detailFormat: 'messages' }),
   asyncHandler(async (req, res) => {
-    const { fileHash, metadata, callerAddress = 'anonymous' } = req.body;
-
-    if (!fileHash || typeof fileHash !== 'string') {
-      throw createHttpError(400, 'fileHash is required and must be a string');
-    }
-    if (!metadata || typeof metadata !== 'string') {
-      throw createHttpError(400, 'metadata is required and must be a string');
-    }
-
+    const { fileHash, metadata, callerAddress } = req.body;
     const result = await notarizeFile(fileHash, metadata, callerAddress);
     res.status(201).json({ success: true, data: result });
   })
@@ -44,13 +85,9 @@ router.post(
  */
 router.get(
   '/verify/:fileHash',
+  validateZod({ params: fileHashParamsSchema }, { detailFormat: 'messages' }),
   asyncHandler(async (req, res) => {
     const { fileHash } = req.params;
-    if (!FILE_HASH_PARAM_REGEX.test(fileHash)) {
-      throw createHttpError(400, 'Invalid fileHash', [
-        'fileHash must be a 64-char hex string',
-      ]);
-    }
     const record = await verifyFile(fileHash);
     res.json({ success: true, data: record });
   })
@@ -62,17 +99,13 @@ router.get(
  */
 router.delete(
   '/revoke/:fileHash',
+  validateZod(
+    { params: fileHashParamsSchema, body: revokeBodySchema },
+    { detailFormat: 'messages' }
+  ),
   asyncHandler(async (req, res) => {
     const { fileHash } = req.params;
-    if (!FILE_HASH_PARAM_REGEX.test(fileHash)) {
-      throw createHttpError(400, 'Invalid fileHash', [
-        'fileHash must be a 64-char hex string',
-      ]);
-    }
-    const { callerAddress } = req.body ?? {};
-    if (!callerAddress) {
-      throw createHttpError(400, 'callerAddress is required');
-    }
+    const { callerAddress } = req.body;
     await revokeNotarization(fileHash, callerAddress);
     res.json({ success: true });
   })

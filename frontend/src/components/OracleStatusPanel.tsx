@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 
 import { useOracleStatus, OracleProof } from "@/hooks/useOracleStatus";
+import { OracleStatusWidget } from "./OracleStatusWidget";
 
 function formatRelative(ts: number | null | undefined): string {
   if (!ts) return "—";
@@ -70,6 +71,8 @@ export function OracleStatusPanel() {
           {error}
         </div>
       )}
+
+      <OracleStatusWidget />
 
       <section>
         <h2 className="mb-2 text-base font-semibold text-gray-200">
@@ -191,4 +194,5 @@ export function OracleStatusPanel() {
   );
 }
 
+export { OracleStatusWidget };
 export default OracleStatusPanel;

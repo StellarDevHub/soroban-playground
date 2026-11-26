@@ -14,6 +14,7 @@ import {
   calculateQuorumProgress,
   calculateApprovalProgress,
   simulateProposalStateDiff,
+  calculateTreasuryImpact,
 } from '../../lib/gov/govMath.ts';
 import { INITIAL_GOVERNANCE_PROPOSALS } from '../../lib/gov/mockProposals.ts';
 
@@ -183,5 +184,34 @@ test('5. Sample Proposal Integrity', async (t) => {
     assert.ok(statuses.has('Passed'));
     assert.ok(statuses.has('Defeated'));
     assert.ok(statuses.has('Executed'));
+  });
+});
+
+test('6. Treasury Impact Simulation Dynamics', async (t) => {
+  await t.test('calculates accurate drawdown from proposal state diffs', () => {
+    const pip11 = INITIAL_GOVERNANCE_PROPOSALS.find((p) => p.id === 'PIP-11');
+    assert.ok(pip11);
+    const impact = calculateTreasuryImpact(pip11);
+    assert.equal(impact.baselineBalance, 25000000);
+    assert.equal(impact.simulatedBalance, 24500000);
+    assert.equal(impact.netDelta, -500000);
+    assert.equal(impact.deltaPct, -2);
+    assert.equal(impact.impactType, 'drawdown');
+  });
+
+  await t.test('calculates fee rate revenue percentage delta', () => {
+    const pip14 = INITIAL_GOVERNANCE_PROPOSALS.find((p) => p.id === 'PIP-14');
+    assert.ok(pip14);
+    const impact = calculateTreasuryImpact(pip14);
+    assert.equal(impact.impactType, 'fee_adjustment');
+    assert.equal(impact.deltaPct, -33.3);
+  });
+
+  await t.test('handles non-financial proposals as net neutral', () => {
+    const pip15 = INITIAL_GOVERNANCE_PROPOSALS.find((p) => p.id === 'PIP-15');
+    assert.ok(pip15);
+    const impact = calculateTreasuryImpact(pip15);
+    assert.equal(impact.impactType, 'neutral');
+    assert.equal(impact.netDelta, 0);
   });
 });

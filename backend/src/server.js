@@ -95,7 +95,7 @@ import { compressionMiddleware } from './middleware/compressionMiddleware.js';
 
 import applyDdosProtection from './middleware/ddosMitigation.js';
 
-import applySecurityHeaders from './middleware/securityHeaders.js';
+import applySecurityHeaders from './middleware/security.js';
 
 import feeEngineRoute from './routes/feeEngine.js';
 
@@ -159,12 +159,15 @@ import queuesRoute from './routes/queues.js';
 
 import rpcRoute from './routes/rpc.js';
 
+import ipfsRoute from './routes/ipfs.js';
+
 import { validateStartupEnv } from './config/envSchema.js';
 import {
   mountGrpcGateway,
   shutdownGrpcServer,
   startGrpcServer,
 } from './grpc/index.js';
+import { attachGracefulShutdown } from './cluster/clusterWorker.js';
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
@@ -245,6 +248,10 @@ export const acmeChallengeStore = attachAcmeHttp01(app);
 // Fallback to HTTP/1.1 if no certs are provided, otherwise HTTP/2 + TLS 1.3 via ALPN.
 server = createAlpnServer(app, hasCertificates ? httpsOptions : null);
 applyServerTuning(server);
+attachGracefulShutdown(server, {
+  drainTimeout: 15_000,
+  onShutdown: () => shutdown('CLUSTER_SHUTDOWN'),
+});
 let stopCertificateWatch = () => {};
 if (hasCertificates) {
   stopCertificateWatch = watchTlsCertificates(server, {
@@ -287,14 +294,6 @@ app.use(chaosInjector);
 // surfaces the trace ID at the HTTP layer.
 app.use(tracePropagationMiddleware());
 
-// Strict Transport Security (HSTS) headers
-app.use((req, res, next) => {
-  res.setHeader(
-    'Strict-Transport-Security',
-    'max-age=63072000; includeSubDomains; preload'
-  );
-  next();
-});
 
 // Latency tracking middleware
 app.use((req, res, next) => {
@@ -347,6 +346,7 @@ app.use('/api/service-registry', serviceRegistryRoute);
 app.use('/api/batch-submitter', batchSubmitterRoute);
 app.use('/api/queues', queuesRoute);
 app.use('/api/rpc', rpcRoute);
+app.use('/api/ipfs', ipfsRoute);
 app.use('/metrics', metricsRoute);
 
 const grpcEnabled = process.env.GRPC_ENABLED !== 'false';
@@ -427,6 +427,12 @@ async function start() {
 async function shutdown(signal) {
   console.log(`Received ${signal}, shutting down...`);
   try {
+    await new Promise((resolve) => {
+      server.close(() => {
+        console.log('Server stopped accepting connections.');
+        resolve();
+      });
+    });
     stopCertificateWatch();
     stopOriginCacheRefresh();
     stopCleanupWorker();
@@ -443,10 +449,8 @@ async function shutdown(signal) {
     await cacheInvalidator.stop();
     await shutdownQueues();
     await closeDatabase();
-    server.close(() => {
-      console.log('Server closed.');
-      process.exit(0);
-    });
+    console.log('Server closed.');
+    process.exit(0);
   } catch (err) {
     console.error('Error during shutdown:', err);
     process.exit(1);

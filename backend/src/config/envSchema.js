@@ -125,8 +125,13 @@ export const ENV_SCHEMA = z.object({
     .min(1)
     .default('https://soroban-testnet.stellar.org'),
   SOROBAN_RPC_FALLBACK_URLS: z.string().optional(),
+  SOROBAN_RPC_PUBLIC_URL: z.string().optional(),
+  QUICKNODE_RPC_URL: z.string().optional(),
+  BLOCKDAEMON_RPC_URL: z.string().optional(),
+  HORIZON_URLS: z.string().optional(),
   RPC_TIMEOUT_MS: intEnv(15_000),
   RPC_HEALTH_CHECK_INTERVAL_MS: intEnv(10_000),
+  RPC_MAX_LEDGER_LAG: intEnv(50),
   RPC_FAILURE_THRESHOLD: intEnv(3),
   RPC_RESET_TIMEOUT_MS: intEnv(30_000),
 
@@ -157,6 +162,7 @@ export const ENV_SCHEMA = z.object({
   GLOBAL_RATE_LIMIT_MAX: intEnv(60),
   COMPILE_RATE_LIMIT_MAX: intEnv(15),
   DEPLOY_RATE_LIMIT_MAX: intEnv(15),
+  RATE_LIMIT_INTERNAL_SERVICE_ACCOUNTS: z.string().optional(),
 
   // ─ Tracing ─────────────────────────────────────────────────────────────────
   TRACING_ENABLED: booleanEnv(false),
@@ -169,6 +175,15 @@ export const ENV_SCHEMA = z.object({
   BACKUP_ENABLED: booleanEnv(false),
   BACKUP_S3_BUCKET: z.string().optional(),
   BACKUP_ENCRYPTION_KEY: z.string().optional(),
+
+  // ─ Envelope Encryption (BACKEND-258) ───────────────────────────────────────
+  ENVELOPE_ENCRYPTION_KMS_PROVIDER: z
+    .enum(['aws', 'gcp', 'vault', 'local'])
+    .optional()
+    .default('local'),
+  ENVELOPE_ENCRYPTION_KEK_ID: z.string().optional(),
+  ENVELOPE_ENCRYPTION_DEK_ROTATION_DAYS: intEnv(90),
+  ENVELOPE_ENCRYPTION_ALGORITHM: z.literal('aes-256-gcm').default('aes-256-gcm'),
 });
 
 // ─── Validation result ────────────────────────────────────────────────────────
@@ -244,6 +259,12 @@ export function validateEnvSchema(
     if (rawEnv.BACKUP_ENABLED === 'true' && !rawEnv.BACKUP_ENCRYPTION_KEY) {
       errors.push(
         'BACKUP_ENCRYPTION_KEY is required when BACKUP_ENABLED=true (AES-256 hex key)'
+      );
+    }
+
+    if (rawEnv.ENVELOPE_ENCRYPTION_KMS_PROVIDER === 'local') {
+      warnings.push(
+        'ENVELOPE_ENCRYPTION_KMS_PROVIDER=local in production; KEK should be managed by AWS KMS, GCP KMS, or HashiCorp Vault'
       );
     }
   }

@@ -121,6 +121,19 @@ describe('processSyncBatch', () => {
       const result = await processSyncBatch([bad]);
       expect(result.errors).toHaveLength(1);
     });
+
+    it('rejects injected payload column names before executing a mutation', async () => {
+      const bad = {
+        ...VALID_ENTRY,
+        payload: { 'favorites) VALUES (1); DROP TABLE users; --': 'x' },
+      };
+
+      const result = await processSyncBatch([bad]);
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].reason).toMatch(/unsafe SQL column name/i);
+      expect(mockRun).not.toHaveBeenCalled();
+    });
   });
 
   describe('batch error reporting', () => {

@@ -5,6 +5,7 @@ import { AlbedoAdapter } from "./AlbedoAdapter";
 import { HanaAdapter } from "./HanaAdapter";
 import { WalletConnectAdapter } from "./WalletConnectAdapter";
 import { RangoAdapter, SorobanDevAdapter } from "./OtherAdapters";
+import { PasskeyAdapter } from "./PasskeyAdapter";
 
 export * from "./types";
 export * from "./FreighterAdapter";
@@ -13,6 +14,7 @@ export * from "./AlbedoAdapter";
 export * from "./HanaAdapter";
 export * from "./WalletConnectAdapter";
 export * from "./OtherAdapters";
+export * from "./PasskeyAdapter";
 
 class WalletAdapterRegistry {
   private adapters: Map<WalletType, WalletAdapter> = new Map();
@@ -25,6 +27,7 @@ class WalletAdapterRegistry {
     this.register(new WalletConnectAdapter());
     this.register(new RangoAdapter());
     this.register(new SorobanDevAdapter());
+    this.register(new PasskeyAdapter());
   }
 
   register(adapter: WalletAdapter) {

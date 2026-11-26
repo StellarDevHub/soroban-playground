@@ -12,6 +12,9 @@ import {
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5-minute replay window
 
+// Envelope encryption requirements (BACKEND-258): sessions must never reuse a static key.
+const MIN_SESSION_KEY_BYTES = 32; // AES-256 requires a 256-bit key
+
 // In-memory nonce store — production deployments should use Redis for multi-instance safety.
 const usedNonces = new Map();
 
@@ -87,6 +90,12 @@ export function createEncryptionMiddleware(options = {}) {
 
     try {
       const sessionKey = Buffer.from(sessionKeyHeader, 'base64');
+      if (sessionKey.length !== MIN_SESSION_KEY_BYTES) {
+        return res.status(400).json({
+          error: 'Invalid Session Key',
+          message: 'Session key must be a 256-bit AES-256-GCM key.',
+        });
+      }
       const bodyJson = JSON.stringify(req.body);
       const bodyHash = sha256Hex(bodyJson);
 

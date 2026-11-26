@@ -63,14 +63,34 @@ export function attachCacheInvalidationListener(handler) {
  */
 export function attachGracefulShutdown(
   httpServer,
-  { drainTimeout = 5000 } = {}
+  { drainTimeout = 15_000, onShutdown } = {}
 ) {
   if (!cluster.isWorker) return;
 
+  let isShuttingDown = false;
   process.on('message', (msg) => {
-    if (!msg || msg.type !== 'shutdown') return;
+    if (!msg || msg.type !== 'shutdown' || isShuttingDown) return;
+    isShuttingDown = true;
 
     log('Received shutdown signal. Draining connections...', 'warn');
+
+    if (onShutdown) {
+      const timer = setTimeout(() => {
+        log('Graceful shutdown timed out. Forcing worker exit.', 'error');
+        process.exit(1);
+      }, drainTimeout);
+      Promise.resolve(onShutdown())
+        .then(() => {
+          clearTimeout(timer);
+          process.exit(0);
+        })
+        .catch((error) => {
+          clearTimeout(timer);
+          log(`Graceful shutdown failed: ${error.message}`, 'error');
+          process.exit(1);
+        });
+      return;
+    }
 
     httpServer.close(() => {
       log('All connections drained. Worker exiting cleanly.');

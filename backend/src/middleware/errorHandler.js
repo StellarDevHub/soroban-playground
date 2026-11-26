@@ -2,7 +2,7 @@ import { alertManager } from '../utils/alerting.js';
 // - Standard JSON error format: { message, statusCode, details? }.
 // - Route handlers should throw/forward errors and let this middleware format the response.
 // - Unknown errors fall back to 500 with a safe default message.
-// - In production, internal 5xx details are hidden to avoid leaking implementation internals.
+// - Internal 5xx details are always hidden to avoid leaking implementation internals.
 // - Async route errors are captured via asyncHandler and forwarded to next(err).
 
 export class HttpError extends Error {
@@ -73,11 +73,11 @@ export function errorHandler(err, req, res, _next) {
     statusCode,
   };
 
-  if (err?.details !== undefined && !isProduction) {
+  if (err?.details !== undefined && !isProduction && !isInternalError) {
     payload.details = err.details;
   }
 
-  if (isInternalError && isProduction) {
+  if (isInternalError) {
     payload.message = 'Internal server error';
   }
 

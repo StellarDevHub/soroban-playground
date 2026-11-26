@@ -30,6 +30,10 @@ pub struct SwapResult {
     pub flash_loan_repaid: i128,
     pub initial_health_factor: i128,
     pub final_health_factor: i128,
+    /// Protocol switching fee charged on the DEX output (denominated in `to_collateral`).
+    pub switch_fee: i128,
+    /// Deviation (bps) between the DEX rate and the oracle-implied rate for the pair.
+    pub price_deviation_bps: i128,
 }
 
 #[contracterror]
@@ -46,4 +50,5 @@ pub enum Error {
     InsolventPosition = 8,
     InsufficientLendingCollateral = 9,
     DexSwapFailed = 10,
+    PriceDeviationExceeded = 11,
 }

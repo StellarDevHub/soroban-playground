@@ -23,9 +23,13 @@
 import React, { useCallback, useMemo, useState } from "react";
 import CommandPalette from "@/components/CommandPalette";
 import SpotlightModal from "@/components/CommandPalette/SpotlightModal";
+import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
-import type { PaletteAction } from "@/lib/commandRegistry";
+import {
+  BUILTIN_PALETTE_ACTIONS,
+  type PaletteAction,
+} from "@/lib/commandRegistry";
 import type { SpotlightAction } from "@/lib/spotlightRegistry";
 
 /** Elements that own the keyboard while the user is typing in them. */
@@ -55,10 +59,10 @@ export function CommandPaletteProvider({
   const [open, setOpen] = useState(false);
   /** Spotlight-style palette (#1725) — the Cmd/Ctrl+K surface. */
   const [spotlightOpen, setSpotlightOpen] = useState(false);
+  /** Keyboard shortcuts customizer modal (#2077). */
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const { state: theme, toggle: toggleTheme } = useTheme();
   const { flush, queuedCount, isOnline, status } = useOffline();
-
-  const close = useCallback(() => setOpen(false), []);
 
   // The two palettes are mutually exclusive: whichever opens first wins, so
   // their focus traps never overlap.
@@ -69,6 +73,7 @@ export function CommandPaletteProvider({
 
   const actions = useMemo<PaletteAction[]>(() => {
     const list: PaletteAction[] = [
+      ...BUILTIN_PALETTE_ACTIONS,
       {
         id: "theme.toggle",
         label: theme.mode === "dark" ? "Switch to light theme" : "Switch to dark theme",
@@ -98,6 +103,18 @@ export function CommandPaletteProvider({
         keywords: ["offline", "online", "connection", "network", "status"],
         run: () => setOpen(false),
       },
+      {
+        id: "settings.shortcuts",
+        label: "Keyboard Shortcuts Customizer",
+        description: "Configure keymap presets, remap hotkeys, and toggle Vim editing",
+        keywords: ["shortcuts", "hotkeys", "keymap", "vim", "sublime", "vscode", "rebind", "keys"],
+        shortcut: "Mod+/",
+        run: () => {
+          setOpen(false);
+          setSpotlightOpen(false);
+          setShortcutsModalOpen(true);
+        },
+      },
     ];
 
     if (onResetWorkspace) {
@@ -119,7 +136,12 @@ export function CommandPaletteProvider({
   const spotlightShellActions = useMemo<SpotlightAction[]>(
     () =>
       actions
-        .filter((action) => action.id !== "theme.toggle")
+        .filter(
+          (action) =>
+            action.id !== "theme.toggle" &&
+            action.id !== "build.compile" &&
+            action.id !== "deploy.artifact",
+        )
         .map((action) => ({
           id: action.id,
           title: action.label,
@@ -132,9 +154,17 @@ export function CommandPaletteProvider({
   );
 
   // Cmd/Ctrl+K is bound by SpotlightModal itself (#1725). The provider keeps
-  // only bare "/" — a familiar "search" affordance, but only outside a field.
+  // bare "/" for quick search outside fields, and Mod+/ (or ?) for shortcut help.
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.key === "/" && (event.metaKey || event.ctrlKey)) || (event.key === "?" && !isTypingTarget(event.target))) {
+        event.preventDefault();
+        setOpen(false);
+        setSpotlightOpen(false);
+        setShortcutsModalOpen((prev) => !prev);
+        return;
+      }
+
       if (event.key === "/" && !isTypingTarget(event.target)) {
         event.preventDefault();
         setSpotlightOpen(false);
@@ -172,6 +202,11 @@ export function CommandPaletteProvider({
         onOpenChange={onSpotlightOpenChange}
         actions={spotlightShellActions}
         onOpenClassicPalette={() => setOpen(true)}
+      />
+      {/* #2077 — Keyboard shortcuts customizer modal */}
+      <KeyboardShortcutsModal
+        isOpen={shortcutsModalOpen}
+        onClose={() => setShortcutsModalOpen(false)}
       />
     </>
   );

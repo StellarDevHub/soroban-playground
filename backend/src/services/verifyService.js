@@ -9,10 +9,18 @@ const { StrKey } = StellarSdk;
 const SorobanRpc = StellarSdk.rpc || StellarSdk.SorobanRpc;
 import DatabaseService from './databaseService.js';
 import { compileQueued } from './compileService.js';
+import {
+  compileDeterministic,
+  resolveBuildEnvironment,
+  verifySorobanSpecAndMetadata,
+  DeterministicCompileError,
+} from './compiler/compilerService.js';
 import { sanitizeDependenciesInput } from '../routes/compile_utils.js';
 
 const CONTRACT_ID_REGEX = /^C[A-Z0-9]{55}$/;
 const HASH_REGEX = /^[a-f0-9]{64}$/i;
+const NETWORK_REGEX = /^[a-z0-9_-]{1,32}$/i;
+const ALLOWED_STATUSES = new Set(['pending', 'verified', 'mismatch', 'failed']);
 const DEFAULT_MAX_SOURCE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_WASM_BYTES = 20 * 1024 * 1024;
 const DEFAULT_NETWORK = 'testnet';
@@ -26,7 +34,7 @@ const CREATE_TABLE_SQL = `
     network TEXT NOT NULL,
     source_code TEXT NOT NULL,
     source_hash TEXT NOT NULL,
-    dependencies TEXT NOT NULL DEFAULT {}',
+    dependencies TEXT NOT NULL DEFAULT '{}',
     metadata TEXT NOT NULL DEFAULT '{}',
     wasm_hash TEXT,
     on_chain_wasm_hash TEXT,
@@ -197,8 +205,34 @@ function mapRow(row) {
   };
 }
 
+function validateNetwork(network) {
+  if (typeof network !== 'string' || !NETWORK_REGEX.test(network.trim())) {
+    throw new VerificationError(
+      400,
+      'INVALID_NETWORK',
+      'network must be an alphanumeric identifier'
+    );
+  }
+  return network.trim().toLowerCase();
+}
+
+function validateStatus(status) {
+  if (typeof status !== 'string' || !ALLOWED_STATUSES.has(status)) {
+    throw new VerificationError(
+      400,
+      'INVALID_STATUS',
+      `status must be one of: ${[...ALLOWED_STATUSES].join(', ')}`
+    );
+  }
+  return status;
+}
+
 function publicRecord(record) {
-  return clone(record);
+  const copy = clone(record);
+  if (copy && typeof copy === 'object') {
+    delete copy.sourceCode;
+  }
+  return copy;
 }
 
 function getRpcUrl(network) {
@@ -219,6 +253,10 @@ export class VerifyService {
   constructor(options = {}) {
     this.db = options.db || new DatabaseService();
     this.compile = options.compile || compileQueued;
+    this.compileDeterministic =
+      options.compileDeterministic || compileDeterministic;
+    this.useDeterministicCompiler =
+      options.useDeterministicCompiler ?? options.compile === undefined;
     this.rpcClientFactory = options.rpcClientFactory;
     this.fetchOnChainWasm = options.fetchOnChainWasm;
     this.readFile = options.readFile || fs.readFile;
@@ -269,7 +307,7 @@ export class VerifyService {
       `INSERT INTO ${TABLE_NAME}
        (id, contract_id, network, source_code, source_hash, dependencies, metadata,
         status, created_at, updated_at)
-       VALUES (?, , ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         record.id,
         record.contractId,
@@ -410,38 +448,79 @@ export class VerifyService {
     sourceCode,
     dependencies,
     metadata,
+    buildEnv,
     wasm,
   }) {
+    let resolvedBuildEnv;
+    try {
+      resolvedBuildEnv = resolveBuildEnvironment(buildEnv);
+    } catch (error) {
+      if (error instanceof DeterministicCompileError) {
+        throw new VerificationError(400, error.code, error.message, error.details);
+      }
+      throw error;
+    }
+
     let compiledWasm = wasm;
     let compileLogs = [];
 
     if (!compiledWasm) {
-      let compileResult;
-      try {
-        compileResult = await this.compile({
-          requestId: `verify-${Date.now()}`,
-          code: sourceCode,
-          dependencies,
-        });
-      } catch (error) {
-        throw new VerificationError(
-          422,
-          'COMPILATION_FAILED',
-          `Source compilation failed: ${error.message}`
-        );
-      }
+      if (this.useDeterministicCompiler) {
+        let detResult;
+        try {
+          detResult = await this.compileDeterministic({
+            code: sourceCode,
+            dependencies,
+            buildEnv: resolvedBuildEnv,
+          });
+        } catch (error) {
+          throw new VerificationError(
+            422,
+            'COMPILATION_FAILED',
+            `Source compilation failed: ${error.message}`
+          );
+        }
 
-      if (!compileResult?.success || !compileResult.artifact?.path) {
-        throw new VerificationError(
-          422,
-          'COMPILATION_FAILED',
-          'Source compilation did not produce a WASM artifact',
-          { logs: compileResult?.logs || [] }
-        );
-      }
+        if (!detResult?.success || !detResult.wasmBytes) {
+          throw new VerificationError(
+            422,
+            'COMPILATION_FAILED',
+            'Source compilation did not produce a WASM artifact',
+            { logs: detResult?.logs || [] }
+          );
+        }
 
-      compileLogs = compileResult.logs || [];
-      compiledWasm = await this.readFile(compileResult.artifact.path);
+        compileLogs = detResult.logs || [];
+        compiledWasm = detResult.wasmBytes;
+      } else {
+        let compileResult;
+        try {
+          compileResult = await this.compile({
+            requestId: `verify-${Date.now()}`,
+            code: sourceCode,
+            dependencies,
+            buildEnv: resolvedBuildEnv,
+          });
+        } catch (error) {
+          throw new VerificationError(
+            422,
+            'COMPILATION_FAILED',
+            `Source compilation failed: ${error.message}`
+          );
+        }
+
+        if (!compileResult?.success || !compileResult.artifact?.path) {
+          throw new VerificationError(
+            422,
+            'COMPILATION_FAILED',
+            'Source compilation did not produce a WASM artifact',
+            { logs: compileResult?.logs || [] }
+          );
+        }
+
+        compileLogs = compileResult.logs || [];
+        compiledWasm = await this.readFile(compileResult.artifact.path);
+      }
     }
 
     validateWasmSize(compiledWasm, this.maxWasmBytes);
@@ -451,7 +530,11 @@ export class VerifyService {
     validateWasmSize(onChainWasm, this.maxWasmBytes);
     const onChainWasmHash = hashWasm(onChainWasm);
 
-    const match = localWasmHash === onChainWasmHash;
+    const specVerification = verifySorobanSpecAndMetadata(
+      compiledWasm,
+      onChainWasm
+    );
+    const match = localWasmHash === onChainWasmHash && specVerification.matched;
     const now = this.now();
 
     return {
@@ -461,6 +544,7 @@ export class VerifyService {
       wasmHash: localWasmHash,
       onChainWasmHash,
       match,
+      verified: match,
       status: match ? 'verified' : 'mismatch',
       error: match
         ? null
@@ -469,26 +553,60 @@ export class VerifyService {
             message: 'Compiled WASM hash does not match the on-chain WASM hash',
           },
       dependencies,
-      metadata,
+      metadata: {
+        ...metadata,
+        buildEnv: {
+          rustcVersion: resolvedBuildEnv.rustcVersion,
+          sorobanSdkVersion: resolvedBuildEnv.sorobanSdkVersion,
+          dockerImage: resolvedBuildEnv.dockerImage,
+          optLevel: resolvedBuildEnv.profile.optLevel,
+        },
+        sorobanSpec: specVerification,
+      },
+      specVerification,
       compileLogs,
       updatedAt: now,
       verifiedAt: match ? now : null,
     };
   }
 
+  async verifyContract(input) {
+    return this.submitVerification(input);
+  }
+
   async submitVerification(input) {
     const contractId = validateContractId(input.contractId);
-    const network = input.network || DEFAULT_NETWORK;
+    const network = validateNetwork(input.network || DEFAULT_NETWORK);
     const sourceCode = input.sourceCode;
     validateSource(sourceCode, this.maxSourceBytes);
 
-    const dependencies = sanitizeDependenciesInput(input.dependencies || {});
+    const depResult = sanitizeDependenciesInput(input.dependencies || {});
+    if (!depResult.ok) {
+      throw new VerificationError(
+        400,
+        'INVALID_DEPENDENCIES',
+        depResult.error || 'Invalid dependencies',
+        depResult.details
+      );
+    }
+    const dependencies = depResult.deps;
     const metadata = input.metadata || {};
     validatePlainObject(metadata, 'metadata');
 
     await this.ensureTable();
 
-    const id = crypto.randomUUID();
+    let id = crypto.randomUUID();
+    if (typeof input.id === 'string' && input.id.trim().length > 0) {
+      const candidateId = input.id.trim();
+      const existing = await this.db.get(
+        `SELECT * FROM ${TABLE_NAME} WHERE id = ?`,
+        [candidateId]
+      );
+      if (!existing) {
+        id = candidateId;
+      }
+    }
+
     const createdAt = this.now();
     const record = {
       id,
@@ -511,6 +629,7 @@ export class VerifyService {
         sourceCode,
         dependencies,
         metadata,
+        buildEnv: input.buildEnv,
         wasm,
       });
       await this.updateResult(id, result);
@@ -596,7 +715,13 @@ export class VerifyService {
     };
   }
 
-  async listVerifications({ contractId, network, status, limit = 50 } = {}) {
+  async listVerifications({
+    contractId,
+    network,
+    status,
+    limit = 50,
+    offset = 0,
+  } = {}) {
     await this.ensureTable();
     const clauses = [];
     const params = [];
@@ -606,17 +731,19 @@ export class VerifyService {
     }
     if (network) {
       clauses.push('network = ?');
-      params.push(network);
+      params.push(validateNetwork(network));
     }
     if (status) {
       clauses.push('status = ?');
-      params.push(status);
+      params.push(validateStatus(status));
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const safeOffset = Math.max(Number(offset) || 0, 0);
     const rows = await this.db.all(
       `SELECT * FROM ${TABLE_NAME} ${where} ORDER BY
-       updated_at DESC LIMIT ?`,
-      [...params, Math.min(Math.max(limit, 1), 200)]
+       updated_at DESC LIMIT ? OFFSET ?`,
+      [...params, safeLimit, safeOffset]
     );
     return rows.map((row) => publicRecord(mapRow(row)));
   }
