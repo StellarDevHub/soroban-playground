@@ -1,0 +1,23 @@
+# GitHub Code Owners Configuration
+# Critical security, CI/CD, smart contracts, and auth paths require explicit review
+# from the repository administrator before merging.
+
+* @ayomideadeniran
+
+# CI/CD Workflows & Security Gates
+.github/ @ayomideadeniran
+.github/workflows/ @ayomideadeniran
+
+# Smart Contracts & Core Logic
+contracts/ @ayomideadeniran
+
+# Backend Security, Auth, Database Migrations & Config
+backend/src/middleware/ @ayomideadeniran
+backend/src/config/ @ayomideadeniran
+backend/src/database/migrations/ @ayomideadeniran
+backend/src/services/signatureValidationService.js @ayomideadeniran
+backend/src/services/backupService.js @ayomideadeniran
+
+# Frontend Wallet & Authentication Core
+frontend/src/context/ @ayomideadeniran
+frontend/src/hooks/useWallet.ts @ayomideadeniran
