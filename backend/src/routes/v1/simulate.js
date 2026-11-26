@@ -12,7 +12,9 @@ export { runSimulation };
 
 router.post(
   '/fee',
-  rateLimitMiddleware('read'),
+  rateLimitMiddleware('read', {
+    requiredScope: 'contracts:read',
+  }),
   asyncHandler(async (req, res, next) => {
     const { transactionXdr, transaction, network = 'testnet' } = req.body || {};
     const xdrToSimulate = transactionXdr || transaction;
@@ -45,7 +47,9 @@ router.post(
 // gas visualizer breakdown and diagnostics for a transaction.
 router.post(
   '/pre-flight',
-  rateLimitMiddleware('read'),
+  rateLimitMiddleware('read', {
+    requiredScope: 'contracts:read',
+  }),
   asyncHandler(async (req, res, next) => {
     const { transactionXdr, transaction, network = 'testnet' } = req.body || {};
     const xdrToSimulate = transactionXdr || transaction;

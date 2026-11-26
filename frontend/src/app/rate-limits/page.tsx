@@ -6,24 +6,27 @@ import { rateLimitTracker } from "../../lib/rateLimitTracker";
 import {
   ActivitySquare,
   AlertTriangle,
-  BarChart3,
   Copy,
-  Eye,
-  EyeOff,
   Key,
   Plus,
   RefreshCw,
   Trash2,
   TrendingUp,
-  Clock,
   CheckCircle,
-  XCircle,
 } from "lucide-react";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   "https://soroban-playground.onrender.com";
+
+const API_KEY_SCOPES = [
+  "contracts:read",
+  "contracts:compile",
+  "contracts:deploy",
+] as const;
+
+type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
 interface ApiKey {
   id: number;
@@ -32,6 +35,10 @@ interface ApiKey {
   description?: string;
   tier: "free" | "standard" | "premium" | "admin";
   status: "active" | "revoked" | "expired";
+  scopes: ApiKeyScope[];
+  rotationGroupId?: string | null;
+  rotationRole?: "standalone" | "predecessor" | "successor";
+  rotationCutoffAt?: string | null;
   createdAt: string;
   expiresAt?: string;
   lastUsedAt?: string;
@@ -58,6 +65,12 @@ interface GeneratedKey {
   name: string;
   tier: string;
   status: string;
+  scopes: ApiKeyScope[];
+  rotation?: {
+    groupId: string;
+    previousKeyId: number;
+    cutoffAt: string;
+  };
 }
 
 const TierColors = {
@@ -72,14 +85,19 @@ export default function RateLimitsPage() {
   const [selectedKey, setSelectedKey] = useState<ApiKey | null>(null);
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [showNewKeyForm, setShowNewKeyForm] = useState(false);
-  const [showRevealedKey, setShowRevealedKey] = useState<string | null>(null);
   const [generatedKey, setGeneratedKey] = useState<GeneratedKey | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    name: string;
+    description: string;
+    tier: "free" | "standard" | "premium" | "admin";
+    scopes: ApiKeyScope[];
+  }>({
     name: "",
     description: "",
-    tier: "free" as const,
+    tier: "free",
+    scopes: [...API_KEY_SCOPES],
   });
 
   // Fetch API keys
@@ -147,7 +165,12 @@ export default function RateLimitsPage() {
       if (response.ok) {
         const data = await response.json();
         setGeneratedKey(data);
-        setFormData({ name: "", description: "", tier: "free" });
+        setFormData({
+          name: "",
+          description: "",
+          tier: "free",
+          scopes: [...API_KEY_SCOPES],
+        });
         fetchApiKeys();
       }
     } catch (err) {
@@ -180,6 +203,41 @@ export default function RateLimitsPage() {
     } catch (err) {
       setError("Failed to revoke API key");
       console.error(err);
+    }
+  };
+
+  const handleRotateKey = async (key: ApiKey) => {
+    if (
+      !confirm(
+        `Rotate "${key.name}"? Both keys stay active during the overlap window.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      setLoading(true);
+      const response = await fetch(
+        `${API_BASE_URL}/api/admin/api-keys/${key.id}/rotate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ overlapSeconds: 300 }),
+        },
+      );
+      const data = await response.json();
+      if (response.ok) {
+        setGeneratedKey(data);
+        setSelectedKey(null);
+        setUsageStats(null);
+        fetchApiKeys();
+      } else {
+        setError(data.error || "Failed to rotate API key");
+      }
+    } catch (err) {
+      setError("Failed to rotate API key");
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -239,7 +297,7 @@ export default function RateLimitsPage() {
               </button>
             </div>
             <p className="text-gray-300 mb-3 text-sm">
-              Save this key securely. You won't be able to view it again!
+              Save this key securely. You won&apos;t be able to view it again!
             </p>
             <div className="bg-slate-800 p-4 rounded border border-green-500/30 flex items-center justify-between mb-4">
               <code className="text-green-400 font-mono text-sm break-all">
@@ -265,6 +323,20 @@ export default function RateLimitsPage() {
                   {generatedKey.tier}
                 </span>
               </div>
+              <div>
+                <p className="text-gray-400">Scopes:</p>
+                <p className="text-white font-mono text-xs mt-1">
+                  {generatedKey.scopes?.join(", ") || "none"}
+                </p>
+              </div>
+              {generatedKey.rotation && (
+                <div>
+                  <p className="text-gray-400">Rotation cutoff:</p>
+                  <p className="text-white font-mono text-xs mt-1">
+                    {new Date(generatedKey.rotation.cutoffAt).toLocaleString()}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -312,7 +384,10 @@ export default function RateLimitsPage() {
                 <select
                   value={formData.tier}
                   onChange={(e) =>
-                    setFormData({ ...formData, tier: e.target.value as any })
+                    setFormData({
+                      ...formData,
+                      tier: e.target.value as ApiKey["tier"],
+                    })
                   }
                   className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white focus:outline-none focus:border-blue-500"
                 >
@@ -321,6 +396,34 @@ export default function RateLimitsPage() {
                   <option value="premium">Premium (1000 req/min)</option>
                   <option value="admin">Admin (10000 req/min)</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Scopes
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {API_KEY_SCOPES.map((scope) => (
+                    <label
+                      key={scope}
+                      className="flex items-center gap-2 px-3 py-2 bg-slate-700 border border-slate-600 rounded text-sm text-gray-200"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={formData.scopes.includes(scope)}
+                        onChange={(e) =>
+                          setFormData((current) => ({
+                            ...current,
+                            scopes: e.target.checked
+                              ? [...current.scopes, scope]
+                              : current.scopes.filter((item) => item !== scope),
+                          }))
+                        }
+                        className="rounded border-slate-500 bg-slate-800"
+                      />
+                      <span className="font-mono text-xs">{scope}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="flex gap-3 pt-4">
                 <button
@@ -431,12 +534,22 @@ export default function RateLimitsPage() {
                         </p>
                       )}
                     </div>
-                    <button
-                      onClick={() => handleRevokeKey(selectedKey.id)}
-                      className="p-2 hover:bg-red-600/20 rounded transition text-red-400 hover:text-red-300"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleRotateKey(selectedKey)}
+                        disabled={selectedKey.status !== "active" || loading}
+                        aria-label="Rotate API key"
+                        className="p-2 hover:bg-blue-600/20 rounded transition text-blue-400 hover:text-blue-300 disabled:opacity-40"
+                      >
+                        <RefreshCw className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => handleRevokeKey(selectedKey.id)}
+                        className="p-2 hover:bg-red-600/20 rounded transition text-red-400 hover:text-red-300"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -483,6 +596,27 @@ export default function RateLimitsPage() {
                         {new Date(selectedKey.createdAt).toLocaleDateString()}
                       </p>
                     </div>
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">
+                        Scopes
+                      </p>
+                      <p className="text-sm font-mono text-gray-300 mt-2">
+                        {selectedKey.scopes?.join(", ") || "none"}
+                      </p>
+                    </div>
+                    {selectedKey.rotationGroupId && (
+                      <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wide">
+                          Rotation
+                        </p>
+                        <p className="text-sm font-mono text-gray-300 mt-2">
+                          {selectedKey.rotationRole}
+                          {selectedKey.rotationCutoffAt
+                            ? ` · until ${new Date(selectedKey.rotationCutoffAt).toLocaleString()}`
+                            : ""}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 

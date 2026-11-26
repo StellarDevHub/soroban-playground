@@ -12,6 +12,7 @@ import {
   deployContract,
 } from '../../services/deployService.js';
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
+import { requireApiKeyScope } from '../../middleware/apiKeyScope.js';
 import { validateRequest } from '../../middleware/validation.js';
 import {
   deployBodyV1,
@@ -23,7 +24,9 @@ const router = express.Router();
 
 router.post(
   '/preflight',
-  rateLimitMiddleware('deploy'),
+  rateLimitMiddleware('deploy', {
+    requiredScope: 'contracts:deploy',
+  }),
   validateRequest({ body: deployBodyV1 }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     try {
@@ -46,7 +49,9 @@ router.post(
 
 router.post(
   '/',
-  rateLimitMiddleware('deploy'),
+  rateLimitMiddleware('deploy', {
+    requiredScope: 'contracts:deploy',
+  }),
   validateRequest({ body: deployBodyV1 }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     const {
@@ -105,7 +110,9 @@ router.post(
 
 router.post(
   '/batch',
-  rateLimitMiddleware('deploy'),
+  rateLimitMiddleware('deploy', {
+    requiredScope: 'contracts:deploy',
+  }),
   validateRequest({ body: deployBatchBodyV1 }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     const controller = new AbortController();
@@ -135,7 +142,9 @@ const inMemoryDeployJobs = new Map();
 
 router.post(
   '/async',
-  rateLimitMiddleware('deploy'),
+  rateLimitMiddleware('deploy', {
+    requiredScope: 'contracts:deploy',
+  }),
   validateRequest({ body: deployBodyV1 }, { format: 'httpError' }),
   asyncHandler(async (req, res) => {
     const {
@@ -187,6 +196,7 @@ router.post(
 
 router.get(
   '/job/:jobId',
+  requireApiKeyScope('contracts:deploy'),
   validateRequest({ params: jobIdParams }, { format: 'httpError' }),
   asyncHandler(async (req, res) => {
     const { jobId } = req.params;

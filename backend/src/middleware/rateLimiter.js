@@ -1,15 +1,21 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-import crypto from 'crypto';
-import { LRUCache } from 'lru-cache';
 import { Keypair } from '@stellar/stellar-sdk';
 import redisService from '../services/redisService.js';
 import { getStrategy } from '../services/rateLimitStrategies.js';
 import { createHttpError } from './errorHandler.js';
 import { resolveClientIp } from './clientIp.js';
 import { verifyAccessToken } from './challengeAuth.js';
+import { hasApiKeyScope } from '../services/apiKeyService.js';
+import {
+  apiKeyCache,
+  cacheKeyForApiKey,
+  clearApiKeyCache,
+} from '../services/apiKeyValidationCache.js';
 import config from '../config/index.js';
+
+export { clearApiKeyCache };
 
 /**
  * Quota multipliers applied to a route's base limit, keyed by API key tier
@@ -24,11 +30,6 @@ export const TIER_MULTIPLIERS = Object.freeze({
 });
 
 const MAX_API_KEY_LENGTH = 256;
-const API_KEY_CACHE_TTL_MS = 60 * 1000;
-
-// Caches validation results (including misses) by key hash so a flood of
-// requests does not turn into a flood of api_keys lookups.
-const apiKeyCache = new LRUCache({ max: 10_000, ttl: API_KEY_CACHE_TTL_MS });
 
 async function defaultApiKeyValidator(key) {
   const { default: apiKeyService } =
@@ -37,7 +38,7 @@ async function defaultApiKeyValidator(key) {
 }
 
 async function lookupApiKey(rawKey, validateApiKey) {
-  const cacheKey = crypto.createHash('sha256').update(rawKey).digest('hex');
+  const cacheKey = cacheKeyForApiKey(rawKey);
   const cached = apiKeyCache.get(cacheKey);
   if (cached) return cached.data;
 
@@ -52,10 +53,6 @@ async function lookupApiKey(rawKey, validateApiKey) {
   }
   apiKeyCache.set(cacheKey, { data });
   return data;
-}
-
-export function clearApiKeyCache() {
-  apiKeyCache.clear();
 }
 
 /**
@@ -117,6 +114,9 @@ export async function resolveRateLimitIdentity(req, options = {}) {
     if (keyData?.id !== undefined && keyData?.id !== null) {
       return {
         id: `key:${keyData.id}`,
+        apiKeyId: keyData.id,
+        scopes: keyData.scopes || [],
+        authType: 'api_key',
         tier: keyData.tier || 'free',
         verified: true,
         ip,
@@ -164,6 +164,7 @@ export const rateLimiter = (options = {}) => {
     scope = 'default',
     applyTierMultiplier = true,
     validateApiKey,
+    requiredScope,
     internalServiceAccounts = process.env
       .RATE_LIMIT_INTERNAL_SERVICE_ACCOUNTS || '',
   } = options;
@@ -186,6 +187,23 @@ export const rateLimiter = (options = {}) => {
       console.warn('[RateLimiter] Identity resolution failed:', err.message);
       const ip = req.clientIp || resolveClientIp(req);
       identity = { id: `ip:${ip}`, tier: 'anonymous', verified: false, ip };
+    }
+
+    if (identity.authType === 'api_key') {
+      req.auth = {
+        ...(req.auth || {}),
+        apiKeyId: identity.apiKeyId,
+        scopes: identity.scopes,
+      };
+      if (requiredScope && !hasApiKeyScope(identity.scopes, requiredScope)) {
+        return next(
+          createHttpError(
+            403,
+            `API key is missing required scope: ${requiredScope}`,
+            { requiredScope }
+          )
+        );
+      }
     }
 
     const baseLimit =
@@ -334,5 +352,6 @@ export const rateLimitMiddleware = (configKey, options = {}) => {
     scope: options.scope || configKey,
     applyTierMultiplier: options.applyTierMultiplier ?? !isGlobal,
     validateApiKey: options.validateApiKey,
+    requiredScope: options.requiredScope,
   });
 };

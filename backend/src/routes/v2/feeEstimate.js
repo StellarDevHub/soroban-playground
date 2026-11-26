@@ -57,14 +57,18 @@ export function createFeeEstimateRouter(estimator = feeEstimator) {
 
   router.get(
     '/',
-    rateLimitMiddleware('read'),
+    rateLimitMiddleware('read', {
+      requiredScope: 'contracts:read',
+    }),
     validateRequest({ query: feeEstimateSchema }, { format: 'httpError' }),
     handleEstimate
   );
 
   router.post(
     '/',
-    rateLimitMiddleware('read'),
+    rateLimitMiddleware('read', {
+      requiredScope: 'contracts:read',
+    }),
     validateRequest({ body: feeEstimateSchema }, { format: 'httpError' }),
     handleEstimate
   );

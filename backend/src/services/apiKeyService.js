@@ -4,24 +4,139 @@
 import crypto from 'crypto';
 import { getDatabase } from '../database/connection.js';
 import { deriveTenantId } from '../utils/tenant.js';
-import encryptionService from './encryptionService.js';
+import { clearApiKeyCache } from './apiKeyValidationCache.js';
 
-/**
- * API Key Management Service
- * Handles generation, validation, and management of API keys with tiered access
- */
+export const API_KEY_SCOPES = Object.freeze([
+  'contracts:read',
+  'contracts:compile',
+  'contracts:deploy',
+]);
+
+export const DEFAULT_API_KEY_SCOPES = Object.freeze([...API_KEY_SCOPES]);
+
+const TIERS = new Set(['free', 'standard', 'premium', 'admin']);
+const REVOCATION_STATUSES = new Set(['revoked', 'expired']);
+const ROTATION_ROLES = new Set(['standalone', 'predecessor', 'successor']);
+
+function toIso(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('Invalid date value');
+  }
+  return date.toISOString();
+}
+
+function toPositiveInteger(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(1, parsed));
+}
+
+function normalizeRotationRole(role) {
+  const value = role || 'standalone';
+  if (!ROTATION_ROLES.has(value)) {
+    throw new Error(`Invalid rotation role: ${value}`);
+  }
+  return value;
+}
+
+export function normalizeApiKeyScopes(scopes) {
+  if (scopes === undefined || scopes === null) {
+    return [...DEFAULT_API_KEY_SCOPES];
+  }
+
+  let values;
+  if (Array.isArray(scopes)) {
+    values = scopes;
+  } else if (typeof scopes === 'string') {
+    const trimmed = scopes.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        values = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        throw new Error('Invalid API key scopes JSON');
+      }
+    } else {
+      values = trimmed.split(',');
+    }
+  } else {
+    throw new Error(
+      'API key scopes must be an array or comma-separated string'
+    );
+  }
+
+  const normalized = [];
+  for (const value of values) {
+    if (typeof value !== 'string') {
+      throw new Error('API key scopes must be strings');
+    }
+    for (const candidate of value.split(',')) {
+      const scope = candidate.trim();
+      if (!scope) continue;
+      if (!API_KEY_SCOPES.includes(scope)) {
+        throw new Error(
+          `Invalid API key scope: ${scope}. Allowed scopes: ${API_KEY_SCOPES.join(', ')}`
+        );
+      }
+      if (!normalized.includes(scope)) normalized.push(scope);
+    }
+  }
+
+  return normalized.length > 0 ? normalized : [...DEFAULT_API_KEY_SCOPES];
+}
+
+export function parseStoredScopes(value) {
+  if (value === null || value === undefined || value === '') {
+    return [...DEFAULT_API_KEY_SCOPES];
+  }
+
+  let values;
+  if (Array.isArray(value)) {
+    values = value;
+  } else if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        values = JSON.parse(trimmed);
+      } catch {
+        return [];
+      }
+    } else {
+      values = trimmed.split(',');
+    }
+  } else {
+    return [];
+  }
+
+  const scopes = [];
+  for (const entry of values) {
+    if (typeof entry !== 'string') continue;
+    const scope = entry.trim();
+    if (API_KEY_SCOPES.includes(scope) && !scopes.includes(scope)) {
+      scopes.push(scope);
+    }
+  }
+  return scopes;
+}
+
+export function hasApiKeyScope(scopes, scope) {
+  return parseStoredScopes(scopes).includes(scope);
+}
+
 export class ApiKeyService {
-  /**
-   * Generate a new API key
-   * @param {Object} params
-   * @param {string} params.name - Key name
-   * @param {string} params.description - Key description
-   * @param {string} params.tier - Access tier (free, standard, premium, admin)
-   * @param {number} params.userId - User ID
-   * @param {number} params.organizationId - Organization ID (optional)
-   * @param {Date} params.expiresAt - Expiration date (optional)
-   * @returns {Object} Generated key data
-   */
+  async assertRotationCapacity(rotationGroupId) {
+    const db = getDatabase();
+    const row = await db.get(
+      'SELECT COUNT(*) AS count FROM api_keys WHERE rotation_group_id = ? AND status = ?',
+      [rotationGroupId, 'active']
+    );
+    if (Number(row?.count || 0) >= 2) {
+      throw new Error('Rotation group already has two active API keys');
+    }
+  }
+
   async generateKey({
     name,
     description,
@@ -30,24 +145,32 @@ export class ApiKeyService {
     organizationId,
     tenantId,
     expiresAt,
+    scopes,
+    rotationGroupId,
+    rotationRole,
+    replacesKeyId,
+    rotationCutoffAt,
   }) {
+    if (!name) throw new Error('API key name is required');
+    if (!TIERS.has(tier)) {
+      throw new Error(`Invalid tier: ${tier}`);
+    }
+
+    const normalizedScopes = normalizeApiKeyScopes(scopes);
+    const normalizedRotationRole = normalizeRotationRole(rotationRole);
     const key = this.generateSecureKey();
     const keyHash = crypto.createHash('sha256').update(key).digest('hex');
     const keyPrefix = key.substring(0, 8);
     const resolvedTenantId =
       deriveTenantId({ tenantId, organizationId, userId }) || 'public';
 
-    // Store the plaintext key only as an envelope-encrypted secret so it can be
-    // recovered by authorized internal flows without keeping a global key.
-    const envelope = await encryptionService.encryptSecret(key, {
-      tenantId: resolvedTenantId,
-      purpose: 'api_key',
-    });
+    if (rotationGroupId) {
+      await this.assertRotationCapacity(rotationGroupId);
+    }
 
     const db = getDatabase();
     const result = await db.run(
-      `INSERT INTO api_keys (tenant_id, key_hash, key_prefix, name, description, tier, user_id, organization_id, expires_at, encrypted_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      'INSERT INTO api_keys (tenant_id, key_hash, key_prefix, name, description, tier, status, scopes, rotation_group_id, rotation_role, replaces_key_id, rotation_cutoff_at, user_id, organization_id, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         resolvedTenantId,
         keyHash,
@@ -55,20 +178,29 @@ export class ApiKeyService {
         name,
         description,
         tier,
+        'active',
+        JSON.stringify(normalizedScopes),
+        rotationGroupId || null,
+        normalizedRotationRole,
+        replacesKeyId || null,
+        toIso(rotationCutoffAt),
         userId,
         organizationId,
-        expiresAt,
-        JSON.stringify(envelope),
+        toIso(expiresAt),
       ]
     );
 
-    // Log key generation
     await this.logAudit({
       action: 'key_generated',
       apiKeyId: result.lastID,
       userId,
       tenantId: resolvedTenantId,
-      metadata: { tier, name },
+      metadata: {
+        tier,
+        name,
+        scopes: normalizedScopes,
+        rotationGroupId: rotationGroupId || null,
+      },
     });
 
     return {
@@ -78,17 +210,17 @@ export class ApiKeyService {
       name,
       description,
       tier,
+      scopes: normalizedScopes,
       tenantId: resolvedTenantId,
       status: 'active',
+      rotationGroupId: rotationGroupId || null,
+      rotationRole: normalizedRotationRole,
+      replacesKeyId: replacesKeyId || null,
+      rotationCutoffAt: toIso(rotationCutoffAt),
       createdAt: new Date().toISOString(),
     };
   }
 
-  /**
-   * Validate an API key
-   * @param {string} key - The API key to validate
-   * @returns {Object|null} Key data if valid, null otherwise
-   */
   async validateKey(key) {
     if (!key || typeof key !== 'string') return null;
 
@@ -97,24 +229,26 @@ export class ApiKeyService {
 
     const db = getDatabase();
     const row = await db.get(
-      `SELECT ak.*, tl.requests_per_minute, tl.requests_per_hour, tl.requests_per_day, tl.burst_limit
-       FROM api_keys ak
-       JOIN tier_limits tl ON ak.tier = tl.tier
-       WHERE ak.key_prefix = ? AND ak.key_hash = ? AND ak.status = 'active'`,
+      'SELECT ak.*, tl.requests_per_minute, tl.requests_per_hour, tl.requests_per_day, tl.burst_limit ' +
+        'FROM api_keys ak ' +
+        'JOIN tier_limits tl ON ak.tier = tl.tier ' +
+        "WHERE ak.key_prefix = ? AND ak.key_hash = ? AND ak.status = 'active'",
       [keyPrefix, keyHash]
     );
 
     if (!row) return null;
 
-    // Check expiration
-    if (row.expires_at && new Date(row.expires_at) < new Date()) {
+    const now = new Date();
+    if (
+      (row.expires_at && new Date(row.expires_at) < now) ||
+      (row.rotation_cutoff_at && new Date(row.rotation_cutoff_at) < now)
+    ) {
       await this.revokeKey(row.id, 'expired', { tenantId: row.tenant_id });
       return null;
     }
 
-    // Update last used and usage count
     await db.run(
-      `UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP, usage_count = usage_count + 1 WHERE id = ?`,
+      'UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP, usage_count = usage_count + 1 WHERE id = ?',
       [row.id]
     );
 
@@ -122,9 +256,14 @@ export class ApiKeyService {
       id: row.id,
       name: row.name,
       tier: row.tier,
+      scopes: parseStoredScopes(row.scopes),
       userId: row.user_id,
       organizationId: row.organization_id,
       tenantId: row.tenant_id,
+      rotationGroupId: row.rotation_group_id || null,
+      rotationRole: row.rotation_role || 'standalone',
+      replacesKeyId: row.replaces_key_id || null,
+      rotationCutoffAt: row.rotation_cutoff_at || null,
       limits: {
         requestsPerMinute: row.requests_per_minute,
         requestsPerHour: row.requests_per_hour,
@@ -132,30 +271,19 @@ export class ApiKeyService {
         burstLimit: row.burst_limit,
       },
       usageCount: row.usage_count + 1,
-      lastUsedAt: new Date().toISOString(),
+      lastUsedAt: now.toISOString(),
     };
   }
 
-  /**
-   * Get API key by ID
-   * @param {number} keyId - Key ID
-   * @returns {Object|null} Key data
-   */
   async getKeyById(keyId, options = {}) {
     const db = getDatabase();
-    const params = [keyId];
-    let tenantPredicate = '';
-    if (options.tenantId) {
-      tenantPredicate = ' AND ak.tenant_id = ?';
-      params.push(options.tenantId);
-    }
-
+    const tenantId = options.tenantId || null;
     const row = await db.get(
-      `SELECT ak.*, tl.requests_per_minute, tl.requests_per_hour, tl.requests_per_day, tl.burst_limit
-       FROM api_keys ak
-       JOIN tier_limits tl ON ak.tier = tl.tier
-       WHERE ak.id = ?${tenantPredicate}`,
-      params
+      'SELECT ak.*, tl.requests_per_minute, tl.requests_per_hour, tl.requests_per_day, tl.burst_limit ' +
+        'FROM api_keys ak ' +
+        'JOIN tier_limits tl ON ak.tier = tl.tier ' +
+        'WHERE ak.id = ? AND (? IS NULL OR ak.tenant_id = ?)',
+      [keyId, tenantId, tenantId]
     );
 
     if (!row) return null;
@@ -167,9 +295,14 @@ export class ApiKeyService {
       description: row.description,
       tier: row.tier,
       status: row.status,
+      scopes: parseStoredScopes(row.scopes),
       tenantId: row.tenant_id,
       userId: row.user_id,
       organizationId: row.organization_id,
+      rotationGroupId: row.rotation_group_id || null,
+      rotationRole: row.rotation_role || 'standalone',
+      replacesKeyId: row.replaces_key_id || null,
+      rotationCutoffAt: row.rotation_cutoff_at || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       expiresAt: row.expires_at,
@@ -184,38 +317,23 @@ export class ApiKeyService {
     };
   }
 
-  /**
-   * List API keys for a user
-   * @param {number} userId - User ID
-   * @param {Object} options - Query options
-   * @returns {Array} List of keys
-   */
   async listKeys(userId, options = {}) {
-    const { limit = 50, offset = 0, status, tenantId } = options;
     const db = getDatabase();
+    const tenantId = options.tenantId || null;
+    const status = options.status || null;
+    const limit = toPositiveInteger(options.limit, 50, 1000);
+    const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
 
-    let query = `
-      SELECT ak.*, tl.requests_per_minute, tl.requests_per_hour, tl.requests_per_day, tl.burst_limit
-      FROM api_keys ak
-      JOIN tier_limits tl ON ak.tier = tl.tier
-      WHERE ak.user_id = ?
-    `;
-    const params = [userId];
-
-    if (tenantId) {
-      query += ' AND ak.tenant_id = ?';
-      params.push(tenantId);
-    }
-
-    if (status) {
-      query += ' AND ak.status = ?';
-      params.push(status);
-    }
-
-    query += ' ORDER BY ak.created_at DESC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
-
-    const rows = await db.all(query, params);
+    const rows = await db.all(
+      'SELECT ak.*, tl.requests_per_minute, tl.requests_per_hour, tl.requests_per_day, tl.burst_limit ' +
+        'FROM api_keys ak ' +
+        'JOIN tier_limits tl ON ak.tier = tl.tier ' +
+        'WHERE ak.user_id = ? ' +
+        'AND (? IS NULL OR ak.tenant_id = ?) ' +
+        'AND (? IS NULL OR ak.status = ?) ' +
+        'ORDER BY ak.created_at DESC LIMIT ? OFFSET ?',
+      [userId, tenantId, tenantId, status, status, limit, offset]
+    );
 
     return rows.map((row) => ({
       id: row.id,
@@ -224,7 +342,12 @@ export class ApiKeyService {
       description: row.description,
       tier: row.tier,
       status: row.status,
+      scopes: parseStoredScopes(row.scopes),
       tenantId: row.tenant_id,
+      rotationGroupId: row.rotation_group_id || null,
+      rotationRole: row.rotation_role || 'standalone',
+      replacesKeyId: row.replaces_key_id || null,
+      rotationCutoffAt: row.rotation_cutoff_at || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       expiresAt: row.expires_at,
@@ -239,26 +362,18 @@ export class ApiKeyService {
     }));
   }
 
-  /**
-   * Revoke an API key
-   * @param {number} keyId - Key ID
-   * @param {string} reason - Revocation reason
-   */
   async revokeKey(keyId, reason = 'revoked', options = {}) {
     const db = getDatabase();
-    const params = [reason, keyId];
-    let tenantPredicate = '';
-    if (options.tenantId) {
-      tenantPredicate = ' AND tenant_id = ?';
-      params.push(options.tenantId);
-    }
-
-    await db.run(
-      `UPDATE api_keys SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?${tenantPredicate}`,
-      params
+    const status = REVOCATION_STATUSES.has(reason) ? reason : 'revoked';
+    const tenantId = options.tenantId || null;
+    const result = await db.run(
+      'UPDATE api_keys SET status = ?, updated_at = CURRENT_TIMESTAMP ' +
+        'WHERE id = ? AND (? IS NULL OR tenant_id = ?)',
+      [status, keyId, tenantId, tenantId]
     );
 
-    // Log revocation
+    if (result?.changes > 0) clearApiKeyCache();
+
     await this.logAudit({
       action: 'key_revoked',
       apiKeyId: keyId,
@@ -267,55 +382,134 @@ export class ApiKeyService {
     });
   }
 
-  /**
-   * Get usage statistics for an API key
-   * @param {number} keyId - Key ID
-   * @param {Object} options - Time range options
-   * @returns {Object} Usage statistics
-   */
+  async rotateKey(keyId, options = {}) {
+    const db = getDatabase();
+    const tenantId = options.tenantId || null;
+    const row = await db.get(
+      'SELECT id, tenant_id, user_id, organization_id, name, description, tier, scopes, expires_at, rotation_group_id ' +
+        'FROM api_keys ' +
+        'WHERE id = ? AND status = ? AND (? IS NULL OR tenant_id = ?)',
+      [keyId, 'active', tenantId, tenantId]
+    );
+    if (!row) {
+      throw new Error('Active API key not found for rotation');
+    }
+
+    const groupId = row.rotation_group_id || crypto.randomUUID();
+    const overlapSeconds = toPositiveInteger(
+      options.overlapSeconds,
+      300,
+      86_400
+    );
+    const cutoffAt =
+      toIso(options.rotationCutoffAt) ||
+      new Date(Date.now() + overlapSeconds * 1000).toISOString();
+
+    const successor = await this.generateKey({
+      name: options.name || row.name,
+      description: row.description,
+      tier: row.tier,
+      userId: row.user_id,
+      organizationId: row.organization_id,
+      tenantId: row.tenant_id,
+      scopes: options.scopes ?? row.scopes,
+      expiresAt: row.expires_at,
+      rotationGroupId: groupId,
+      rotationRole: 'successor',
+      replacesKeyId: row.id,
+    });
+
+    await db.run(
+      'UPDATE api_keys SET rotation_group_id = ?, rotation_role = ?, rotation_cutoff_at = ?, updated_at = CURRENT_TIMESTAMP ' +
+        'WHERE id = ? AND status = ?',
+      [groupId, 'predecessor', cutoffAt, row.id, 'active']
+    );
+    clearApiKeyCache();
+
+    await this.logAudit({
+      action: 'key_rotated',
+      apiKeyId: successor.id,
+      userId: row.user_id,
+      tenantId: row.tenant_id,
+      metadata: {
+        previousKeyId: row.id,
+        rotationGroupId: groupId,
+        cutoffAt,
+        scopes: successor.scopes,
+      },
+    });
+
+    return {
+      ...successor,
+      rotation: {
+        groupId,
+        previousKeyId: row.id,
+        cutoffAt,
+      },
+    };
+  }
+
+  async completeRotation(groupId, options = {}) {
+    const db = getDatabase();
+    const tenantId = options.tenantId || null;
+    const result = await db.run(
+      'UPDATE api_keys SET status = ?, updated_at = CURRENT_TIMESTAMP ' +
+        'WHERE rotation_group_id = ? AND status = ? AND rotation_role = ? ' +
+        'AND (? IS NULL OR tenant_id = ?)',
+      ['revoked', groupId, 'active', 'predecessor', tenantId, tenantId]
+    );
+
+    if (result?.changes > 0) clearApiKeyCache();
+
+    await this.logAudit({
+      action: 'rotation_completed',
+      tenantId: options.tenantId,
+      userId: options.userId,
+      metadata: {
+        rotationGroupId: groupId,
+        revoked: result?.changes || 0,
+      },
+    });
+
+    return {
+      rotationGroupId: groupId,
+      revoked: result?.changes || 0,
+    };
+  }
+
   async getUsageStats(keyId, options = {}) {
-    const { days = 30, tenantId } = options;
+    const days = toPositiveInteger(options.days, 30, 365);
+    const tenantId = options.tenantId || null;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const params = [keyId, startDate.toISOString(), tenantId, tenantId];
     const db = getDatabase();
 
-    // Get daily usage
     const dailyUsage = await db.all(
-      `SELECT DATE(window_start) as date, SUM(request_count) as requests
-       FROM rate_limit_usage
-       WHERE api_key_id = ? AND window_start >= ?
-       ${tenantId ? 'AND tenant_id = ?' : ''}
-       GROUP BY DATE(window_start)
-       ORDER BY date DESC`,
-      tenantId
-        ? [keyId, startDate.toISOString(), tenantId]
-        : [keyId, startDate.toISOString()]
+      'SELECT DATE(window_start) as date, SUM(request_count) as requests ' +
+        'FROM rate_limit_usage ' +
+        'WHERE api_key_id = ? AND window_start >= ? AND (? IS NULL OR tenant_id = ?) ' +
+        'GROUP BY DATE(window_start) ' +
+        'ORDER BY date DESC',
+      params
     );
 
-    // Get total usage by endpoint
     const endpointUsage = await db.all(
-      `SELECT endpoint, SUM(request_count) as requests
-       FROM rate_limit_usage
-       WHERE api_key_id = ? AND window_start >= ?
-       ${tenantId ? 'AND tenant_id = ?' : ''}
-       GROUP BY endpoint
-       ORDER BY requests DESC`,
-      tenantId
-        ? [keyId, startDate.toISOString(), tenantId]
-        : [keyId, startDate.toISOString()]
+      'SELECT endpoint, SUM(request_count) as requests ' +
+        'FROM rate_limit_usage ' +
+        'WHERE api_key_id = ? AND window_start >= ? AND (? IS NULL OR tenant_id = ?) ' +
+        'GROUP BY endpoint ' +
+        'ORDER BY requests DESC',
+      params
     );
 
-    // Get violations (if we track them)
     const violations = await db.all(
-      `SELECT COUNT(*) as count, DATE(timestamp) as date
-       FROM audit_log
-       WHERE api_key_id = ? AND action = 'rate_limit_exceeded' AND timestamp >= ?
-       ${tenantId ? 'AND tenant_id = ?' : ''}
-       GROUP BY DATE(timestamp)
-       ORDER BY date DESC`,
-      tenantId
-        ? [keyId, startDate.toISOString(), tenantId]
-        : [keyId, startDate.toISOString()]
+      'SELECT COUNT(*) as count, DATE(timestamp) as date ' +
+        'FROM audit_log ' +
+        "WHERE api_key_id = ? AND action = 'rate_limit_exceeded' AND timestamp >= ? AND (? IS NULL OR tenant_id = ?) " +
+        'GROUP BY DATE(timestamp) ' +
+        'ORDER BY date DESC',
+      params
     );
 
     return {
@@ -326,39 +520,28 @@ export class ApiKeyService {
     };
   }
 
-  /**
-   * Generate a secure random API key
-   * @returns {string} Generated key
-   */
   generateSecureKey() {
     return 'sk_' + crypto.randomBytes(32).toString('hex');
   }
 
-  /**
-   * Log audit event
-   * @param {Object} event - Audit event data
-   */
   async logAudit(event) {
     const db = getDatabase();
     await db.run(
-      `INSERT INTO audit_log (tenant_id, api_key_id, user_id, action, metadata) VALUES (?, ?, ?, ?, ?)`,
+      'INSERT INTO audit_log (tenant_id, api_key_id, user_id, action, endpoint, ip_address, user_agent, status_code, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         event.tenantId || 'public',
-        event.apiKeyId,
-        event.userId,
+        event.apiKeyId || null,
+        event.userId || null,
         event.action,
+        event.endpoint || null,
+        event.ipAddress || null,
+        event.userAgent || null,
+        event.statusCode || null,
         JSON.stringify(event.metadata || {}),
       ]
     );
   }
 
-  /**
-   * Track rate limit usage
-   * @param {number} apiKeyId - API key ID
-   * @param {string} endpoint - Request endpoint
-   * @param {string} tier - User tier
-   * @param {number} windowMinutes - Window size in minutes
-   */
   async trackUsage(
     apiKeyId,
     endpoint,
@@ -371,10 +554,10 @@ export class ApiKeyService {
     const db = getDatabase();
 
     await db.run(
-      `INSERT INTO rate_limit_usage (tenant_id, api_key_id, endpoint, request_count, window_start, window_end, tier)
-       VALUES (?, ?, ?, 1, ?, ?, ?)
-       ON CONFLICT(api_key_id, endpoint, window_start, window_end)
-       DO UPDATE SET request_count = request_count + 1`,
+      'INSERT INTO rate_limit_usage (tenant_id, api_key_id, endpoint, request_count, window_start, window_end, tier) ' +
+        'VALUES (?, ?, ?, 1, ?, ?, ?) ' +
+        'ON CONFLICT(api_key_id, endpoint, window_start, window_end) ' +
+        'DO UPDATE SET request_count = request_count + 1',
       [
         tenantId,
         apiKeyId,

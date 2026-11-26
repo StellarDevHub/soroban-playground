@@ -3,7 +3,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import redisService from '../services/redisService.js';
 import oracleProofQueueService from '../services/oracleProofQueueService.js';
-import apiKeyService from '../services/apiKeyService.js';
+import apiKeyService, {
+  normalizeApiKeyScopes,
+} from '../services/apiKeyService.js';
 import { requireTenantContext } from '../middleware/tenantContext.js';
 import { seedDatabase } from '../../scripts/seed.js';
 import cacheService from '../services/cacheService.js';
@@ -107,8 +109,15 @@ router.post('/oracle-queue/dead-letter/:id/requeue', async (req, res) => {
 // Generate new API key
 router.post('/api-keys', requireTenantContext(), async (req, res) => {
   try {
-    const { name, description, tier, userId, organizationId, expiresAt } =
-      req.body;
+    const {
+      name,
+      description,
+      tier,
+      userId,
+      organizationId,
+      expiresAt,
+      scopes,
+    } = req.body;
 
     if (!name || !tier) {
       return res.status(400).json({ error: 'Name and tier are required' });
@@ -120,6 +129,13 @@ router.post('/api-keys', requireTenantContext(), async (req, res) => {
       });
     }
 
+    let normalizedScopes;
+    try {
+      normalizedScopes = normalizeApiKeyScopes(scopes);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
     const keyData = await apiKeyService.generateKey({
       name,
       description,
@@ -128,6 +144,7 @@ router.post('/api-keys', requireTenantContext(), async (req, res) => {
       organizationId,
       tenantId: req.tenant.id,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
+      scopes: normalizedScopes,
     });
 
     res.json(keyData);
@@ -135,6 +152,52 @@ router.post('/api-keys', requireTenantContext(), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+router.post(
+  '/api-keys/:id/rotate',
+  requireTenantContext(),
+  async (req, res) => {
+    try {
+      const { name, scopes, overlapSeconds, rotationCutoffAt } = req.body;
+      let normalizedScopes;
+      if (scopes !== undefined) {
+        try {
+          normalizedScopes = normalizeApiKeyScopes(scopes);
+        } catch (err) {
+          return res.status(400).json({ error: err.message });
+        }
+      }
+
+      const keyData = await apiKeyService.rotateKey(req.params.id, {
+        name,
+        scopes: normalizedScopes,
+        overlapSeconds,
+        rotationCutoffAt,
+        tenantId: req.tenant.id,
+      });
+
+      res.json(keyData);
+    } catch (err) {
+      const status = err.message.includes('not found') ? 404 : 400;
+      res.status(status).json({ error: err.message });
+    }
+  }
+);
+
+router.post(
+  '/api-keys/rotation/:groupId/complete',
+  requireTenantContext(),
+  async (req, res) => {
+    try {
+      const result = await apiKeyService.completeRotation(req.params.groupId, {
+        tenantId: req.tenant.id,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
 
 // List API keys
 router.get('/api-keys', requireTenantContext(), async (req, res) => {

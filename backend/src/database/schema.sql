@@ -190,6 +190,11 @@ CREATE TABLE IF NOT EXISTS api_keys (
     description TEXT,
     tier TEXT NOT NULL CHECK (tier IN ('free', 'standard', 'premium', 'admin')),
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
+    scopes TEXT NOT NULL DEFAULT '["contracts:read","contracts:compile","contracts:deploy"]',
+    rotation_group_id TEXT,
+    rotation_role TEXT NOT NULL DEFAULT 'standalone' CHECK (rotation_role IN ('standalone', 'predecessor', 'successor')),
+    replaces_key_id INTEGER,
+    rotation_cutoff_at DATETIME,
     user_id INTEGER,
     organization_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -258,6 +263,7 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix ON api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status);
+CREATE INDEX IF NOT EXISTS idx_api_keys_rotation_group ON api_keys(rotation_group_id, status);
 CREATE INDEX IF NOT EXISTS idx_rate_limit_usage_tenant_window ON rate_limit_usage(tenant_id, window_start, window_end);
 CREATE INDEX IF NOT EXISTS idx_rate_limit_usage_api_key_window ON rate_limit_usage(api_key_id, window_start, window_end);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_limit_usage_unique ON rate_limit_usage(api_key_id, endpoint, window_start, window_end);
