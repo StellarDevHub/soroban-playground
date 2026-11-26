@@ -1,15 +1,29 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
+//
+// BACKEND-237: Intrusion Detection Middleware with Redis-backed distributed IP jailing.
+//
+// Key properties:
+// - Penalty scores are stored in Redis with a 24-hour sliding decay window so that
+//   distributed cluster instances share a consistent view of attacker state.
+// - IPs that accumulate > SCORE_THRESHOLD (100) penalty points are automatically
+//   jailed: a Redis BLOCK key is set and all subsequent requests return HTTP 403.
+// - All log output is sanitised to prevent log-injection via attacker-controlled
+//   strings (IP, path, user-agent) being embedded into log lines.
 
 import redisService from '../services/redisService.js';
 
-const SCORE_KEY_PREFIX = 'ids:score:';
-const BLOCK_KEY_PREFIX = 'ids:block:';
-const DEFAULT_BLOCK_TTL_SECONDS = 900; // 15 minutes
-const DEFAULT_SCORE_WINDOW_SECONDS = 300; // 5 minutes
-const DEFAULT_SCORE_THRESHOLD = 10;
+export const SCORE_KEY_PREFIX = 'ids:score:';
+export const BLOCK_KEY_PREFIX = 'ids:block:';
 
-const SIGNATURES = [
+// 24-hour decay window so an attacker cannot reset by waiting a few minutes.
+export const DEFAULT_BLOCK_TTL_SECONDS = 86_400;    // 24 h
+export const DEFAULT_SCORE_WINDOW_SECONDS = 86_400;  // 24 h
+
+// Automatic jailing threshold: 100 penalty points (BACKEND-237).
+export const DEFAULT_SCORE_THRESHOLD = 100;
+
+export const SIGNATURES = [
   {
     name: 'sql_injection',
     score: 3,
@@ -55,6 +69,31 @@ const SIGNATURES = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Log sanitisation helpers (BACKEND-237)
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove characters that can break log lines or be used for log-injection:
+ * CR, LF, NUL, and ANSI escape sequences.  Truncates to 200 characters so
+ * an oversized string cannot flood the log sink.
+ *
+ * @param {unknown} value - Untrusted value to sanitise.
+ * @returns {string} Safe string safe for embedding in a log line.
+ */
+export function sanitiseForLog(value) {
+  if (value === null || value === undefined) return '(null)';
+  return String(value)
+    .replace(/[\r\n\x00]/g, '_')
+    // Strip ANSI escape sequences to prevent terminal hijacking via logs
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+    .slice(0, 200);
+}
+
+// ---------------------------------------------------------------------------
+// Request input extraction
+// ---------------------------------------------------------------------------
+
 function extractInputStrings(req) {
   const parts = [];
   const push = (v) => {
@@ -68,7 +107,11 @@ function extractInputStrings(req) {
   return parts;
 }
 
-function scanSignatures(inputs) {
+// ---------------------------------------------------------------------------
+// Signature scanning
+// ---------------------------------------------------------------------------
+
+export function scanSignatures(inputs) {
   const matches = [];
   for (const sig of SIGNATURES) {
     for (const pattern of sig.patterns) {
@@ -81,7 +124,11 @@ function scanSignatures(inputs) {
   return matches;
 }
 
-function getClientIp(req) {
+// ---------------------------------------------------------------------------
+// IP helpers
+// ---------------------------------------------------------------------------
+
+export function getClientIp(req) {
   return (
     req.ip ||
     req.headers['x-forwarded-for']?.split(',')[0].trim() ||
@@ -90,7 +137,11 @@ function getClientIp(req) {
   );
 }
 
-async function isBlocked(ip) {
+// ---------------------------------------------------------------------------
+// Redis operations (distributed, 24-hour decay)
+// ---------------------------------------------------------------------------
+
+export async function isBlocked(ip) {
   try {
     const val = await redisService.get(`${BLOCK_KEY_PREFIX}${ip}`);
     return val !== null;
@@ -99,15 +150,15 @@ async function isBlocked(ip) {
   }
 }
 
-async function blockIp(ip, ttl) {
+export async function blockIp(ip, ttl) {
   try {
     await redisService.set(`${BLOCK_KEY_PREFIX}${ip}`, '1', ttl);
   } catch {
-    // non-fatal
+    // non-fatal: fail open to avoid blocking legitimate traffic on Redis outage
   }
 }
 
-async function addScore(ip, points, windowSeconds) {
+export async function addScore(ip, points, windowSeconds) {
   const key = `${SCORE_KEY_PREFIX}${ip}`;
   try {
     const raw = await redisService.get(key);
@@ -120,6 +171,10 @@ async function addScore(ip, points, windowSeconds) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Middleware factory
+// ---------------------------------------------------------------------------
+
 export function createIntrusionDetection(options = {}) {
   const {
     scoreThreshold = DEFAULT_SCORE_THRESHOLD,
@@ -130,10 +185,12 @@ export function createIntrusionDetection(options = {}) {
 
   return async (req, res, next) => {
     const ip = getClientIp(req);
+    const safeIp = sanitiseForLog(ip);
 
     if (await isBlocked(ip)) {
+      // Sanitise path before embedding in log to prevent log-injection
       console.warn(
-        `[IDS] Blocked request from ${ip}: ${req.method} ${req.path}`
+        `[IDS] Blocked request from ${safeIp}: ${req.method} ${sanitiseForLog(req.path)}`
       );
       return res.status(403).json({
         error: 'Forbidden',
@@ -151,14 +208,15 @@ export function createIntrusionDetection(options = {}) {
     const totalScore = hits.reduce((s, h) => s + h.score, 0);
     const currentScore = await addScore(ip, totalScore, scoreWindowSeconds);
 
+    // Sanitise attacker-controlled strings before writing to logs (BACKEND-237)
     console.warn(
-      `[IDS] Threat detected from ${ip}: ${hits.map((h) => h.name).join(', ')} | score=${currentScore}/${scoreThreshold}`
+      `[IDS] Threat detected from ${safeIp}: ${hits.map((h) => h.name).join(', ')} | score=${currentScore}/${scoreThreshold}`
     );
 
     if (currentScore >= scoreThreshold) {
       await blockIp(ip, blockTtlSeconds);
       if (typeof onBlock === 'function') onBlock(ip, hits, currentScore);
-      console.error(`[IDS] IP banned: ${ip} (score=${currentScore})`);
+      console.error(`[IDS] IP jailed: ${safeIp} (score=${currentScore})`);
       return res.status(403).json({
         error: 'Forbidden',
         message:
