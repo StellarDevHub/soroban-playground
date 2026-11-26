@@ -162,6 +162,7 @@ export const ENV_SCHEMA = z.object({
   GLOBAL_RATE_LIMIT_MAX: intEnv(60),
   COMPILE_RATE_LIMIT_MAX: intEnv(15),
   DEPLOY_RATE_LIMIT_MAX: intEnv(15),
+  RATE_LIMIT_INTERNAL_SERVICE_ACCOUNTS: z.string().optional(),
 
   // ─ Tracing ─────────────────────────────────────────────────────────────────
   TRACING_ENABLED: booleanEnv(false),
