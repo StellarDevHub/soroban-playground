@@ -55,6 +55,8 @@ pub struct Proposal {
     pub votes_abstain: i128,
     /// Snapshot of total supply at proposal creation (for quorum calc).
     pub total_supply_snapshot: i128,
+    /// Monotonic checkpoint index captured when the proposal is created.
+    pub snapshot_id: u32,
     /// Ledger timestamp when voting opens.
     pub vote_start: u64,
     /// Ledger timestamp when voting closes.
@@ -63,6 +65,8 @@ pub struct Proposal {
     pub execute_after: u64,
     /// Deposit in stroops (refundable if passed).
     pub deposit: i128,
+    /// Ledger timestamp until which the guardian may veto (cancel) the proposal.
+    pub veto_deadline: u64,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -83,6 +87,12 @@ pub enum InstanceKey {
     Deposit,
     /// Pending upgrade (set by schedule_upgrade, cleared by execute_upgrade).
     PendingUpgrade,
+    /// Guardian address authorised to veto proposals during the timelock window.
+    Guardian,
+    /// Minimum execution timelock in seconds (enforced floor, 48 hours).
+    MinTimelock,
+    /// Monotonic index for historical balance/delegation mutations.
+    CheckpointCount,
 }
 
 #[contracttype]
@@ -94,6 +104,14 @@ pub enum DataKey {
     Delegate(Address),
     /// Whether `voter` has voted on proposal `id`: (proposal_id, voter).
     Voted(u32, Address),
+    /// Historical checkpointed voting balance for `addr` at a snapshot index.
+    BalanceCheckpoint(Address, u32),
+    /// Checkpoint indexes belonging to an account's balance history.
+    CheckpointIndices(Address),
+    /// Historical delegate at a checkpoint index; None means self-delegated.
+    DelegateCheckpoint(Address, u32),
+    /// Checkpoint indexes belonging to an account's delegation history.
+    DelegateCheckpointIndices(Address),
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────
@@ -125,4 +143,12 @@ pub enum Error {
     UpgradeHashMismatch = 18,
     /// The requested delay is below the mandatory 48-hour minimum.
     UpgradeDelayTooShort = 19,
+    /// Caller is not the configured guardian.
+    NotGuardian = 20,
+    /// The guardian veto window has closed; execution may proceed.
+    VetoWindowClosed = 21,
+    /// Proposal was vetoed/cancelled and cannot be executed.
+    ProposalCancelled = 22,
+    /// Execution delay is below the mandatory 48-hour minimum.
+    ExecDelayTooShort = 23,
 }
