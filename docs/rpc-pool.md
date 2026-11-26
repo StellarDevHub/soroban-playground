@@ -1,7 +1,9 @@
 # Soroban RPC pool
 
 The backend's `sorobanRpcManager` supports a comma-separated
-`SOROBAN_RPC_FALLBACK_URLS` priority list. Requests use the active endpoint
+`SOROBAN_RPC_FALLBACK_URLS` priority list. Provider-specific endpoints can also
+be configured with `SOROBAN_RPC_PUBLIC_URL`, `QUICKNODE_RPC_URL`, and
+`BLOCKDAEMON_RPC_URL`. Requests use the active endpoint
 first, then round-robin through endpoints whose circuit is not open. Failures
 trip a circuit breaker; successful calls close it again.
 
