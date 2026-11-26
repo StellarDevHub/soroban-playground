@@ -3,18 +3,11 @@
 
 import contractEventIndexer from '../services/contractEventIndexer.js';
 
-class JobError extends Error {
-  constructor(
-    message,
-    { retryable = true, code = 'UNKNOWN', details = null } = {}
-  ) {
-    super(message);
-    this.name = 'JobError';
-    this.retryable = retryable;
-    this.code = code;
-    this.details = details;
-  }
-}
+import {
+  JobError,
+  NonRetryableJobError,
+  toBullMqError,
+} from './jobErrors.js';
 
 /**
  * Sandboxed processor for contract event indexing.
@@ -46,19 +39,20 @@ export default async function indexingProcessor(job) {
     return { success: true, polled: true, durationMs };
   } catch (err) {
     const durationMs = Date.now() - startTime;
+    const classifiedError = toBullMqError(err);
     console.error(
-      `[Indexing Worker] Job ${job.id} failed after ${durationMs}ms:`,
-      err.message
+      `[Indexing Worker] Job ${job.id} failed after ${durationMs}ms (${classifiedError.code}, retryable=${classifiedError.retryable}):`,
+      classifiedError.message
     );
 
-    if (err instanceof JobError && !err.retryable) {
+    if (!classifiedError.retryable) {
       console.error(
-        `[Indexing Worker] Job ${job.id} has non-retryable error (${err.code}), will not retry`
+        `[Indexing Worker] Job ${job.id} has non-retryable error (${classifiedError.code}), will not retry`
       );
     }
 
-    throw err;
+    throw classifiedError;
   }
 }
 
-export { JobError };
+export { JobError, NonRetryableJobError };

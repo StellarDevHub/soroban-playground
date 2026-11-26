@@ -4,18 +4,12 @@
 import { deployContract } from '../services/deployService.js';
 import { getWss } from '../websocket.js';
 
-class JobError extends Error {
-  constructor(
-    message,
-    { retryable = true, code = 'UNKNOWN', details = null } = {}
-  ) {
-    super(message);
-    this.name = 'JobError';
-    this.retryable = retryable;
-    this.code = code;
-    this.details = details;
-  }
-}
+import {
+  JobError,
+  NonRetryableJobError,
+  JOB_ERROR_CODES,
+  toBullMqError,
+} from './jobErrors.js';
 
 function trySendWsMessage(payload) {
   try {
@@ -43,6 +37,15 @@ export default async function deploymentProcessor(job) {
     `[Deployment Worker] Processing job ${job.id} (Attempt ${job.attemptsMade + 1})`
   );
 
+  if (!job.data || typeof job.data !== 'object') {
+    throw new NonRetryableJobError(
+      'Deployment job payload must be a non-null object.',
+      {
+        code: JOB_ERROR_CODES.MALFORMED_INPUT,
+      }
+    );
+  }
+
   const {
     wasmPath,
     contractName,
@@ -51,15 +54,17 @@ export default async function deploymentProcessor(job) {
   } = job.data;
 
   if (!wasmPath || typeof wasmPath !== 'string') {
-    throw new JobError('Deployment job missing required "wasmPath" payload.', {
-      retryable: false,
-      code: 'MISSING_WASM_PATH',
-    });
+    throw new NonRetryableJobError(
+      'Deployment job missing required "wasmPath" payload.',
+      {
+        code: JOB_ERROR_CODES.MISSING_WASM_PATH,
+      }
+    );
   }
   if (!contractName || typeof contractName !== 'string') {
-    throw new JobError(
+    throw new NonRetryableJobError(
       'Deployment job missing required "contractName" payload.',
-      { retryable: false, code: 'MISSING_CONTRACT_NAME' }
+      { code: JOB_ERROR_CODES.MISSING_CONTRACT_NAME }
     );
   }
 
@@ -105,20 +110,23 @@ export default async function deploymentProcessor(job) {
     return { success: true, jobId: job.id, ...payload, durationMs };
   } catch (err) {
     const durationMs = Date.now() - startTime;
+    const classifiedError = toBullMqError(err);
     console.error(
-      `[Deployment Worker] Job ${job.id} failed after ${durationMs}ms:`,
-      err.message
+      `[Deployment Worker] Job ${job.id} failed after ${durationMs}ms (${classifiedError.code}, retryable=${classifiedError.retryable}):`,
+      classifiedError.message
     );
 
     trySendWsMessage({
       type: 'deployment:failed',
       jobId: job.id,
       status: 'failed',
-      error: err.message,
+      error: classifiedError.message,
+      errorCode: classifiedError.code,
+      retryable: classifiedError.retryable,
     });
 
-    throw err;
+    throw classifiedError;
   }
 }
 
-export { JobError };
+export { JobError, NonRetryableJobError };

@@ -4,18 +4,12 @@
 import { compileContract } from '../services/compileService.js';
 import { getWss } from '../websocket.js';
 
-class JobError extends Error {
-  constructor(
-    message,
-    { retryable = true, code = 'UNKNOWN', details = null } = {}
-  ) {
-    super(message);
-    this.name = 'JobError';
-    this.retryable = retryable;
-    this.code = code;
-    this.details = details;
-  }
-}
+import {
+  JobError,
+  NonRetryableJobError,
+  JOB_ERROR_CODES,
+  toBullMqError,
+} from './jobErrors.js';
 
 function trySendWsMessage(payload) {
   try {
@@ -43,13 +37,24 @@ export default async function compilationProcessor(job) {
     `[Compilation Worker] Processing job ${job.id} (Attempt ${job.attemptsMade + 1})`
   );
 
+  if (!job.data || typeof job.data !== 'object') {
+    throw new NonRetryableJobError(
+      'Compilation job payload must be a non-null object.',
+      {
+        code: JOB_ERROR_CODES.MALFORMED_INPUT,
+      }
+    );
+  }
+
   const { source, contractName = 'soroban_contract' } = job.data;
 
   if (!source || typeof source !== 'string' || !source.trim()) {
-    throw new JobError('Compilation job missing required "source" payload.', {
-      retryable: false,
-      code: 'MISSING_SOURCE',
-    });
+    throw new NonRetryableJobError(
+      'Compilation job missing required "source" payload.',
+      {
+        code: JOB_ERROR_CODES.MISSING_SOURCE,
+      }
+    );
   }
 
   try {
@@ -83,20 +88,23 @@ export default async function compilationProcessor(job) {
     };
   } catch (err) {
     const durationMs = Date.now() - startTime;
+    const classifiedError = toBullMqError(err);
     console.error(
-      `[Compilation Worker] Job ${job.id} failed after ${durationMs}ms:`,
-      err.message
+      `[Compilation Worker] Job ${job.id} failed after ${durationMs}ms (${classifiedError.code}, retryable=${classifiedError.retryable}):`,
+      classifiedError.message
     );
 
     trySendWsMessage({
       type: 'compilation:failed',
       jobId: job.id,
       status: 'failed',
-      error: err.message,
+      error: classifiedError.message,
+      errorCode: classifiedError.code,
+      retryable: classifiedError.retryable,
     });
 
-    throw err;
+    throw classifiedError;
   }
 }
 
-export { JobError };
+export { JobError, NonRetryableJobError };

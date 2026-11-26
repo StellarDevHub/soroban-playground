@@ -1,5 +1,9 @@
 import Redis from 'ioredis';
 import { Queue, QueueEvents, Worker } from 'bullmq';
+import {
+  classifyJobError,
+  isNonRetryableError,
+} from '../workers/jobErrors.js';
 
 const DEFAULT_QUEUE_PREFIX = process.env.BULLMQ_QUEUE_PREFIX || 'bull';
 const DEFAULT_MAX_ATTEMPTS = Number.parseInt(
@@ -103,9 +107,13 @@ export function buildFailureMetadata(job, error) {
   const stacktrace = Array.isArray(job?.stacktrace)
     ? job.stacktrace.filter(Boolean)
     : [];
+  const classification = classifyJobError(error);
 
   return {
     failedReason,
+    errorCode: classification.code,
+    retryable: classification.retryable,
+    classificationReason: classification.reason,
     attemptsMade: job?.attemptsMade || 0,
     maxAttempts: job?.opts?.attempts || 1,
     failedAt: nowIso(),
@@ -155,12 +163,17 @@ export async function routeFailedJobToDlq({
   }
 
   const failure = await decorateJobWithFailureMetadata(job, error);
+  const nonRetryable = isNonRetryableError(error);
 
-  if (!dlqQueue || !isFinalAttempt(job)) {
+  if (!dlqQueue || (!nonRetryable && !isFinalAttempt(job))) {
     return { routed: false, reason: 'not_final_attempt', failure };
   }
 
-  const payload = buildDlqPayload(job, failure);
+  const routedReason = nonRetryable ? 'non_retryable' : 'attempts_exhausted';
+  const payload = {
+    ...buildDlqPayload(job, failure),
+    routedReason,
+  };
   const dlqJobId = `${job.queueName || 'unknown'}:${job.id}`;
 
   await dlqQueue.add(job.name || 'failed-job', payload, {
@@ -176,6 +189,7 @@ export async function routeFailedJobToDlq({
 
   return {
     routed: true,
+    routedReason,
     dlqJobId,
     failure,
   };
