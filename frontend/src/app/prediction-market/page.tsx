@@ -7,6 +7,7 @@ import { useState, useCallback } from "react";
 import PredictionMarketPanel, {
   MarketData,
 } from "../../components/PredictionMarketPanel";
+import { DEFAULT_TAKEOUT_FEE_RATE } from "../../lib/predictionMarketMath";
 
 const CONTRACT_ID_RE = /^C[A-Z0-9]{55}$/;
 
@@ -27,6 +28,9 @@ export default function PredictionMarketPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [takeoutFeeRate, setTakeoutFeeRate] = useState(
+    DEFAULT_TAKEOUT_FEE_RATE,
+  );
 
   function applyConfig() {
     if (inputContract && !CONTRACT_ID_RE.test(inputContract)) {
@@ -230,8 +234,9 @@ export default function PredictionMarketPage() {
             📈 Prediction Market
           </h1>
           <p className="text-sm text-gray-400 mt-1">
-            Decentralized prediction markets on Stellar Soroban — buy YES/NO
-            shares and resolve outcomes via on-chain Oracle.
+            Decentralized parimutuel prediction markets on Stellar Soroban — buy
+            YES/NO shares, inspect dynamic odds slippage, and resolve outcomes
+            via on-chain Oracle.
           </p>
         </header>
 
@@ -327,6 +332,8 @@ export default function PredictionMarketPage() {
           walletAddress={walletAddress || undefined}
           markets={markets}
           isLoading={isLoading}
+          takeoutFeeRate={takeoutFeeRate}
+          onTakeoutFeeRateChange={setTakeoutFeeRate}
           onCreateMarket={handleCreateMarket}
           onPlaceBet={handlePlaceBet}
           onResolveMarket={handleResolveMarket}
