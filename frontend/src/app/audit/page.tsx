@@ -13,12 +13,28 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import AuditExplorer, { AuditEntry } from "@/components/AuditExplorer";
+import SecurityAuditBanner from "@/components/SecurityAuditBanner";
+
+const SAMPLE_AUDIT_CONTRACT = `use soroban_sdk::{contract, contractimpl, Address, Env};
+
+#[contract]
+pub struct Vault;
+
+#[contractimpl]
+impl Vault {
+    pub fn withdraw(env: Env, user: Address, amount: i128) {
+        let balance: i128 = env.storage().persistent().get(&user).unwrap_or(0);
+        env.storage().persistent().set(&user, &(balance - amount));
+    }
+}
+`;
 
 export default function AuditDashboardPage() {
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isValid, setIsValid] = useState<boolean | undefined>(undefined);
+  const [auditBufferCode, setAuditBufferCode] = useState(SAMPLE_AUDIT_CONTRACT);
 
   const fetchLogs = async () => {
     setIsLoading(true);
@@ -162,7 +178,13 @@ export default function AuditDashboardPage() {
 
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
           {/* Main Explorer Column */}
-          <div className="xl:col-span-3">
+          <div className="xl:col-span-3 space-y-6">
+            {/* Real-Time Security Audit Scanner */}
+            <SecurityAuditBanner
+              sourceCode={auditBufferCode}
+              onApplyQuickFix={setAuditBufferCode}
+            />
+
             <AuditExplorer
               logs={logs}
               isVerifying={isVerifying}
