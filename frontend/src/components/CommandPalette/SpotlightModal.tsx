@@ -41,10 +41,10 @@ import { announceToScreenReader } from "@/lib/accessibility";
 import { ALL_ROUTES, type NavigationItem } from "@/lib/navigation";
 import {
   buildNavigationActions,
+  createSpotlightSearchIndex,
   flattenSpotlightGroups,
   groupSpotlightResults,
   GROUP_ICON,
-  rankSpotlightActions,
   SPOTLIGHT_GROUPS,
   type SpotlightAction,
   type SpotlightResult,
@@ -237,6 +237,7 @@ export function SpotlightModal({
   const [shortcuts, setShortcuts] = useState<Record<string, KeyChord>>({});
   const [rebindingId, setRebindingId] = useState<string | null>(null);
   const [rebindError, setRebindError] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
 
   // Hydrate the persisted shortcut overrides after mount (SSR-safe).
   useEffect(() => {
@@ -254,7 +255,6 @@ export function SpotlightModal({
   const recentActions = useMemo<SpotlightAction[]>(
     () =>
       recents
-        .filter((entry) => entry.kind === "route" || entry.kind === "template")
         .map((entry) => ({
           id: `recent:${entry.id}`,
           title: entry.title,
@@ -265,7 +265,11 @@ export function SpotlightModal({
           href:
             entry.kind === "route"
               ? entry.id
-              : `/template-library?template=${encodeURIComponent(entry.id)}`,
+              : entry.kind === "template"
+                ? `/template-library?template=${encodeURIComponent(entry.id)}`
+                : entry.kind === "contract"
+                  ? `/storage-browser?contract=${encodeURIComponent(entry.id)}`
+                  : entry.id,
           keywords: ["recent", entry.id, entry.kind],
         })),
     [recents],
@@ -387,16 +391,12 @@ export function SpotlightModal({
     ],
   );
 
+  const searchIndex = useMemo(() => createSpotlightSearchIndex(index), [index]);
+
   const results = useMemo(() => {
     const trimmed = query.trim();
-    // Empty query: grouped, registry order — no wall of unscored noise.
-    const raw = trimmed
-      ? rankSpotlightActions(index, trimmed, { limit: MAX_RESULTS })
-      : index
-          .slice(0, MAX_RESULTS)
-          .map((action) => rankSpotlightActions([action], "")[0]);
-    return raw;
-  }, [index, query]);
+    return searchIndex.search(trimmed, { limit: MAX_RESULTS });
+  }, [query, searchIndex]);
 
   const groups = useMemo(() => groupSpotlightResults(results), [results]);
   const visibleResults = useMemo(
@@ -411,6 +411,7 @@ export function SpotlightModal({
     setActiveIndex(0);
     setRebindingId(null);
     setRebindError(null);
+    setPreviewId(null);
     const focusTimer = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(focusTimer);
   }, [open]);
@@ -420,6 +421,10 @@ export function SpotlightModal({
       setActiveIndex(Math.max(0, visibleResults.length - 1));
     }
   }, [activeIndex, visibleResults.length]);
+
+  useEffect(() => {
+    setPreviewId(visibleResults[activeIndex]?.action.id ?? null);
+  }, [activeIndex, visibleResults]);
 
   // Keep the highlighted row inside the scroll viewport.
   useEffect(() => {
@@ -612,6 +617,10 @@ export function SpotlightModal({
           event.preventDefault();
           runAction(visibleResults[activeIndex]);
           break;
+        case "Tab":
+          event.preventDefault();
+          setPreviewId(visibleResults[activeIndex]?.action.id ?? null);
+          break;
         case "Escape":
           event.preventDefault();
           event.stopPropagation();
@@ -748,10 +757,22 @@ export function SpotlightModal({
           </ul>
         )}
 
+        {previewId ? (
+          <div
+            role="status"
+            className="border-t border-slate-800 bg-slate-950/40 px-4 py-2 text-xs text-slate-400"
+          >
+            Preview:{" "}
+            {index.find((action) => action.id === previewId)?.subtitle ??
+              index.find((action) => action.id === previewId)?.title}
+          </div>
+        ) : null}
+
         <div className="flex items-center justify-between border-t border-slate-800 px-4 py-2 text-[11px] text-slate-500">
           <span className="flex items-center gap-3">
             <span>↑↓ navigate</span>
             <span>↵ run</span>
+            <span>⇥ preview</span>
             <span>⌥↵ change shortcut</span>
             <span>esc close</span>
           </span>
