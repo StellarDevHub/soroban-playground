@@ -16,8 +16,13 @@
  *   />
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, Trash2 } from "lucide-react";
+import {
+  List,
+  type RowComponentProps,
+  useListRef,
+} from "react-window";
 import { useEventStream } from "@/hooks/useEventStream";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import type { WsEvent } from "@/workers/eventStream.worker";
@@ -29,7 +34,7 @@ interface EventsPanelProps {
   restUrl?: string;
   contractId?: string;
   eventType?: string;
-  /** Maximum visible events (default 200) */
+  /** Maximum retained visible events (default 10,000) */
   maxEvents?: number;
   className?: string;
 }
@@ -81,22 +86,39 @@ function eventTypeClass(type: string): string {
 
 // ── Event row ─────────────────────────────────────────────────────────────────
 
-function EventRow({ event }: { event: WsEvent }) {
-  const [expanded, setExpanded] = useState(false);
+interface EventRowProps {
+  events: WsEvent[];
+  expandedEventId: string | null;
+  onToggle: (eventId: string) => void;
+}
 
+function EventRow({
+  index,
+  style,
+  events,
+  expandedEventId,
+  onToggle,
+}: RowComponentProps<EventRowProps>) {
+  const event = events[index];
   const parsedData = useMemo(() => {
     if (!event) return "";
     if (event.type === "quorum_update") {
       return JSON.stringify(event, null, 2);
     }
+    let data: unknown;
     try {
-      return JSON.stringify(JSON.parse(event.data || "{}"), null, 2);
+      data = JSON.parse(event.data || "{}");
     } catch {
-      return event.data || "";
+      data = event.data || "";
     }
+    return JSON.stringify(
+      event.topics ? { topics: event.topics, data } : data,
+      null,
+      2,
+    );
   }, [event]);
-
   if (!event) return null;
+  const expanded = event.id === expandedEventId;
 
   const eventType =
     event.type === "event"
@@ -112,8 +134,9 @@ function EventRow({ event }: { event: WsEvent }) {
 
   return (
     <div
+      style={style}
       className="group border-b border-white/5 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer"
-      onClick={() => setExpanded((p) => !p)}
+      onClick={() => onToggle(event.id)}
     >
       {/* Main row */}
       <div className="flex items-center gap-3 min-w-0">
@@ -147,7 +170,7 @@ function EventRow({ event }: { event: WsEvent }) {
 
       {/* Expanded data */}
       {expanded && (
-        <pre className="mt-2 rounded-lg bg-slate-900 p-3 text-[11px] text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">
+        <pre className="mt-2 max-h-[108px] rounded-lg bg-slate-900 p-3 text-[11px] text-slate-300 overflow-auto whitespace-pre-wrap break-all">
           {parsedData}
         </pre>
       )}
@@ -162,7 +185,7 @@ export function EventsPanel({
   restUrl,
   contractId,
   eventType,
-  maxEvents = 200,
+  maxEvents = 10_000,
   className = "",
 }: EventsPanelProps) {
   // Resolved once per render, but only ever *read* inside the stream hook's
@@ -172,32 +195,95 @@ export function EventsPanel({
   const { events, status, droppedCount, clearEvents, reconnect } =
     useEventStream({
       url: resolvedWsUrl,
-      contractId,
-      eventType,
       fallbackRestUrl: restUrl,
       pollIntervalMs: 5000,
     });
 
-  // Keep the list capped at maxEvents.
+  const [contractFilter, setContractFilter] = useState(contractId ?? "");
+  const [topicFilter, setTopicFilter] = useState("");
+  const [startLedger, setStartLedger] = useState("");
+  const [endLedger, setEndLedger] = useState("");
+  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setContractFilter(contractId ?? "");
+  }, [contractId]);
+
   const capped = useMemo(
     () => (events.length > maxEvents ? events.slice(-maxEvents) : events),
     [events, maxEvents],
   );
 
-  // Auto-scroll to bottom on new events.
-  const listRef = useRef<HTMLDivElement | null>(null);
+  const filteredEvents = useMemo(() => {
+    const contract = contractFilter.trim().toLowerCase();
+    const topic = topicFilter.trim().toLowerCase();
+    const from = startLedger === "" ? undefined : Number(startLedger);
+    const to = endLedger === "" ? undefined : Number(endLedger);
+
+    return capped.filter((event) => {
+      if (event.type !== "event") return true;
+      if (contract && !event.contract_id.toLowerCase().includes(contract)) {
+        return false;
+      }
+      if (eventType && event.event_type !== eventType) return false;
+      if (
+        topic &&
+        !(
+          Array.isArray(event.topics) &&
+          event.topics.some(
+            (value) =>
+              typeof value === "string" && value.toLowerCase() === topic,
+          )
+        )
+      ) {
+        return false;
+      }
+      const ledger = event.ledger_sequence ?? event.ledger;
+      if (from !== undefined && Number.isFinite(from) && ledger < from) {
+        return false;
+      }
+      if (to !== undefined && Number.isFinite(to) && ledger > to) {
+        return false;
+      }
+      return true;
+    });
+  }, [capped, contractFilter, endLedger, eventType, startLedger, topicFilter]);
+
+  const listRef = useListRef();
   const [autoScroll, setAutoScroll] = useState(true);
 
   useEffect(() => {
-    if (!autoScroll || !listRef.current) return;
-    listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [capped.length, autoScroll]);
+    if (!autoScroll || filteredEvents.length === 0) return;
+    listRef.current?.scrollToRow({
+      index: filteredEvents.length - 1,
+      align: "end",
+    });
+  }, [autoScroll, filteredEvents.length]);
 
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    const atBottom = el.scrollHeight - el.clientHeight - el.scrollTop < 40;
-    setAutoScroll(atBottom);
-  }, []);
+  const handleRowsRendered = useCallback(
+    ({ stopIndex }: { stopIndex: number }) => {
+      setAutoScroll(stopIndex >= filteredEvents.length - 1);
+    },
+    [filteredEvents.length],
+  );
+
+  const eventRowProps = useMemo(
+    () => ({
+      events: filteredEvents,
+      expandedEventId,
+      onToggle: (eventId: string) =>
+        setExpandedEventId((current) =>
+          current === eventId ? null : eventId,
+        ),
+    }),
+    [expandedEventId, filteredEvents],
+  );
+
+  const rowHeight = useCallback(
+    (index: number) =>
+      filteredEvents[index]?.id === expandedEventId ? 184 : 48,
+    [expandedEventId, filteredEvents],
+  );
 
   return (
     <div
@@ -208,9 +294,9 @@ export function EventsPanel({
         <div className="flex items-center gap-2 text-xs font-medium text-slate-300 uppercase tracking-wider">
           <Activity size={13} />
           <span>Live Events</span>
-          {capped.length > 0 && (
+          {filteredEvents.length > 0 && (
             <span className="rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-              {capped.length}
+              {filteredEvents.length.toLocaleString()}
             </span>
           )}
         </div>
@@ -232,12 +318,43 @@ export function EventsPanel({
         </div>
       </div>
 
+      <div className="grid grid-cols-2 gap-2 border-b border-white/5 bg-slate-950 px-3 py-2 sm:grid-cols-4">
+        <input
+          aria-label="Filter by contract ID"
+          className="min-w-0 rounded border border-white/10 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 placeholder:text-slate-600"
+          onChange={(event) => setContractFilter(event.target.value)}
+          placeholder="Contract ID"
+          value={contractFilter}
+        />
+        <input
+          aria-label="Filter by event topic"
+          className="min-w-0 rounded border border-white/10 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 placeholder:text-slate-600"
+          onChange={(event) => setTopicFilter(event.target.value)}
+          placeholder="Topic symbol"
+          value={topicFilter}
+        />
+        <input
+          aria-label="Filter from ledger"
+          className="min-w-0 rounded border border-white/10 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 placeholder:text-slate-600"
+          min="0"
+          onChange={(event) => setStartLedger(event.target.value)}
+          placeholder="From ledger"
+          type="number"
+          value={startLedger}
+        />
+        <input
+          aria-label="Filter to ledger"
+          className="min-w-0 rounded border border-white/10 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 placeholder:text-slate-600"
+          min="0"
+          onChange={(event) => setEndLedger(event.target.value)}
+          placeholder="To ledger"
+          type="number"
+          value={endLedger}
+        />
+      </div>
+
       {/* Event list */}
-      <div
-        ref={listRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto min-h-[200px] max-h-[360px]"
-      >
+      <div className="flex-1 min-h-[200px] max-h-[360px]">
         {status === "error" ? (
           <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
             <p className="text-[13px] text-rose-400 mb-2">
@@ -251,7 +368,7 @@ export function EventsPanel({
               Retry Connection
             </button>
           </div>
-        ) : capped.length === 0 ? (
+        ) : filteredEvents.length === 0 ? (
           <p className="px-4 py-6 text-center text-[13px] text-slate-600 italic">
             {status === "connecting" || status === "reconnecting"
               ? "Connecting to event stream…"
@@ -260,15 +377,23 @@ export function EventsPanel({
                 : "No events yet. Waiting for on-chain activity."}
           </p>
         ) : (
-          <div className="flex flex-col">
+          <div className="h-[360px] min-h-[200px]">
             {status === "fallback" && (
               <div className="px-4 py-1.5 text-[10px] text-center text-blue-300 bg-blue-500/10 border-b border-white/5">
                 WebSocket disconnected. Falling back to REST polling.
               </div>
             )}
-            {capped.map((event) => (
-              <EventRow key={event.id} event={event} />
-            ))}
+            <List
+              listRef={listRef}
+              onRowsRendered={handleRowsRendered}
+              defaultHeight={360}
+              overscanCount={5}
+              rowComponent={EventRow}
+              rowCount={filteredEvents.length}
+              rowHeight={rowHeight}
+              rowProps={eventRowProps}
+              style={{ height: 360 }}
+            />
           </div>
         )}
       </div>

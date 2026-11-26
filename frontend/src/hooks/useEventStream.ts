@@ -29,7 +29,7 @@ const RING_CAPACITY = 1024 * 1024; // 1 MiB
 const MESSAGE_HEADER_BYTES = 4;
 const MAX_ENTRY_BYTES = 65_536;
 const MAX_EVENTS_PER_FLUSH = 500;
-const MAX_RENDERED_EVENTS = 2000;
+const MAX_RENDERED_EVENTS = 10_000;
 
 const IDX_READ = 0;
 const IDX_WRITE = 1;
@@ -216,7 +216,12 @@ export function useEventStream(options: EventStreamOptions): EventStreamResult {
         }
         const data = (await res.json()) as { events?: WsEvent[] };
         if (data.events) {
-          appendEvents(data.events);
+          const worker = workerRef.current;
+          if (!worker) {
+            setStatus("error");
+            return;
+          }
+          worker.postMessage({ type: "decode_events", payload: data.events });
           setStatus("fallback");
         }
       } catch {
