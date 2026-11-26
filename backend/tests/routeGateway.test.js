@@ -13,7 +13,9 @@ import { join } from 'node:path';
 const apiPath = join(__dirname, '../src/routes/api.js');
 const apiSource = readFileSync(apiPath, 'utf8');
 
-jest.mock('../src/routes/warranty.js', () => require('./_helpers/stubRouter'));
+jest.mock('../src/routes/warrantyManagement.js', () =>
+  require('./_helpers/stubRouter')
+);
 jest.mock('../src/routes/favorites.js', () => require('./_helpers/stubRouter'));
 jest.mock('../src/routes/workspace.js', () => require('./_helpers/stubRouter'));
 jest.mock('../src/routes/search.js', () => require('./_helpers/stubRouter'));
