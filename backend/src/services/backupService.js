@@ -5,13 +5,13 @@
  * SQLite Automated Backup Service + PostgreSQL WAL-G PITR Orchestration
  *
  * Backup format: <s3-prefix>/backup-<ISO-timestamp>.tar.gz.enc
- * Encryption:    AES-256-CBC — a random 16-byte IV is prepended to the payload.
+ * Encryption:    AES-256-GCM with a per-backup data key wrapped by AWS KMS or Vault.
  *
  * ─── RESTORE PROCEDURE ────────────────────────────────────────────────────────
  *
  * Prerequisites
- *   • BACKUP_ENCRYPTION_KEY env var (64-character hex string representing 32 bytes)
- *   • AWS credentials with s3:GetObject permission
+ *   • BACKUP_KMS_PROVIDER=aws-kms or vault and the matching KMS/Vault configuration
+ *   • AWS credentials with s3:GetObject and kms:Decrypt permission
  *
  * Step 1 — Download the backup from S3
  *   aws s3 cp s3://<BUCKET>/<PREFIX>/backup-<TIMESTAMP>.tar.gz.enc /tmp/backup.tar.gz.enc
@@ -30,8 +30,8 @@
  *   cp /tmp/db-restore/snapshot-<TIMESTAMP>.sqlite /path/to/database.sqlite
  *   # Restart the app
  *
- * Generate an encryption key (run once, store securely):
- *   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+ * The service generates a per-backup data key and wraps it with the configured
+ * KMS/Vault provider; no backup encryption key is stored in application config.
  *
  * ─── POSTGRESQL WAL-G PITR ────────────────────────────────────────────────────
  *
@@ -51,7 +51,7 @@
 
 import { Transform } from 'stream';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
-import { mkdir, unlink } from 'fs/promises';
+import { mkdir, unlink, chmod, rmdir } from 'fs/promises';
 import { createReadStream } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -68,15 +68,19 @@ import {
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getDatabase } from '../database/connection.js';
+import { AwsKmsProvider, VaultTransitProvider } from './kmsService.js';
 import logger from '../utils/logger.js';
 import { alertManager } from '../utils/alerting.js';
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = path.dirname(_filename);
 
-const AES_ALGORITHM = 'aes-256-cbc';
+const AES_ALGORITHM = 'aes-256-gcm';
 const AES_KEY_LENGTH = 32;
-const AES_IV_LENGTH = 16;
+const AES_IV_LENGTH = 12;
+const AES_TAG_LENGTH = 16;
+const BACKUP_MAGIC = Buffer.from('SBKUP001');
+const BACKUP_RETENTION_DAYS = 30;
 
 const WALG_SCRIPT_PATH =
   process.env.WALG_SCRIPT_PATH ||
@@ -84,11 +88,16 @@ const WALG_SCRIPT_PATH =
 
 // ─── Crypto Transforms ────────────────────────────────────────────────────────
 
-class AES256CbcEncryptTransform extends Transform {
-  constructor(key, options) {
+class AES256GcmEncryptTransform extends Transform {
+  constructor(key, iv, wrappedKey, options) {
     super(options);
-    this._iv = randomBytes(AES_IV_LENGTH);
-    this._cipher = createCipheriv(AES_ALGORITHM, key, this._iv);
+    this._iv = iv;
+    this._header = Buffer.alloc(BACKUP_MAGIC.length + 4 + AES_IV_LENGTH);
+    BACKUP_MAGIC.copy(this._header);
+    this._header.writeUInt32BE(wrappedKey.length, BACKUP_MAGIC.length);
+    iv.copy(this._header, BACKUP_MAGIC.length + 4);
+    this._header = Buffer.concat([this._header, wrappedKey]);
+    this._cipher = createCipheriv(AES_ALGORITHM, key, iv);
     this._headerSent = false;
   }
 
@@ -97,10 +106,9 @@ class AES256CbcEncryptTransform extends Transform {
       const encrypted = this._cipher.update(chunk);
       if (!this._headerSent) {
         this._headerSent = true;
-        this.push(Buffer.concat([this._iv, encrypted]));
-      } else {
-        if (encrypted.length) this.push(encrypted);
+        this.push(this._header);
       }
+      if (encrypted.length) this.push(encrypted);
       callback();
     } catch (err) {
       callback(err);
@@ -109,8 +117,10 @@ class AES256CbcEncryptTransform extends Transform {
 
   _flush(callback) {
     try {
+      if (!this._headerSent) this.push(this._header);
       const final = this._cipher.final();
       if (final.length) this.push(final);
+      this.push(this._cipher.getAuthTag());
       callback();
     } catch (err) {
       callback(err);
@@ -118,49 +128,98 @@ class AES256CbcEncryptTransform extends Transform {
   }
 }
 
-class AES256CbcDecryptTransform extends Transform {
-  constructor(key, options) {
+class AES256GcmDecryptTransform extends Transform {
+  constructor(keyProvider, options) {
     super(options);
-    this._key = key;
+    this._keyProvider = keyProvider;
+    this._header = Buffer.alloc(0);
+    this._headerLength = null;
     this._decipher = null;
-    this._ivChunks = [];
-    this._ivBytesRead = 0;
+    this._tail = Buffer.alloc(0);
   }
 
   _transform(chunk, _encoding, callback) {
-    try {
-      if (this._decipher) {
-        const decrypted = this._decipher.update(chunk);
-        if (decrypted.length) this.push(decrypted);
-        return callback();
-      }
+    this._processChunk(chunk).then(
+      () => callback(),
+      (err) => callback(err)
+    );
+  }
 
-      this._ivChunks.push(chunk);
-      this._ivBytesRead += chunk.length;
-
-      if (this._ivBytesRead >= AES_IV_LENGTH) {
-        const all = Buffer.concat(this._ivChunks);
-        const iv = all.subarray(0, AES_IV_LENGTH);
-        const remainder = all.subarray(AES_IV_LENGTH);
-        this._decipher = createDecipheriv(AES_ALGORITHM, this._key, iv);
-        this._ivChunks = null;
-        if (remainder.length) {
-          const decrypted = this._decipher.update(remainder);
-          if (decrypted.length) this.push(decrypted);
+  async _processChunk(chunk) {
+    let remaining = chunk;
+    if (!this._decipher) {
+      this._header = Buffer.concat([this._header, remaining]);
+      remaining = Buffer.alloc(0);
+      if (
+        this._header.length >= BACKUP_MAGIC.length + 4 &&
+        this._headerLength === null
+      ) {
+        if (
+          !this._header
+            .subarray(0, BACKUP_MAGIC.length)
+            .equals(BACKUP_MAGIC)
+        ) {
+          throw new Error('Unsupported or invalid backup format');
+        }
+        this._headerLength =
+          BACKUP_MAGIC.length +
+          4 +
+          AES_IV_LENGTH +
+          this._header.readUInt32BE(BACKUP_MAGIC.length);
+        if (
+          this._header.readUInt32BE(BACKUP_MAGIC.length) === 0 ||
+          this._headerLength > 16 * 1024
+        ) {
+          throw new Error('Invalid wrapped data key in backup header');
         }
       }
-      callback();
-    } catch (err) {
-      callback(err);
+      if (
+        this._headerLength !== null &&
+        this._header.length >= this._headerLength
+      ) {
+        const iv = this._header.subarray(
+          BACKUP_MAGIC.length + 4,
+          BACKUP_MAGIC.length + 4 + AES_IV_LENGTH
+        );
+        const wrappedKey = this._header
+          .subarray(BACKUP_MAGIC.length + 4 + AES_IV_LENGTH, this._headerLength)
+          .toString('utf8');
+        const key = await this._keyProvider.unwrap(wrappedKey);
+        if (key.length !== AES_KEY_LENGTH) {
+          key.fill(0);
+          throw new Error('Unwrapped backup data key must be 32 bytes');
+        }
+        try {
+          this._decipher = createDecipheriv(AES_ALGORITHM, key, iv);
+        } finally {
+          key.fill(0);
+        }
+        remaining = this._header.subarray(this._headerLength);
+        this._header = null;
+      }
+    }
+
+    if (remaining.length) {
+      const combined = Buffer.concat([this._tail, remaining]);
+      if (combined.length > AES_TAG_LENGTH) {
+        const ciphertext = combined.subarray(0, combined.length - AES_TAG_LENGTH);
+        this._tail = combined.subarray(combined.length - AES_TAG_LENGTH);
+        const plaintext = this._decipher.update(ciphertext);
+        if (plaintext.length) this.push(plaintext);
+      } else {
+        this._tail = combined;
+      }
     }
   }
 
   _flush(callback) {
     try {
-      if (this._decipher) {
-        const final = this._decipher.final();
-        if (final.length) this.push(final);
+      if (!this._decipher || this._tail.length !== AES_TAG_LENGTH) {
+        throw new Error('Backup is truncated or has an invalid encryption header');
       }
+      this._decipher.setAuthTag(this._tail);
+      const final = this._decipher.final();
+      if (final.length) this.push(final);
       callback();
     } catch (err) {
       callback(err);
@@ -171,31 +230,22 @@ class AES256CbcDecryptTransform extends Transform {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 function getConfig() {
-  const hexKey = process.env.BACKUP_ENCRYPTION_KEY;
-  if (hexKey && Buffer.from(hexKey, 'hex').length !== AES_KEY_LENGTH) {
-    throw new Error(
-      `BACKUP_ENCRYPTION_KEY must be ${AES_KEY_LENGTH * 2} hex chars (${AES_KEY_LENGTH} bytes). ` +
-        `Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-    );
-  }
   return {
     s3Bucket: process.env.BACKUP_S3_BUCKET,
     s3Prefix: process.env.BACKUP_S3_PREFIX || 'sqlite-backups/',
     s3Region: process.env.BACKUP_S3_REGION || 'us-east-1',
-    encryptionKeyHex: hexKey,
+    kmsProvider: process.env.BACKUP_KMS_PROVIDER,
     tempDir:
       process.env.BACKUP_TEMP_DIR || path.join(os.tmpdir(), 'db-backups'),
-    retentionCount: Math.max(
-      1,
-      parseInt(process.env.BACKUP_RETENTION_COUNT, 10) || 30
-    ),
   };
 }
 
 function assertConfigComplete(cfg) {
   const missing = [];
   if (!cfg.s3Bucket) missing.push('BACKUP_S3_BUCKET');
-  if (!cfg.encryptionKeyHex) missing.push('BACKUP_ENCRYPTION_KEY');
+  if (!['aws-kms', 'vault'].includes(cfg.kmsProvider)) {
+    missing.push('BACKUP_KMS_PROVIDER=aws-kms|vault');
+  }
   if (missing.length) {
     throw new Error(
       `Backup service misconfigured — missing env vars: ${missing.join(', ')}`
@@ -203,8 +253,24 @@ function assertConfigComplete(cfg) {
   }
 }
 
-function parseEncryptionKey(cfg) {
-  return Buffer.from(cfg.encryptionKeyHex, 'hex');
+function getBackupKeyProvider(cfg) {
+  if (cfg.kmsProvider === 'aws-kms') {
+    if (!process.env.AWS_KMS_KEY_ID) {
+      throw new Error(
+        'AWS_KMS_KEY_ID is required when BACKUP_KMS_PROVIDER=aws-kms'
+      );
+    }
+    return new AwsKmsProvider({
+      keyId: process.env.AWS_KMS_KEY_ID,
+      region: process.env.AWS_REGION || cfg.s3Region,
+    });
+  }
+  return new VaultTransitProvider({
+    address: process.env.VAULT_ADDR,
+    token: process.env.VAULT_TOKEN,
+    mount: process.env.BACKUP_VAULT_TRANSIT_MOUNT || 'transit',
+    keyName: process.env.BACKUP_VAULT_TRANSIT_KEY || 'soroban-backups',
+  });
 }
 
 // ─── Core helpers ─────────────────────────────────────────────────────────────
@@ -247,7 +313,7 @@ async function verifyS3Object(s3Client, bucket, key) {
   return { etag: head.ETag, contentLength: head.ContentLength };
 }
 
-async function pruneOldBackups(s3Client, bucket, prefix, retentionCount) {
+async function pruneOldBackups(s3Client, bucket, prefix) {
   const objects = [];
   let token;
 
@@ -263,21 +329,35 @@ async function pruneOldBackups(s3Client, bucket, prefix, retentionCount) {
     token = res.NextContinuationToken;
   } while (token);
 
-  // Newest first — keep only the most recent `retentionCount` backups
-  objects.sort((a, b) => b.LastModified - a.LastModified);
-  const toDelete = objects.slice(retentionCount);
+  const cutoff = Date.now() - BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const toDelete = objects
+    .filter(
+      (object) =>
+        object.Key &&
+        /\/?backup-[^/]+\.tar\.gz\.enc$/.test(object.Key) &&
+        object.LastModified &&
+        object.LastModified.getTime() < cutoff
+    )
+    .map((object) => ({ Key: object.Key }));
 
   if (!toDelete.length) return 0;
 
-  await s3Client.send(
-    new DeleteObjectsCommand({
-      Bucket: bucket,
-      Delete: {
-        Objects: toDelete.map((o) => ({ Key: o.Key })),
-        Quiet: true,
-      },
-    })
-  );
+  for (let index = 0; index < toDelete.length; index += 1000) {
+    const result = await s3Client.send(
+      new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: {
+          Objects: toDelete.slice(index, index + 1000),
+          Quiet: true,
+        },
+      })
+    );
+    if (result.Errors?.length) {
+      throw new Error(
+        `Failed to prune ${result.Errors.length} expired backup object(s)`
+      );
+    }
+  }
 
   return toDelete.length;
 }
@@ -291,16 +371,25 @@ export async function runBackup() {
   assertConfigComplete(cfg);
 
   const timestamp = buildTimestamp();
-  const snapshotFile = path.join(cfg.tempDir, `snapshot-${timestamp}.sqlite`);
+  const snapshotDir = path.join(cfg.tempDir, `run-${timestamp}`);
+  const snapshotFile = path.join(snapshotDir, `snapshot-${timestamp}.sqlite`);
   const s3Key = buildS3Key(cfg.s3Prefix, timestamp);
-  const encKey = parseEncryptionKey(cfg);
+  const keyProvider = getBackupKeyProvider(cfg);
+  const dataKey = randomBytes(AES_KEY_LENGTH);
 
   logger.info(
     JSON.stringify({ level: 'info', msg: 'backup:start', timestamp, s3Key })
   );
 
+  let backupError;
   try {
-    await mkdir(cfg.tempDir, { recursive: true });
+    const wrappedKey = Buffer.from(await keyProvider.wrap(dataKey), 'utf8');
+    if (!wrappedKey.length || wrappedKey.length > 16 * 1024) {
+      throw new Error('KMS provider returned an invalid wrapped backup key');
+    }
+
+    await mkdir(snapshotDir, { recursive: true, mode: 0o700 });
+    await chmod(snapshotDir, 0o700);
 
     // 1. Point-in-time snapshot — non-blocking in WAL mode
     logger.info(
@@ -311,10 +400,15 @@ export async function runBackup() {
       })
     );
     await createDatabaseSnapshot(snapshotFile);
+    await chmod(snapshotFile, 0o600);
 
-    // 2. tar.gz → AES-256-CBC encrypt → S3 multipart upload (fully stream-based)
+    // 2. tar.gz → AES-256-GCM encrypt → S3 multipart upload (fully stream-based)
     const s3Client = new S3Client({ region: cfg.s3Region });
-    const encryptTransform = new AES256CbcEncryptTransform(encKey);
+    const encryptTransform = new AES256GcmEncryptTransform(
+      dataKey,
+      randomBytes(AES_IV_LENGTH),
+      wrappedKey
+    );
 
     const archiveStream = tar.create(
       { gzip: true, cwd: path.dirname(snapshotFile), portable: true },
@@ -331,6 +425,7 @@ export async function runBackup() {
     await streamUploadToS3(s3Client, cfg.s3Bucket, s3Key, encryptTransform, {
       'backup-timestamp': timestamp,
       'backup-algorithm': AES_ALGORITHM,
+      'backup-kms-provider': keyProvider.name,
       'backup-format': 'tar.gz.enc',
     });
 
@@ -354,8 +449,7 @@ export async function runBackup() {
     const deleted = await pruneOldBackups(
       s3Client,
       cfg.s3Bucket,
-      cfg.s3Prefix,
-      cfg.retentionCount
+      cfg.s3Prefix
     );
     if (deleted > 0) {
       logger.info(
@@ -363,13 +457,22 @@ export async function runBackup() {
       );
     }
 
-    const result = { success: true, s3Key, timestamp, etag, contentLength };
+    const result = {
+      success: true,
+      s3Key,
+      timestamp,
+      etag,
+      contentLength,
+      encrypted: true,
+      algorithm: AES_ALGORITHM,
+    };
     _lastResult = { ...result, completedAt: new Date().toISOString() };
     logger.info(
       JSON.stringify({ level: 'info', msg: 'backup:complete', ...result })
     );
     return result;
   } catch (err) {
+    backupError = err;
     const failure = { success: false, error: err.message, timestamp };
     _lastResult = { ...failure, completedAt: new Date().toISOString() };
     logger.error(
@@ -387,7 +490,50 @@ export async function runBackup() {
     });
     throw err;
   } finally {
-    await unlink(snapshotFile).catch(() => {});
+    dataKey.fill(0);
+    try {
+      await unlink(snapshotFile);
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        logger.error(
+          JSON.stringify({
+            level: 'error',
+            msg: 'backup:snapshot_cleanup_failed',
+            error: err.message,
+            snapshotFile,
+          })
+        );
+        if (!backupError) {
+          alertManager.alert('backup_cleanup_failed', {
+            error: err.message,
+            snapshotFile,
+          });
+          throw err;
+        }
+      }
+    }
+
+    try {
+      await rmdir(snapshotDir);
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        logger.error(
+          JSON.stringify({
+            level: 'error',
+            msg: 'backup:directory_cleanup_failed',
+            error: err.message,
+            snapshotDir,
+          })
+        );
+        if (!backupError) {
+          alertManager.alert('backup_cleanup_failed', {
+            error: err.message,
+            snapshotDir,
+          });
+          throw err;
+        }
+      }
+    }
   }
 }
 
@@ -404,14 +550,15 @@ export function getLastBackupResult() {
  */
 export async function restoreFromFile({ sourcePath, destDir }) {
   const cfg = getConfig();
-  if (!cfg.encryptionKeyHex) {
-    throw new Error('BACKUP_ENCRYPTION_KEY is required for restore');
+  if (!['aws-kms', 'vault'].includes(cfg.kmsProvider)) {
+    throw new Error('BACKUP_KMS_PROVIDER must be aws-kms or vault for restore');
   }
-  const encKey = parseEncryptionKey(cfg);
+  const keyProvider = getBackupKeyProvider(cfg);
 
-  await mkdir(destDir, { recursive: true });
+  await mkdir(destDir, { recursive: true, mode: 0o700 });
+  await chmod(destDir, 0o700);
 
-  const decryptTransform = new AES256CbcDecryptTransform(encKey);
+  const decryptTransform = new AES256GcmDecryptTransform(keyProvider);
   const sourceStream = createReadStream(sourcePath);
   const extractStream = tar.extract({ cwd: destDir });
 

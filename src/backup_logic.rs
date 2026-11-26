@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Key, Nonce,
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key,
 };
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -89,19 +89,16 @@ impl BackupService {
         }
 
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.encryption_key));
-        let nonce_inner = Utc::now().timestamp().to_be_bytes();
-        let mut nonce_bytes = [0u8; 12];
-        nonce_bytes[4..].copy_from_slice(&nonce_inner);
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
         let encrypted_data = cipher
-            .encrypt(nonce, output.stdout.as_ref())
+            .encrypt(&nonce, output.stdout.as_ref())
             .map_err(|e| format!("Encryption failure: {}", e))?;
 
         let timestamp = Utc::now().timestamp();
         let filename = format!("backup_{}.enc", timestamp);
 
-        let mut final_payload = nonce_bytes.to_vec();
+        let mut final_payload = nonce.to_vec();
         final_payload.extend_from_slice(&encrypted_data);
 
         self.storage.upload(&filename, final_payload).await?;

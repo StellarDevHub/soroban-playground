@@ -168,7 +168,12 @@ export const ENV_SCHEMA = z.object({
   // ─ Backup ──────────────────────────────────────────────────────────────────
   BACKUP_ENABLED: booleanEnv(false),
   BACKUP_S3_BUCKET: z.string().optional(),
-  BACKUP_ENCRYPTION_KEY: z.string().optional(),
+  BACKUP_KMS_PROVIDER: z.enum(['aws-kms', 'vault']).optional(),
+  AWS_KMS_KEY_ID: z.string().optional(),
+  VAULT_ADDR: z.string().optional(),
+  VAULT_TOKEN: z.string().optional(),
+  BACKUP_VAULT_TRANSIT_MOUNT: z.string().optional(),
+  BACKUP_VAULT_TRANSIT_KEY: z.string().optional(),
 });
 
 // ─── Validation result ────────────────────────────────────────────────────────
@@ -241,10 +246,29 @@ export function validateEnvSchema(
       errors.push('BACKUP_S3_BUCKET is required when BACKUP_ENABLED=true');
     }
 
-    if (rawEnv.BACKUP_ENABLED === 'true' && !rawEnv.BACKUP_ENCRYPTION_KEY) {
+    if (
+      rawEnv.BACKUP_ENABLED === 'true' &&
+      !['aws-kms', 'vault'].includes(rawEnv.BACKUP_KMS_PROVIDER)
+    ) {
       errors.push(
-        'BACKUP_ENCRYPTION_KEY is required when BACKUP_ENABLED=true (AES-256 hex key)'
+        'BACKUP_KMS_PROVIDER must be aws-kms or vault when BACKUP_ENABLED=true'
       );
+    }
+
+    if (
+      rawEnv.BACKUP_ENABLED === 'true' &&
+      rawEnv.BACKUP_KMS_PROVIDER === 'aws-kms' &&
+      !rawEnv.AWS_KMS_KEY_ID
+    ) {
+      errors.push('AWS_KMS_KEY_ID is required for AWS KMS backups');
+    }
+
+    if (
+      rawEnv.BACKUP_ENABLED === 'true' &&
+      rawEnv.BACKUP_KMS_PROVIDER === 'vault' &&
+      (!rawEnv.VAULT_ADDR || !rawEnv.VAULT_TOKEN)
+    ) {
+      errors.push('VAULT_ADDR and VAULT_TOKEN are required for Vault backups');
     }
   }
 

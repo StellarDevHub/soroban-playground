@@ -108,7 +108,7 @@ const DEFAULTS = {
   BACKUP_CRON_SCHEDULE: '0 2 * * *',
   BACKUP_S3_PREFIX: 'sqlite-backups/',
   BACKUP_S3_REGION: 'us-east-1',
-  BACKUP_RETENTION_COUNT: 30,
+  BACKUP_RETENTION_DAYS: 30,
   STELLAR_NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015',
   JWT_SECRET: undefined,
   JWT_ACCESS_TOKEN_TTL_MS: 15 * 60 * 1000,
@@ -613,14 +613,8 @@ export function createConfig(env = process.env, options = {}) {
       s3Bucket: cleanString(env.BACKUP_S3_BUCKET, undefined),
       s3Prefix: cleanString(env.BACKUP_S3_PREFIX, DEFAULTS.BACKUP_S3_PREFIX),
       s3Region: cleanString(env.BACKUP_S3_REGION, DEFAULTS.BACKUP_S3_REGION),
-      encryptionKey: cleanString(env.BACKUP_ENCRYPTION_KEY, undefined),
-      retentionCount: toInt(
-        env.BACKUP_RETENTION_COUNT,
-        DEFAULTS.BACKUP_RETENTION_COUNT,
-        'BACKUP_RETENTION_COUNT',
-        warnings,
-        { min: 1, max: 365 }
-      ),
+      kmsProvider: cleanString(env.BACKUP_KMS_PROVIDER, undefined),
+      retentionDays: DEFAULTS.BACKUP_RETENTION_DAYS,
       tempDir: cleanString(env.BACKUP_TEMP_DIR, undefined),
     },
   };
