@@ -6,10 +6,8 @@
 //! Combines prices from multiple on-chain reporters into a single reliable
 //! price for a given asset pair (e.g. "XLM/USD").
 //!
-//! ## Aggregation strategies
-//! - **Median** – middle value of sorted active prices (default, outlier-robust)
-//! - **WeightedAverage** – weighted mean using per-source weights
-//! - **TrimmedMean** – drops bottom/top `trim_pct` % before averaging
+//! Aggregation requires the median of at least three distinct reporters.
+//! Configure positive inclusive price bounds before submitting rounds.
 //!
 //! ## Security
 //! - Only the designated `reporter` of each source may update its price.
@@ -19,6 +17,8 @@
 //! - Admin-controlled emergency pause.
 
 #![no_std]
+// Preserve the existing initialize ABI and the SDK-generated client signatures.
+#![allow(clippy::too_many_arguments)]
 
 mod storage;
 mod test;
@@ -27,7 +27,10 @@ mod types;
 use soroban_sdk::{contract, contractimpl, symbol_short, vec, Address, Env, String, Vec};
 
 use crate::storage::*;
-use crate::types::{AggregatedPrice, AggregationStrategy, Error, PriceSource};
+use crate::types::{AggregatedPrice, AggregationStrategy, Error, PriceBounds, PriceSource};
+
+const MAX_SOURCES: u32 = 32;
+const MIN_SOURCES: u32 = 3;
 
 #[contract]
 pub struct PriceFeedAggregator;
@@ -58,6 +61,15 @@ impl PriceFeedAggregator {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
+        validate_config(
+            max_price_age.unwrap_or(3600),
+            strategy.unwrap_or(AggregationStrategy::Median),
+        )?;
+        if outlier_bps.is_some_and(|bps| bps == 0 || bps > 10_000)
+            || circuit_breaker_bps.is_some_and(|bps| bps == 0 || bps > 10_000)
+        {
+            return Err(Error::InvalidParameter);
+        }
         set_admin(&env, &admin);
         env.storage()
             .instance()
@@ -121,6 +133,16 @@ impl PriceFeedAggregator {
             return Err(Error::InvalidWeight);
         }
         let id = get_source_count(&env);
+        if id >= MAX_SOURCES {
+            return Err(Error::MaxSourcesReached);
+        }
+        for existing_id in 0..id {
+            if let Ok(existing) = get_source(&env, existing_id) {
+                if existing.active && existing.reporter == reporter {
+                    return Err(Error::DuplicateReporter);
+                }
+            }
+        }
         let source = PriceSource {
             reporter: reporter.clone(),
             description,
@@ -182,9 +204,7 @@ impl PriceFeedAggregator {
         not_paused(&env)?;
         reporter.require_auth();
 
-        if price <= 0 {
-            return Err(Error::InvalidPrice);
-        }
+        validate_price(price, &get_price_bounds(&env)?)?;
         let mut source = get_source(&env, source_id)?;
         if !source.active {
             return Err(Error::SourceInactive);
@@ -195,9 +215,8 @@ impl PriceFeedAggregator {
 
         // Circuit-breaker check (skip when no previous price yet)
         if source.last_price > 0 {
-            let cb_bps = get_circuit_breaker_bps(&env) as i128;
-            let deviation = abs_diff(price, source.last_price) * 10_000 / source.last_price;
-            if deviation > cb_bps {
+            let cb_bps = get_circuit_breaker_bps(&env);
+            if exceeds_deviation(price, source.last_price, cb_bps) {
                 return Err(Error::CircuitBreakerTripped);
             }
         }
@@ -213,80 +232,71 @@ impl PriceFeedAggregator {
 
     // ── Price reads ───────────────────────────────────────────────────────────
 
-    /// Get the raw price and metadata for a single source.
+    /// Get a fresh, positive, in-band price and metadata for an active source.
     pub fn get_price(env: Env, source_id: u32) -> Result<PriceSource, Error> {
         ensure_initialized(&env)?;
-        get_source(&env, source_id)
+        not_paused(&env)?;
+        let source = get_source(&env, source_id)?;
+        if !source.active {
+            return Err(Error::SourceInactive);
+        }
+        validate_price(source.last_price, &get_price_bounds(&env)?)?;
+        if !is_fresh(
+            env.ledger().timestamp(),
+            source.last_updated,
+            get_max_price_age(&env),
+        ) {
+            return Err(Error::StalePrice);
+        }
+        Ok(source)
     }
 
     /// Aggregate all active, non-stale prices into a single value.
     ///
-    /// Requires at least 1 valid source. Applies outlier detection before
-    /// aggregating when more than 2 sources are available.
+    /// Requires at least three distinct reporters after outlier filtering.
+    /// Returns the median and the oldest candidate timestamp (conservative freshness).
     pub fn get_aggregated_price(env: Env) -> Result<AggregatedPrice, Error> {
         ensure_initialized(&env)?;
-        let count = get_source_count(&env);
+        not_paused(&env)?;
+        validate_config(get_max_price_age(&env), get_strategy(&env))?;
+        let bounds = get_price_bounds(&env)?;
         let now = env.ledger().timestamp();
-        let max_age = get_max_price_age(&env);
-        let strategy = get_strategy(&env);
-        let outlier_bps = get_outlier_bps(&env) as i128;
-
-        // Collect valid (active + fresh) prices and their weights
         let mut prices: Vec<i128> = vec![&env];
-        let mut weights: Vec<u32> = vec![&env];
-
-        let mut id: u32 = 0;
-        while id < count {
+        let mut reporters: Vec<Address> = vec![&env];
+        let mut oldest = now;
+        for id in 0..get_source_count(&env) {
             if let Ok(src) = get_source(&env, id) {
-                let age = now.saturating_sub(src.last_updated);
-                if src.active && src.last_price > 0 && age <= max_age {
-                    prices.push_back(src.last_price);
-                    weights.push_back(src.weight);
+                if !src.active
+                    || !is_fresh(now, src.last_updated, get_max_price_age(&env))
+                    || validate_price(src.last_price, &bounds).is_err()
+                    || reporters.contains(&src.reporter)
+                {
+                    continue;
                 }
+                reporters.push_back(src.reporter);
+                prices.push_back(src.last_price);
+                oldest = oldest.min(src.last_updated);
             }
-            id += 1;
         }
-
-        if prices.is_empty() {
+        if prices.len() < MIN_SOURCES {
             return Err(Error::InsufficientSources);
         }
-
-        // Outlier detection: filter prices > outlier_bps from the median
-        if prices.len() > 2 {
-            let med = median(&prices);
-            let mut filtered_prices: Vec<i128> = vec![&env];
-            let mut filtered_weights: Vec<u32> = vec![&env];
-            let mut i: u32 = 0;
-            while i < prices.len() {
-                let p = prices.get(i).unwrap();
-                let w = weights.get(i).unwrap();
-                let dev = abs_diff(p, med) * 10_000 / med;
-                if dev <= outlier_bps {
-                    filtered_prices.push_back(p);
-                    filtered_weights.push_back(w);
-                }
-                i += 1;
-            }
-            if !filtered_prices.is_empty() {
-                prices = filtered_prices;
-                weights = filtered_weights;
+        let med = median(&prices);
+        let mut filtered: Vec<i128> = vec![&env];
+        for price in prices.iter() {
+            if !exceeds_deviation(price, med, get_outlier_bps(&env)) {
+                filtered.push_back(price);
             }
         }
-
-        let num_sources = prices.len();
-        let price = match strategy {
-            AggregationStrategy::Median => median(&prices),
-            AggregationStrategy::WeightedAverage => weighted_average(&prices, &weights),
-            AggregationStrategy::TrimmedMean => {
-                let pct = get_trim_pct(&env);
-                trimmed_mean(&prices, pct)
-            }
-        };
-
+        if filtered.len() < MIN_SOURCES {
+            return Err(Error::InsufficientSources);
+        }
+        let num_sources = filtered.len();
+        let price = median(&filtered);
         Ok(AggregatedPrice {
             price,
             num_sources,
-            timestamp: now,
+            timestamp: oldest,
         })
     }
 
@@ -300,6 +310,7 @@ impl PriceFeedAggregator {
         ensure_initialized(&env)?;
         admin.require_auth();
         require_admin(&env, &admin)?;
+        validate_config(get_max_price_age(&env), strategy)?;
         set_strategy(&env, strategy);
         Ok(())
     }
@@ -308,10 +319,22 @@ impl PriceFeedAggregator {
         ensure_initialized(&env)?;
         admin.require_auth();
         require_admin(&env, &admin)?;
-        if max_age == 0 {
+        if max_age == 0 || max_age > 3600 {
             return Err(Error::InvalidParameter);
         }
         set_max_price_age(&env, max_age);
+        Ok(())
+    }
+
+    /// Configure inclusive limits in this feed's price scale before submitting prices.
+    pub fn set_price_bounds(env: Env, admin: Address, min: i128, max: i128) -> Result<(), Error> {
+        ensure_initialized(&env)?;
+        admin.require_auth();
+        require_admin(&env, &admin)?;
+        if min <= 0 || max < min {
+            return Err(Error::InvalidParameter);
+        }
+        set_price_bounds(&env, &PriceBounds { min, max });
         Ok(())
     }
 
@@ -409,49 +432,34 @@ fn median(prices: &Vec<i128>) -> i128 {
     } else {
         let lo = sorted.get(n / 2 - 1).unwrap();
         let hi = sorted.get(n / 2).unwrap();
-        (lo + hi) / 2
+        lo + (hi - lo) / 2
     }
 }
 
-fn weighted_average(prices: &Vec<i128>, weights: &Vec<u32>) -> i128 {
-    let mut sum: i128 = 0;
-    let mut total_weight: i128 = 0;
-    let mut i: u32 = 0;
-    while i < prices.len() {
-        let p = prices.get(i).unwrap();
-        let w = weights.get(i).unwrap() as i128;
-        sum += p * w;
-        total_weight += w;
-        i += 1;
+fn validate_config(max_age: u64, strategy: AggregationStrategy) -> Result<(), Error> {
+    if max_age == 0 || max_age > 3600 || strategy != AggregationStrategy::Median {
+        return Err(Error::InvalidParameter);
     }
-    if total_weight == 0 {
-        return 0;
-    }
-    sum / total_weight
+    Ok(())
 }
 
-fn trimmed_mean(prices: &Vec<i128>, trim_pct: u32) -> i128 {
-    let mut sorted = prices.clone();
-    sort_vec(&mut sorted);
-    let n = sorted.len();
-    let trim = n * trim_pct / 100;
-    let lo = trim;
-    let hi = n - trim;
-    if lo >= hi {
-        // fallback: plain average
-        let mut sum: i128 = 0;
-        let mut i: u32 = 0;
-        while i < n {
-            sum += sorted.get(i).unwrap();
-            i += 1;
-        }
-        return sum / n as i128;
+fn validate_price(price: i128, bounds: &PriceBounds) -> Result<(), Error> {
+    if price <= 0 {
+        return Err(Error::InvalidPrice);
     }
-    let mut sum: i128 = 0;
-    let mut i = lo;
-    while i < hi {
-        sum += sorted.get(i).unwrap();
-        i += 1;
+    if price < bounds.min || price > bounds.max {
+        return Err(Error::PriceOutOfBounds);
     }
-    sum / (hi - lo) as i128
+    Ok(())
+}
+
+fn is_fresh(now: u64, timestamp: u64, max_age: u64) -> bool {
+    now.checked_sub(timestamp).is_some_and(|age| age <= max_age)
+}
+
+// Positive validated prices: avoid overflowing price * 10_000, even at i128::MAX.
+fn exceeds_deviation(price: i128, reference: i128, bps: u32) -> bool {
+    let bps = bps.min(10_000) as i128;
+    let allowed = (reference / 10_000) * bps + (reference % 10_000) * bps / 10_000;
+    abs_diff(price, reference) > allowed
 }
