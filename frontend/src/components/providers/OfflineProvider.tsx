@@ -100,6 +100,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     const created = createOfflineEngine({
       probeUrl: connectivityProbeUrl(),
       probeIntervalMs: 30_000,
+      batchUpdates: (fn) => React.startTransition(fn),
     });
     // Adopt the persisted outbox and begin probing only after mount, so the
     // server-rendered markup stays authoritative for the hydration pass.

@@ -2,24 +2,20 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Deterministic conflict resolution for the offline engine (issue #1525).
+ * Deterministic conflict resolution and 3-way merge for the offline engine (issue #1525, #2037).
  *
  * Two devices edit the same record while one of them is offline. On reconnect
- * the client has a `local` and a `remote` copy and must converge without losing
- * data or silently clobbering the newer edit. The rules implemented here are
- * deliberately boring and total — same inputs always produce the same output —
- * because a merge that depends on wall-clock ordering at replay time is how
- * "phantom" reverts happen.
+ * the client has a `local`, `remote`, and optional `base` copy and converges
+ * without losing data or silently clobbering the newer edit.
  *
  * Strategy selection:
- *
- * | shape                       | strategy       |
- * | --------------------------- | -------------- |
- * | set of ids (favorites, tags) | `union`       |
- * | append-only log (history)   | `append`       |
- * | whole document (workspace)  | `newest-wins`  |
- * | scalar field                | `newest-wins`  |
- * | divergent, non-mergeable    | `manual`       |
+ * | shape                         | strategy       |
+ * | ----------------------------- | -------------- |
+ * | set of ids (favorites, tags)   | `union`        |
+ * | append-only log (history)     | `append`       |
+ * | whole document (workspace)    | `newest-wins`  |
+ * | scalar field                  | `newest-wins`  |
+ * | divergent, non-mergeable      | `manual`       |
  */
 
 import type { Conflict, ConflictStrategy, MergeOutcome, Versioned } from "./types";
@@ -246,10 +242,6 @@ export interface RecordMerge<TLocal extends object, TRemote extends object> {
 
 /**
  * Merge two versioned records field by field.
- *
- * Fields only present on one side are taken as-is. `overrides` lets a caller pin
- * a strategy per field — the workspace document uses it to keep a pinned
- * sidebar width local-only.
  */
 export function mergeRecords<
   TLocal extends Record<string, unknown>,
@@ -294,5 +286,93 @@ export function mergeRecords<
     conflicts,
     dirty,
     manual: conflicts.filter((conflict) => conflict.resolution === "manual"),
+  };
+}
+
+/**
+ * Three-way merge reconciliation for concurrent edits against a common base ancestor.
+ *
+ * If a field changed on only one side relative to `base`, the modified side is cleanly adopted.
+ * If both sides changed to the same value, it converges without conflict.
+ * If both sides changed to differing values, it falls back to deterministic field resolution.
+ */
+export function threeWayMerge<
+  TLocal extends Record<string, unknown>,
+  TRemote extends Record<string, unknown>,
+  TBase extends Record<string, unknown> = Record<string, unknown>,
+>(
+  local: TLocal,
+  remote: TRemote,
+  base?: TBase,
+  options: {
+    localVersion?: Versioned;
+    remoteVersion?: Versioned;
+    overrides?: Record<string, ConflictStrategy>;
+  } = {},
+): RecordMerge<TLocal, TRemote> {
+  if (!base) {
+    return mergeRecords(local, remote, options);
+  }
+
+  const localVersion = options.localVersion ?? asVersioned(local);
+  const remoteVersion = options.remoteVersion ?? asVersioned(remote);
+  const overrides = options.overrides ?? {};
+
+  const allKeys = new Set([
+    ...Object.keys(local),
+    ...Object.keys(remote),
+    ...Object.keys(base),
+  ]);
+
+  const merged: Record<string, unknown> = {};
+  const conflicts: Conflict[] = [];
+  let dirty = false;
+
+  for (const key of allKeys) {
+    const valLocal = local[key];
+    const valRemote = remote[key];
+    const valBase = base[key];
+
+    const localChanged = !sameValue(valLocal, valBase);
+    const remoteChanged = !sameValue(valRemote, valBase);
+
+    if (localChanged && !remoteChanged) {
+      // Local modified, remote unchanged -> adopt local
+      if (key in local) merged[key] = valLocal;
+      dirty = true;
+    } else if (!localChanged && remoteChanged) {
+      // Remote modified, local unchanged -> adopt remote
+      if (key in remote) merged[key] = valRemote;
+      dirty = true;
+    } else if (localChanged && remoteChanged) {
+      // Both modified
+      if (sameValue(valLocal, valRemote)) {
+        // Converged on same change
+        merged[key] = valLocal;
+      } else {
+        // True concurrent conflict -> resolve with strategy
+        const outcome = resolveField(
+          key,
+          valLocal,
+          valRemote,
+          localVersion,
+          remoteVersion,
+          overrides[key] ?? inferStrategy(valLocal, valRemote),
+        );
+        merged[key] = outcome.value;
+        conflicts.push(...outcome.conflicts);
+        if (outcome.dirty) dirty = true;
+      }
+    } else {
+      // Neither changed from base
+      if (key in base) merged[key] = valBase;
+    }
+  }
+
+  return {
+    value: merged as TLocal,
+    conflicts,
+    dirty,
+    manual: conflicts.filter((c) => c.resolution === "manual"),
   };
 }
