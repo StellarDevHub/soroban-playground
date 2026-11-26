@@ -10,6 +10,9 @@ export class HttpError extends Error {
     super(message);
     this.name = 'HttpError';
     this.statusCode = statusCode;
+    // Express convention and many downstream handlers read `err.status`;
+    // expose both so a handler picking either one sees the real code.
+    this.status = statusCode;
     this.details = details;
   }
 }
