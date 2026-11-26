@@ -4,6 +4,7 @@
 import crypto from 'crypto';
 import { getDatabase } from '../database/connection.js';
 import { deriveTenantId } from '../utils/tenant.js';
+import encryptionService from './encryptionService.js';
 
 /**
  * API Key Management Service
@@ -36,10 +37,17 @@ export class ApiKeyService {
     const resolvedTenantId =
       deriveTenantId({ tenantId, organizationId, userId }) || 'public';
 
+    // Store the plaintext key only as an envelope-encrypted secret so it can be
+    // recovered by authorized internal flows without keeping a global key.
+    const envelope = await encryptionService.encryptSecret(key, {
+      tenantId: resolvedTenantId,
+      purpose: 'api_key',
+    });
+
     const db = getDatabase();
     const result = await db.run(
-      `INSERT INTO api_keys (tenant_id, key_hash, key_prefix, name, description, tier, user_id, organization_id, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO api_keys (tenant_id, key_hash, key_prefix, name, description, tier, user_id, organization_id, expires_at, encrypted_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         resolvedTenantId,
         keyHash,
@@ -50,6 +58,7 @@ export class ApiKeyService {
         userId,
         organizationId,
         expiresAt,
+        JSON.stringify(envelope),
       ]
     );
 

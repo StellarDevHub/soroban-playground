@@ -169,6 +169,15 @@ export const ENV_SCHEMA = z.object({
   BACKUP_ENABLED: booleanEnv(false),
   BACKUP_S3_BUCKET: z.string().optional(),
   BACKUP_ENCRYPTION_KEY: z.string().optional(),
+
+  // ─ Envelope Encryption (BACKEND-258) ───────────────────────────────────────
+  ENVELOPE_ENCRYPTION_KMS_PROVIDER: z
+    .enum(['aws', 'gcp', 'vault', 'local'])
+    .optional()
+    .default('local'),
+  ENVELOPE_ENCRYPTION_KEK_ID: z.string().optional(),
+  ENVELOPE_ENCRYPTION_DEK_ROTATION_DAYS: intEnv(90),
+  ENVELOPE_ENCRYPTION_ALGORITHM: z.literal('aes-256-gcm').default('aes-256-gcm'),
 });
 
 // ─── Validation result ────────────────────────────────────────────────────────
@@ -244,6 +253,12 @@ export function validateEnvSchema(
     if (rawEnv.BACKUP_ENABLED === 'true' && !rawEnv.BACKUP_ENCRYPTION_KEY) {
       errors.push(
         'BACKUP_ENCRYPTION_KEY is required when BACKUP_ENABLED=true (AES-256 hex key)'
+      );
+    }
+
+    if (rawEnv.ENVELOPE_ENCRYPTION_KMS_PROVIDER === 'local') {
+      warnings.push(
+        'ENVELOPE_ENCRYPTION_KMS_PROVIDER=local in production; KEK should be managed by AWS KMS, GCP KMS, or HashiCorp Vault'
       );
     }
   }
