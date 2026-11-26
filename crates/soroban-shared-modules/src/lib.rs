@@ -11,10 +11,12 @@
 pub mod rbac;
 pub mod timelock;
 pub mod event_schema;
+pub mod contract_event;
 pub mod auth;
 
 // Re-export commonly used types
 pub use rbac::{Role, RBACError, roles, pause};
 pub use timelock::{Proposal, ProposalState, TimelockError, proposals, queue};
 pub use event_schema::{EventCategory, StandardEvent, EVENT_SCHEMA_VERSION, topics, emitters};
+pub use contract_event::{ContractEventEnvelope, CONTRACT_EVENT_VERSION, emit as emit_contract_event, current_seq as contract_event_seq};
 pub use auth::{AuthError, require_auth_for_caller, require_auth_for_target, require_auth_for_transfer, require_auth_for_resource};
