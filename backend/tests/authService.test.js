@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { jest } from '@jest/globals';
+import crypto from 'crypto';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import fs from 'fs/promises';
@@ -55,7 +56,11 @@ const {
   initializeDatabase,
   closeDatabase,
 } = require('../src/database/connection.js');
-const { default: apiKeyService } = require('../src/services/apiKeyService.js');
+const {
+  default: apiKeyService,
+  API_KEY_SCOPES,
+} = require('../src/services/apiKeyService.js');
+const { requireApiKeyScope } = require('../src/middleware/apiKeyScope.js');
 
 describe('ApiKeyService (Auth Service)', () => {
   beforeAll(async () => {
@@ -146,6 +151,52 @@ describe('ApiKeyService (Auth Service)', () => {
       ]);
       expect(dbRow.tier).toBe('free');
     });
+
+    it('stores only a SHA-256 digest and never persists the raw key', async () => {
+      const keyData = await apiKeyService.generateKey({
+        name: 'Hash Only Key',
+        userId: 77,
+      });
+
+      const dbRow = await mockDb.get('SELECT * FROM api_keys WHERE id = ?', [
+        keyData.id,
+      ]);
+      const columns = await mockDb.all('PRAGMA table_info(api_keys)');
+      const columnNames = columns.map((column) => column.name);
+      const auditRows = await mockDb.all('SELECT metadata FROM audit_log');
+
+      expect(dbRow.key_hash).toBe(
+        crypto.createHash('sha256').update(keyData.key).digest('hex')
+      );
+      expect(columnNames).not.toContain('encrypted_key');
+      expect(columnNames).not.toContain('key');
+      expect(JSON.stringify(dbRow)).not.toContain(keyData.key);
+      expect(JSON.stringify(auditRows)).not.toContain(keyData.key);
+    });
+
+    it('stores normalized scopes and rejects unknown scopes', async () => {
+      const keyData = await apiKeyService.generateKey({
+        name: 'Scoped Key',
+        userId: 12,
+        scopes: ['contracts:read', 'contracts:read'],
+      });
+
+      expect(keyData.scopes).toEqual(['contracts:read']);
+
+      const dbRow = await mockDb.get(
+        'SELECT scopes FROM api_keys WHERE id = ?',
+        [keyData.id]
+      );
+      expect(JSON.parse(dbRow.scopes)).toEqual(['contracts:read']);
+
+      await expect(
+        apiKeyService.generateKey({
+          name: 'Bad Scopes',
+          userId: 12,
+          scopes: ['contracts:delete'],
+        })
+      ).rejects.toThrow(/Invalid API key scope/);
+    });
   });
 
   // ── 2. validateKey ───────────────────────────────────────────────────────────
@@ -176,6 +227,7 @@ describe('ApiKeyService (Auth Service)', () => {
       expect(validation1).toBeTruthy();
       expect(validation1.id).toBe(keyData.id);
       expect(validation1.tier).toBe('standard');
+      expect(validation1.scopes).toEqual(API_KEY_SCOPES);
       expect(validation1.limits).toEqual({
         requestsPerMinute: 100,
         requestsPerHour: 1000,
@@ -521,6 +573,116 @@ describe('ApiKeyService (Auth Service)', () => {
       expect(stats.violations).toHaveLength(1);
       expect(stats.violations[0].count).toBe(1);
       expect(stats.period).toBe('7 days');
+    });
+  });
+
+  describe('rolling rotation', () => {
+    it('keeps both keys active during overlap and revokes only the predecessor', async () => {
+      const original = await apiKeyService.generateKey({
+        name: 'Rotation Source',
+        tenantId: 'public',
+        userId: 31,
+        scopes: ['contracts:read'],
+      });
+
+      const rotated = await apiKeyService.rotateKey(original.id, {
+        overlapSeconds: 600,
+        tenantId: 'public',
+      });
+
+      expect(rotated.key).toMatch(/^sk_[a-f0-9]{64}$/);
+      expect(rotated.rotation.previousKeyId).toBe(original.id);
+      expect(rotated.rotation.groupId).toBeTruthy();
+
+      const originalRow = await mockDb.get(
+        'SELECT * FROM api_keys WHERE id = ?',
+        [original.id]
+      );
+      const successorRow = await mockDb.get(
+        'SELECT * FROM api_keys WHERE id = ?',
+        [rotated.id]
+      );
+
+      expect(originalRow.status).toBe('active');
+      expect(successorRow.status).toBe('active');
+      expect(originalRow.rotation_group_id).toBe(
+        successorRow.rotation_group_id
+      );
+      expect(originalRow.rotation_role).toBe('predecessor');
+      expect(successorRow.rotation_role).toBe('successor');
+      expect(JSON.parse(successorRow.scopes)).toEqual(['contracts:read']);
+      expect(
+        new Date(originalRow.rotation_cutoff_at).getTime()
+      ).toBeGreaterThan(Date.now());
+
+      expect(await apiKeyService.validateKey(original.key)).toBeTruthy();
+      expect(await apiKeyService.validateKey(rotated.key)).toBeTruthy();
+
+      await expect(
+        apiKeyService.generateKey({
+          name: 'Third Rotation Key',
+          userId: 31,
+          rotationGroupId: rotated.rotation.groupId,
+        })
+      ).rejects.toThrow(/two active API keys/);
+
+      const result = await apiKeyService.completeRotation(
+        rotated.rotation.groupId,
+        { tenantId: 'public' }
+      );
+      expect(result.revoked).toBe(1);
+      expect(await apiKeyService.validateKey(original.key)).toBeNull();
+
+      const successorValidation = await apiKeyService.validateKey(rotated.key);
+      expect(successorValidation).toBeTruthy();
+      expect(successorValidation.rotationRole).toBe('successor');
+    });
+  });
+
+  describe('requireApiKeyScope', () => {
+    it('does not block callers that do not use an API key', async () => {
+      const next = jest.fn();
+      await requireApiKeyScope('contracts:deploy')(
+        { headers: {}, query: {} },
+        {},
+        next
+      );
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    it('rejects a valid API key that lacks the required scope', async () => {
+      const keyData = await apiKeyService.generateKey({
+        name: 'Read Only Key',
+        userId: 41,
+        scopes: ['contracts:read'],
+      });
+      const next = jest.fn();
+
+      await requireApiKeyScope('contracts:deploy')(
+        { headers: { 'x-api-key': keyData.key }, query: {} },
+        {},
+        next
+      );
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(next.mock.calls[0][0]).toMatchObject({ statusCode: 403 });
+    });
+
+    it('allows a key that has the required scope', async () => {
+      const keyData = await apiKeyService.generateKey({
+        name: 'Deploy Key',
+        userId: 42,
+        scopes: ['contracts:deploy'],
+      });
+      const next = jest.fn();
+
+      await requireApiKeyScope('contracts:deploy')(
+        { headers: { 'x-api-key': keyData.key }, query: {} },
+        {},
+        next
+      );
+
+      expect(next).toHaveBeenCalledWith();
     });
   });
 });

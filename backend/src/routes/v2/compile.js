@@ -5,6 +5,7 @@ import {
 } from '../../middleware/errorHandler.js';
 import { sanitizeDependenciesInput } from '../compile_utils.js';
 import { rateLimitMiddleware } from '../../middleware/rateLimiter.js';
+import { requireApiKeyScope } from '../../middleware/apiKeyScope.js';
 import { validateRequest } from '../../middleware/validation.js';
 import { compileBody, compileBatchBody } from '../../schemas/sorobanSchemas.js';
 import {
@@ -17,7 +18,9 @@ const router = express.Router();
 
 router.post(
   '/',
-  rateLimitMiddleware('compile'),
+  rateLimitMiddleware('compile', {
+    requiredScope: 'contracts:compile',
+  }),
   validateRequest({ body: compileBody }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     const code = req.body?.code || req.body?.source || req.body?.sourceCode;
@@ -98,7 +101,9 @@ router.post(
 
 router.post(
   '/batch',
-  rateLimitMiddleware('compile'),
+  rateLimitMiddleware('compile', {
+    requiredScope: 'contracts:compile',
+  }),
   validateRequest({ body: compileBatchBody }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     const { contracts } = req.body || {};
@@ -127,6 +132,7 @@ router.post(
 
 router.get(
   '/stats',
+  requireApiKeyScope('contracts:read'),
   asyncHandler(async (_req, res) => {
     const stats = await getCompileSnapshot();
     return res.json({

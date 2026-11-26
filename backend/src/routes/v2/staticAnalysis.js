@@ -77,7 +77,9 @@ export function createStaticAnalysisRouter(analyzer = staticAnalysisService) {
 
   router.post(
     '/',
-    rateLimitMiddleware('read'),
+    rateLimitMiddleware('read', {
+      requiredScope: 'contracts:read',
+    }),
     validateRequest({ body: analysisSchema }, { format: 'httpError' }),
     handleAnalysis
   );

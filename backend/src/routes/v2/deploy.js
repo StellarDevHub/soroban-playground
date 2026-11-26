@@ -21,7 +21,9 @@ const router = express.Router();
 
 router.post(
   '/',
-  rateLimitMiddleware('deploy'),
+  rateLimitMiddleware('deploy', {
+    requiredScope: 'contracts:deploy',
+  }),
   validateRequest({ body: deployBodyV2 }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     const {
@@ -61,7 +63,9 @@ router.post(
 
 router.post(
   '/batch',
-  rateLimitMiddleware('deploy'),
+  rateLimitMiddleware('deploy', {
+    requiredScope: 'contracts:deploy',
+  }),
   validateRequest({ body: deployBatchBodyV2 }, { format: 'httpError' }),
   asyncHandler(async (req, res, next) => {
     const { contracts, batch_id } = req.body;
