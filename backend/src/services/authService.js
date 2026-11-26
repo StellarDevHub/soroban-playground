@@ -4,6 +4,7 @@
 import jwt from 'jsonwebtoken';
 import { v4 as uuid4 } from 'uuid';
 import redisService from './redisService.js';
+import jwtRevocationService from './jwtRevocationService.js';
 import { getDatabase } from '../database/connection.js';
 import apiKeyService from './apiKeyService.js';
 import { Keypair, Networks, StrKey, WebAuth } from '@stellar/stellar-sdk';
@@ -55,6 +56,7 @@ class AuthService {
     const accessTokenJti = uuid4();
     const refreshTokenJti = uuid4();
     const familyId = uuid4();
+    const tokenVersion = Number(user?.token_version ?? user?.tokenVersion ?? 0);
 
     const accessToken = jwt.sign(
       {
@@ -63,6 +65,7 @@ class AuthService {
         jti: accessTokenJti,
         familyId,
         type: 'access',
+        tokenVersion,
       },
       JWT_SECRET,
       {
@@ -72,7 +75,13 @@ class AuthService {
     );
 
     const refreshToken = jwt.sign(
-      { sub: user.id, familyId, jti: refreshTokenJti, type: 'refresh' },
+      {
+        sub: user.id,
+        familyId,
+        jti: refreshTokenJti,
+        type: 'refresh',
+        tokenVersion,
+      },
       JWT_SECRET,
       { expiresIn: REFRESH_TOKEN_EXPIRATION_SEC }
     );
@@ -98,9 +107,7 @@ class AuthService {
       throw new Error('Invalid token type');
     }
 
-    // Check if token is blacklisted in Redis
-    const isBlacklisted = await redisService.get(`bl_access:${decoded.jti}`);
-    if (isBlacklisted) {
+    if (decoded.jti && (await jwtRevocationService.isJtiRevoked(decoded.jti))) {
       throw new Error('Token is blacklisted');
     }
     if (
@@ -109,15 +116,19 @@ class AuthService {
     ) {
       throw new Error('Token family is blacklisted');
     }
+
+    await jwtRevocationService.assertTokenEpochValid(decoded);
     return decoded;
   }
 
   async blacklistAccessToken(jti, exp) {
+    const value = Number(exp);
     const now = Math.floor(Date.now() / 1000);
-    const ttl = exp - now;
-    if (ttl > 0) {
-      await redisService.set(`bl_access:${jti}`, '1', ttl);
-    }
+    const ttl = value > 1_000_000_000 ? Math.floor(value - now) : Math.floor(value);
+    if (!jti || ttl <= 0) return;
+    await jwtRevocationService.revokeJti(jti, exp);
+    // Backward-compatible key for existing consumers/tests.
+    await redisService.set(`bl_access:${jti}`, '1', ttl);
   }
 
   async rotateRefreshToken(token) {
@@ -234,7 +245,7 @@ class AuthService {
     if (!userId) return null;
     const db = getDatabase();
     const user = await db.get(
-      'SELECT id, username, email, role FROM users WHERE id = ?',
+      'SELECT id, username, email, role, token_version FROM users WHERE id = ?',
       [userId]
     );
     return user || null;

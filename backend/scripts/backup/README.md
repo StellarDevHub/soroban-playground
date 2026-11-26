@@ -3,6 +3,11 @@
 This directory contains the operational tooling for continuous WAL archiving and
 point-in-time recovery (PITR) for the StellarDevTools PostgreSQL cluster.
 
+The Node.js SQLite snapshot service (`src/services/backupService.js`) is a
+separate S3 backup path. It encrypts every snapshot with AES-256-GCM using a
+fresh data key per backup; that key is wrapped by AWS KMS or Vault Transit.
+Snapshots older than 30 days are pruned after each successful daily backup.
+
 | File              | Purpose                                                                      |
 | ----------------- | ---------------------------------------------------------------------------- |
 | `walGPostgres.sh` | WAL archiver (invoked by PostgreSQL) + daily base backup + retention pruning |
@@ -121,6 +126,37 @@ Fetch the most recent base backup into a temporary directory and inspect it:
 ```
 wal-g backup-fetch --pg-prefix="$WALG_GCP_PREFIX" /tmp/restore-check
 ```
+
+## SQLite S3 snapshot encryption and CI restore verification
+
+Configure the backend with:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `BACKUP_ENABLED` | yes | Enables the default daily snapshot schedule (`02:00`) |
+| `BACKUP_S3_BUCKET` | yes | S3 bucket for encrypted SQLite snapshots |
+| `BACKUP_S3_PREFIX` | no | Object prefix (default `sqlite-backups/`) |
+| `BACKUP_S3_REGION` | no | AWS region (default `us-east-1`) |
+| `BACKUP_KMS_PROVIDER` | yes | `aws-kms` or `vault`; local/raw key providers are rejected |
+| `AWS_KMS_KEY_ID` | AWS KMS | KMS key ID/ARN; workload identity must allow `kms:Encrypt` and `kms:Decrypt` |
+| `VAULT_ADDR`, `VAULT_TOKEN` | Vault | Vault Transit endpoint and runtime token |
+| `BACKUP_VAULT_TRANSIT_MOUNT`, `BACKUP_VAULT_TRANSIT_KEY` | Vault | Dedicated Transit mount/key (defaults `transit` and `soroban-backups`) |
+
+The S3 object contains a versioned header, the wrapped data key, a random
+12-byte nonce, the AES-GCM ciphertext, and its authentication tag. Do not set or
+reuse `BACKUP_ENCRYPTION_KEY`; it is not used by the current snapshot format.
+The local SQLite snapshot is created in a directory restricted to mode `0700`,
+the file is restricted to `0600`, and it is removed after upload.
+
+To enable the scheduled GitHub Actions restore verification, configure these
+repository variables: `BACKUP_CI_ROLE_ARN`, `BACKUP_S3_BUCKET`, and
+`BACKUP_AWS_KMS_KEY_ID`. The assumed role needs `s3:ListBucket`,
+`s3:GetObject`, and `kms:Decrypt` for the backup key. Optional variables are
+`BACKUP_S3_PREFIX` and `BACKUP_S3_REGION`. The scheduled CI job downloads the
+newest encrypted SQLite snapshot, decrypts and extracts it, and runs
+`PRAGMA integrity_check` against the restored database. The same procedure can
+be run manually with `bash scripts/backup/verifyRestoreInCi.sh` after supplying
+the AWS and backup environment variables.
 
 ## Troubleshooting
 

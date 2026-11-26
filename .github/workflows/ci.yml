@@ -279,6 +279,42 @@ jobs:
           tests/issues_1024_1029_1027_1026.test.js
           tests/dockerCompose.test.js
 
+  backup-restore-verification:
+    name: Encrypted Backup Restore Verification
+    if: ${{ github.event_name == 'schedule' && vars.BACKUP_CI_ROLE_ARN != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.BACKUP_CI_ROLE_ARN }}
+          aws-region: ${{ vars.BACKUP_S3_REGION || 'us-east-1' }}
+
+      - name: Restore newest encrypted snapshot and verify SQLite integrity
+        working-directory: backend
+        env:
+          BACKUP_KMS_PROVIDER: aws-kms
+          BACKUP_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}
+          BACKUP_S3_PREFIX: ${{ vars.BACKUP_S3_PREFIX || 'sqlite-backups/' }}
+          BACKUP_S3_REGION: ${{ vars.BACKUP_S3_REGION || 'us-east-1' }}
+          AWS_KMS_KEY_ID: ${{ vars.BACKUP_AWS_KMS_KEY_ID }}
+        run: bash scripts/backup/verifyRestoreInCi.sh
+
   compose-stack:
     name: Docker Compose Data Stack & Local RPC
     runs-on: ubuntu-latest

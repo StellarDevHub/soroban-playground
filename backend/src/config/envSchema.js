@@ -256,9 +256,12 @@ export function validateEnvSchema(
       errors.push('BACKUP_S3_BUCKET is required when BACKUP_ENABLED=true');
     }
 
-    if (rawEnv.BACKUP_ENABLED === 'true' && !rawEnv.BACKUP_ENCRYPTION_KEY) {
+    if (
+      rawEnv.BACKUP_ENABLED === 'true' &&
+      !['aws-kms', 'vault'].includes(rawEnv.BACKUP_KMS_PROVIDER)
+    ) {
       errors.push(
-        'BACKUP_ENCRYPTION_KEY is required when BACKUP_ENABLED=true (AES-256 hex key)'
+        'BACKUP_KMS_PROVIDER must be aws-kms or vault when BACKUP_ENABLED=true'
       );
     }
 
