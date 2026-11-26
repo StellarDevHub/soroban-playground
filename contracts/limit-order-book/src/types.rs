@@ -1,7 +1,11 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, Address};
+use soroban_sdk::{contracterror, contracttype, Address, Vec};
+
+/// Maximum number of matched fills allowed per transaction to guarantee
+/// execution stays well within Soroban CPU instruction and storage budget limits.
+pub const MAX_MATCHED_FILLS: u32 = 20;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -63,6 +67,28 @@ pub struct Order {
     pub created_at: u32,
 }
 
+/// Linked-list node inside a bucketed price-level queue (`u32::MAX` = sentinel / null).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BucketNode {
+    pub order_id: u64,
+    pub remaining: i128,
+    pub prev_idx: u32,
+    pub next_idx: u32,
+}
+
+/// Bucketed price-level queue with linked-list order indices and links to
+/// adjacent price levels (`0` = none).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PriceLevel {
+    pub head_idx: u32,
+    pub tail_idx: u32,
+    pub prev_price: i128,
+    pub next_price: i128,
+    pub nodes: Vec<BucketNode>,
+}
+
 /// Summary of a match execution.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
@@ -81,10 +107,19 @@ pub enum InstanceKey {
     OrderCount,
     Paused,
     TotalVolume,
+    BestBid,
+    BestAsk,
 }
 
 /// Persistent storage keys.
 #[contracttype]
 pub enum DataKey {
+
     Order(u64),
+    OrderIndex(u64),
+    PriceLevel(Side, i128),
+    MatchedFills,
+
+
+
 }

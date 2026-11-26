@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Global command palette (issue #1527) — the Cmd/Ctrl+K surface.
+ * Global command palette (issue #1527, #2053) — the Cmd/Ctrl+K surface.
  *
  * Indexes contract templates, recent files, documentation routes, deployed
  * contract addresses and local actions behind one fuzzy-searchable box. Mounted
@@ -14,6 +14,8 @@
  *  - results are an `aria-activedescendant`-driven `role="listbox"`
  *  - focus is trapped in the dialog, Escape closes, and the scroll position of
  *    the active option is kept in view
+ *  - Tab provides instant action preview without execution
+ *  - Enter executes the action and closes the modal
  *
  * Opening and closing animate with the shared `layout-pop` / `layout-fade`
  * micro-animations from #1529 (CSS, not a runtime animation dependency), and
@@ -136,8 +138,8 @@ export function CommandPalette({
   onSelect,
 }: CommandPaletteProps) {
   const router = useRouter();
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   useModalAccessibility(dialogRef, open, () => onOpenChange(false));
 
   const { entries: recents, record } = useRecentFiles();
@@ -145,6 +147,7 @@ export function CommandPalette({
 
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [previewActive, setPreviewActive] = useState(false);
   const [loadedTemplates, setLoadedTemplates] = useState<TemplateMetadata[]>(
     templates ?? [],
   );
@@ -206,6 +209,7 @@ export function CommandPalette({
     if (!open) return;
     setQuery("");
     setActiveIndex(0);
+    setPreviewActive(false);
     const focusTimer = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(focusTimer);
   }, [open]);
@@ -287,6 +291,10 @@ export function CommandPalette({
           event.preventDefault();
           setActiveIndex(Math.max(0, visibleResults.length - 1));
           break;
+        case "Tab":
+          event.preventDefault();
+          setPreviewActive((active) => !active);
+          break;
         case "Enter":
           event.preventDefault();
           choose(visibleResults[activeIndex]);
@@ -307,6 +315,8 @@ export function CommandPalette({
   const activeId = visibleResults[activeIndex]
     ? `command-option-${visibleResults[activeIndex].item.id}`
     : undefined;
+
+  const activeResult = visibleResults[activeIndex];
 
   return (
     <div
@@ -358,6 +368,39 @@ export function CommandPalette({
           />
         </div>
 
+        {previewActive && activeResult ? (
+          <div
+            data-testid="action-preview"
+            role="region"
+            aria-label="Action preview"
+            className="border-b border-slate-800 bg-accent/5 px-4 py-3 text-xs text-slate-300"
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-foreground">
+                Action Preview: {activeResult.item.title}
+              </span>
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                {activeResult.source.toUpperCase()}
+              </span>
+            </div>
+            {activeResult.item.subtitle ? (
+              <p className="mt-1 text-slate-400">
+                {activeResult.item.subtitle}
+              </p>
+            ) : null}
+            {activeResult.item.href ? (
+              <p className="mt-1 font-mono text-[11px] text-accent">
+                Target: {activeResult.item.href}
+              </p>
+            ) : null}
+            <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-500">
+              <span>Press <kbd className="rounded border border-slate-700 bg-slate-800 px-1">↵</kbd> to execute</span>
+              <span>•</span>
+              <span>Press <kbd className="rounded border border-slate-700 bg-slate-800 px-1">Tab</kbd> to toggle preview</span>
+            </div>
+          </div>
+        ) : null}
+
         {visibleResults.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-slate-400">
             {templatesLoading
@@ -398,6 +441,7 @@ export function CommandPalette({
         <div className="flex items-center justify-between border-t border-slate-800 px-4 py-2 text-[11px] text-slate-500">
           <span className="flex items-center gap-3">
             <span>↑↓ navigate</span>
+            <span>Tab preview</span>
             <span>↵ open</span>
             <span>esc close</span>
           </span>

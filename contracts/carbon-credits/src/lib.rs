@@ -22,9 +22,13 @@
 //! * `CertCount`               – monotonic certificate counter
 //! * `Cert(id)`                – RetirementCert struct
 //! * `CertByHash(bytes32-hash)`– cert ID lookup by hash
+//! * `Oracle(addr)`            – registry validation oracle allow-list
+//! * `SerialCursor(key)`       – highest serial retired per project vintage
+//! * `CertBySerialRange(key)`  – cert ID lookup by retired serial range
 
 #![no_std]
 
+use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, Symbol,
 };
@@ -88,6 +92,12 @@ pub enum DataKey {
     Batch(u64),
     Cert(u64),
     CertByHash(Bytes),
+    /// Registry validation oracle allow-list.
+    Oracle(Address),
+    /// Highest serial number retired for a (registry, serial, vintage) key.
+    SerialCursor(Bytes),
+    /// Uniqueness index: serial-range fingerprint -> certificate ID.
+    CertBySerialRange(Bytes),
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -97,6 +107,8 @@ pub enum DataKey {
 const EVT_MINT: Symbol = symbol_short!("mint");
 const EVT_TRANSFER: Symbol = symbol_short!("transfer");
 const EVT_RETIRE: Symbol = symbol_short!("retire");
+const EVT_CERT: Symbol = symbol_short!("cert");
+const EVT_ORACLE: Symbol = symbol_short!("oracle");
 
 // ────────────────────────────────────────────────────────────────────────────
 // Contract
@@ -240,6 +252,63 @@ impl CarbonCredits {
     }
 
     // ──────────────────────────────────────────────────────────────────────
+    // Registry validation oracles
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// Admin registers a registry validation oracle that may co-sign
+    /// serial-range retirements.
+    pub fn register_oracle(env: Env, oracle: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialised");
+        admin.require_auth();
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Oracle(oracle.clone()))
+            .unwrap_or(false)
+        {
+            panic!("oracle already registered");
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Oracle(oracle.clone()), &true);
+        env.events().publish((EVT_ORACLE,), (oracle, true));
+    }
+
+    /// Admin revokes a registry validation oracle.
+    pub fn revoke_oracle(env: Env, oracle: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialised");
+        admin.require_auth();
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Oracle(oracle.clone()))
+            .unwrap_or(false)
+        {
+            panic!("oracle not found");
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Oracle(oracle.clone()), &false);
+        env.events().publish((EVT_ORACLE,), (oracle, false));
+    }
+
+    /// Returns whether `oracle` is a registered registry validation oracle.
+    pub fn is_oracle(env: Env, oracle: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Oracle(oracle))
+            .unwrap_or(false)
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // Retirement
     // ──────────────────────────────────────────────────────────────────────
 
@@ -334,6 +403,180 @@ impl CarbonCredits {
         cert_id
     }
 
+    /// Retire `amount` credits from `batch_id` and bind the retirement to a
+    /// specific registry vintage serial range, co-signed by a registered
+    /// registry validation `oracle`.
+    ///
+    /// Both `retiree` and `oracle` must authorise the call. The serial range
+    /// must be non-empty, must match `amount`, and must not overlap any range
+    /// previously retired for the same `(registry_standard, serial_number,
+    /// vintage)` triple — this prevents double counting of offsets.
+    ///
+    /// Returns the new certificate ID.
+    #[allow(clippy::too_many_arguments)]
+    pub fn retire_with_serial_range(
+        env: Env,
+        retiree: Address,
+        oracle: Address,
+        batch_id: u64,
+        vintage: u32,
+        serial_start: u64,
+        serial_end: u64,
+        amount: i128,
+        beneficiary: Address,
+        purpose: Symbol,
+    ) -> u64 {
+        retiree.require_auth();
+        oracle.require_auth();
+
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Oracle(oracle.clone()))
+            .unwrap_or(false)
+        {
+            panic!("oracle not registered");
+        }
+        if amount <= 0 {
+            panic!("amount must be positive");
+        }
+        if vintage == 0 {
+            panic!("invalid vintage");
+        }
+        if serial_end < serial_start {
+            panic!("invalid serial range");
+        }
+        if (serial_end - serial_start) as i128 + 1 != amount {
+            panic!("serial range must match amount");
+        }
+
+        let mut batch: BatchData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Batch(batch_id))
+            .expect("batch not found");
+
+        // Serial ranges are consumed monotonically per project vintage so the
+        // same registry serials can never be retired twice.
+        let cursor_key = Self::serial_cursor_key(
+            &env,
+            &batch.registry_standard,
+            &batch.serial_number,
+            vintage,
+        );
+        let cursor: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::SerialCursor(cursor_key.clone()))
+            .unwrap_or(0);
+        if serial_start <= cursor {
+            panic!("serial range already retired");
+        }
+
+        let retiree_bal: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Balance(retiree.clone()))
+            .unwrap_or(0);
+        if retiree_bal < amount {
+            panic!("insufficient balance to retire");
+        }
+        if batch.active_amount < amount {
+            panic!("batch does not have enough active credits");
+        }
+
+        batch.active_amount -= amount;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Batch(batch_id), &batch);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Balance(retiree.clone()), &(retiree_bal - amount));
+
+        let retired: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalRetired)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalRetired, &(retired + amount));
+
+        let cert_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CertCount)
+            .unwrap_or(0);
+        let cert_hash = Self::compute_serial_cert_hash(
+            &env,
+            cert_id,
+            &retiree,
+            &beneficiary,
+            amount,
+            batch_id,
+            vintage,
+            serial_start,
+            serial_end,
+        );
+        let range_key = Self::serial_range_key(
+            &env,
+            &batch.registry_standard,
+            &batch.serial_number,
+            vintage,
+            serial_start,
+            serial_end,
+        );
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::CertBySerialRange(range_key.clone()))
+        {
+            panic!("serial range already retired");
+        }
+
+        let cert = RetirementCert {
+            cert_id,
+            cert_hash: cert_hash.clone(),
+            retiree: retiree.clone(),
+            beneficiary: beneficiary.clone(),
+            purpose: purpose.clone(),
+            amount,
+            batch_id,
+            retired_at: env.ledger().sequence(),
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::Cert(cert_id), &cert);
+        env.storage()
+            .persistent()
+            .set(&DataKey::CertByHash(cert_hash.clone()), &cert_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::CertBySerialRange(range_key), &cert_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::SerialCursor(cursor_key), &serial_end);
+        env.storage()
+            .instance()
+            .set(&DataKey::CertCount, &(cert_id + 1));
+
+        env.events().publish(
+            (EVT_CERT, retiree),
+            (
+                cert_id,
+                cert_hash,
+                oracle,
+                batch.registry_standard.clone(),
+                batch.serial_number.clone(),
+                vintage,
+                serial_start,
+                serial_end,
+                amount,
+            ),
+        );
+        cert_id
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // Queries
     // ──────────────────────────────────────────────────────────────────────
@@ -391,6 +634,20 @@ impl CarbonCredits {
             .expect("cert not found")
     }
 
+    /// Returns the highest serial number already retired for a project vintage.
+    pub fn retired_serial_cursor(
+        env: Env,
+        registry_standard: Symbol,
+        serial_number: Symbol,
+        vintage: u32,
+    ) -> u64 {
+        let key = Self::serial_cursor_key(&env, &registry_standard, &serial_number, vintage);
+        env.storage()
+            .persistent()
+            .get(&DataKey::SerialCursor(key))
+            .unwrap_or(0)
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // Internal helpers
     // ──────────────────────────────────────────────────────────────────────
@@ -433,6 +690,97 @@ impl CarbonCredits {
         let _ = beneficiary;
 
         env.crypto().sha256(&raw).into()
+    }
+
+    /// Build the storage key for the serial cursor of a project vintage.
+    fn serial_cursor_key(
+        env: &Env,
+        registry_standard: &Symbol,
+        serial_number: &Symbol,
+        vintage: u32,
+    ) -> Bytes {
+        let mut raw = Bytes::new(env);
+        Self::append_symbol(env, &mut raw, registry_standard);
+        raw.push_back(0u8);
+        Self::append_symbol(env, &mut raw, serial_number);
+        raw.push_back(0u8);
+        for b in vintage.to_be_bytes() {
+            raw.push_back(b);
+        }
+        env.crypto().sha256(&raw).into()
+    }
+
+    /// Deterministic fingerprint of a retired serial range.
+    fn serial_range_key(
+        env: &Env,
+        registry_standard: &Symbol,
+        serial_number: &Symbol,
+        vintage: u32,
+        serial_start: u64,
+        serial_end: u64,
+    ) -> Bytes {
+        let mut raw = Bytes::new(env);
+        Self::append_symbol(env, &mut raw, registry_standard);
+        raw.push_back(0u8);
+        Self::append_symbol(env, &mut raw, serial_number);
+        raw.push_back(0u8);
+        for b in vintage.to_be_bytes() {
+            raw.push_back(b);
+        }
+        for b in serial_start.to_be_bytes() {
+            raw.push_back(b);
+        }
+        for b in serial_end.to_be_bytes() {
+            raw.push_back(b);
+        }
+        env.crypto().sha256(&raw).into()
+    }
+
+    /// Deterministic certificate hash for a serial-range retirement.
+    #[allow(clippy::too_many_arguments)]
+    fn compute_serial_cert_hash(
+        env: &Env,
+        cert_id: u64,
+        retiree: &Address,
+        beneficiary: &Address,
+        amount: i128,
+        batch_id: u64,
+        vintage: u32,
+        serial_start: u64,
+        serial_end: u64,
+    ) -> Bytes {
+        let mut raw = Bytes::new(env);
+        for b in cert_id.to_be_bytes() {
+            raw.push_back(b);
+        }
+        for b in amount.to_be_bytes() {
+            raw.push_back(b);
+        }
+        for b in batch_id.to_be_bytes() {
+            raw.push_back(b);
+        }
+        for b in vintage.to_be_bytes() {
+            raw.push_back(b);
+        }
+        for b in serial_start.to_be_bytes() {
+            raw.push_back(b);
+        }
+        for b in serial_end.to_be_bytes() {
+            raw.push_back(b);
+        }
+        Self::append_address(env, &mut raw, retiree);
+        Self::append_address(env, &mut raw, beneficiary);
+        env.crypto().sha256(&raw).into()
+    }
+
+    // Fields are appended as XDR, which is length-prefixed, so adjacent fields
+    // cannot run together and produce colliding hashes.
+    fn append_symbol(env: &Env, raw: &mut Bytes, value: &Symbol) {
+        raw.append(&value.clone().to_xdr(env));
+    }
+
+    fn append_address(env: &Env, raw: &mut Bytes, address: &Address) {
+        raw.append(&address.clone().to_xdr(env));
     }
 }
 

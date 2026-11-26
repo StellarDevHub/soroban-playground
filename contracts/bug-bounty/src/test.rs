@@ -156,7 +156,7 @@ fn test_paused_blocks_submission() {
 
 #[test]
 fn test_unauthorized_admin_fails() {
-    let (env, client, _admin, reporter) = setup();
+    let (_env, client, _admin, reporter) = setup();
     let result = client.try_set_paused(&reporter, &true);
     assert!(result.is_err());
 }
@@ -172,15 +172,18 @@ fn test_insufficient_pool_fails() {
     // Initialize with zero pool
     client.initialize(&admin, &0i128);
 
-    let id = client.submit_report(
+    // The tier is escrowed at submission, so an empty pool can no longer take a
+    // report it could not pay: it is refused up front instead of at acceptance.
+    let result = client.try_submit_report(
         &reporter,
         &String::from_str(&env, "Critical"),
         &String::from_str(&env, "hash"),
         &Severity::Critical,
     );
-    client.start_review(&admin, &id);
-    let result = client.try_accept_report(&admin, &id);
-    assert!(result.is_err());
+    assert_eq!(result, Err(Ok(Error::InsufficientPool)));
+    assert_eq!(client.report_count(), 0);
+    assert_eq!(client.locked_balance(), 0);
+    let _ = admin;
 }
 
 #[test]

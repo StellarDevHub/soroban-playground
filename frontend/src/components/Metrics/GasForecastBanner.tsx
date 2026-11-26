@@ -23,8 +23,18 @@ import {
 export const STROOPS_PER_XLM = 10_000_000;
 export const DEFAULT_BASE_FEE = 100; // Standard Stellar base fee in Stroops
 export const LEDGER_TARGET_TIME_MS = 5000; // ~5 seconds per Stellar ledger
+export const CPU_FEE_PER_10K_INSTRUCTIONS = 25; // Stroops per 10,000 CPU instructions
+export const MEMORY_FEE_PER_KB = 10; // Stroops per KiB of memory
 
 export type CongestionState = "low" | "moderate" | "surge";
+
+export interface SimulationResourceFootprint {
+  cpuInstructions: number;
+  memoryBytes: number;
+  readBytes?: number;
+  writeBytes?: number;
+  minResourceFee?: number;
+}
 
 export interface FeePreset {
   key: "slow" | "average" | "fast" | "custom";
@@ -43,6 +53,7 @@ export interface NetworkFeeMetrics {
   p20: number;
   p50: number;
   p60: number;
+  p75: number;
   p90: number;
   p95: number;
   p99: number;
@@ -61,6 +72,7 @@ export interface GasForecastBannerProps {
   rpcUrl?: string;
   selectedStroops?: number;
   onSelectFee?: (stroops: number, presetKey: string) => void;
+  simulationFootprint?: SimulationResourceFootprint;
   compact?: boolean;
   className?: string;
   pollingIntervalMs?: number;
@@ -193,7 +205,42 @@ export function determineCongestionLevel(
 }
 
 /**
- * Calculates adaptive fee presets (Slow, Average, Fast) in Stroops.
+ * Computes the Soroban pre-flight resource fee in Stroops from simulation
+ * CPU instruction count and memory byte footprint.
+ */
+export function calculateResourceFee(footprint?: SimulationResourceFootprint): number {
+  if (!footprint) return 0;
+
+  const cpuInstructions = Number.isFinite(footprint.cpuInstructions)
+    ? Math.max(0, footprint.cpuInstructions)
+    : 0;
+  const memoryBytes = Number.isFinite(footprint.memoryBytes)
+    ? Math.max(0, footprint.memoryBytes)
+    : 0;
+  const readBytes =
+    footprint.readBytes !== undefined && Number.isFinite(footprint.readBytes)
+      ? Math.max(0, footprint.readBytes)
+      : 0;
+  const writeBytes =
+    footprint.writeBytes !== undefined && Number.isFinite(footprint.writeBytes)
+      ? Math.max(0, footprint.writeBytes)
+      : 0;
+  const minResourceFee =
+    footprint.minResourceFee !== undefined && Number.isFinite(footprint.minResourceFee)
+      ? Math.max(0, Math.floor(footprint.minResourceFee))
+      : 0;
+
+  const cpuFee = Math.ceil((cpuInstructions / 10_000) * CPU_FEE_PER_10K_INSTRUCTIONS);
+  const memoryFee = Math.ceil((memoryBytes / 1024) * MEMORY_FEE_PER_KB);
+  const readFee = Math.ceil((readBytes / 1024) * 5);
+  const writeFee = Math.ceil((writeBytes / 1024) * 15);
+
+  return Math.max(cpuFee + memoryFee + readFee + writeFee, minResourceFee);
+}
+
+/**
+ * Calculates adaptive fee presets (Slow, Average, Fast) in Stroops,
+ * incorporating optional Soroban pre-flight resource fees.
  */
 export function calculateFeePresets(
   baseFee: number,
@@ -202,27 +249,32 @@ export function calculateFeePresets(
   p20: number,
   p60: number,
   p95: number,
-  congestion: CongestionState
+  congestion: CongestionState,
+  resourceFee: number = 0
 ): Record<"slow" | "average" | "fast", FeePreset> {
   const safeBase = Math.max(100, baseFee);
+  const safeResourceFee = Number.isFinite(resourceFee) ? Math.max(0, Math.floor(resourceFee)) : 0;
 
   // Slow / Economy: Sufficient when traffic is low; queued during surges
-      const slowStroops = Math.max(safeBase, Math.floor(p20 || mean), Math.floor(mean));
+  const slowStroops =
+    Math.max(safeBase, Math.floor(p20 || mean), Math.floor(mean)) + safeResourceFee;
 
   // Average / Balanced: Targets inclusion in the next 1-2 ledgers
-  const avgStroops = Math.max(
-    safeBase,
-    Math.ceil(mean + 0.5 * stdDev),
-    p60 || Math.floor(safeBase * 1.5)
-  );
+  const avgStroops =
+    Math.max(
+      safeBase,
+      Math.ceil(mean + 0.5 * stdDev),
+      p60 || Math.floor(safeBase * 1.5)
+    ) + safeResourceFee;
 
   // Fast / Priority: Surge-shielded fee to guarantee immediate inclusion
   const fastMultiplier = congestion === "surge" ? 3.0 : 2.0;
-  const fastStroops = Math.max(
-    Math.ceil(safeBase * fastMultiplier),
-    Math.ceil(mean + 2.0 * stdDev),
-    p95 || safeBase * 3
-  );
+  const fastStroops =
+    Math.max(
+      Math.ceil(safeBase * fastMultiplier),
+      Math.ceil(mean + 2.0 * stdDev),
+      p95 || safeBase * 3
+    ) + safeResourceFee;
 
   return {
     slow: {
@@ -284,6 +336,7 @@ function createSyntheticMetrics(
     p20: simulateSurge ? 800 : 100,
     p50,
     p60: simulateSurge ? 1500 : 120,
+    p75: simulateSurge ? 2400 : 140,
     p90,
     p95,
     p99: simulateSurge ? 8000 : 400,
@@ -305,6 +358,7 @@ export default function GasForecastBanner({
   rpcUrl,
   selectedStroops,
   onSelectFee,
+  simulationFootprint,
   compact = false,
   className = "",
   pollingIntervalMs = 5000,
@@ -352,7 +406,12 @@ export default function GasForecastBanner({
     feeHistoryRef.current = [];
   }, [networkId, horizonUrl]);
 
-  // Derive Presets from statistical engine
+  const resourceFee = useMemo(
+    () => calculateResourceFee(simulationFootprint),
+    [simulationFootprint]
+  );
+
+  // Derive Presets from statistical engine and simulation resource footprint
   const presets = useMemo(() => {
     const raw = calculateFeePresets(
       metrics.baseFee,
@@ -361,7 +420,8 @@ export default function GasForecastBanner({
       metrics.p20,
       metrics.p60,
       metrics.p95,
-      metrics.congestion
+      metrics.congestion,
+      resourceFee
     );
 
     const parsedCustom = Number(customStroopsInput);
@@ -384,7 +444,7 @@ export default function GasForecastBanner({
     };
 
     return { ...raw, custom: customPreset };
-  }, [metrics, customStroopsInput]);
+  }, [metrics, customStroopsInput, resourceFee]);
 
   // Fetch fee percentiles from Horizon and, when configured, the latest ledger
   // sequence from Soroban RPC.
@@ -430,12 +490,25 @@ export default function GasForecastBanner({
       const ledgerSeq = parseMetric(data.last_ledger, "ledger sequence");
 
       const feeCharged = data.fee_charged || {};
+      const parseOptionalMetric = (value: unknown): number | undefined => {
+        if (value === null || value === undefined || value === "") return undefined;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+      };
       const p20 = parseMetric(feeCharged.p20, "p20 fee");
       const p50 = parseMetric(feeCharged.p50, "p50 fee");
       const p60 = parseMetric(feeCharged.p60, "p60 fee");
       const p90 = parseMetric(feeCharged.p90, "p90 fee");
       const p95 = parseMetric(feeCharged.p95, "p95 fee");
       const p99 = parseMetric(feeCharged.p99, "p99 fee");
+      const directP75 = parseOptionalMetric(feeCharged.p75);
+      const p70 = parseOptionalMetric(feeCharged.p70);
+      const p80 = parseOptionalMetric(feeCharged.p80);
+      const p75 =
+        directP75 ??
+        (p70 !== undefined && p80 !== undefined
+          ? Math.round((p70 + p80) / 2)
+          : Math.round((p60 + p90) / 2));
 
       // Estimate moving average and standard deviation from percentile distribution
       feeHistoryRef.current = [...feeHistoryRef.current, p50].slice(-50);
@@ -455,6 +528,7 @@ export default function GasForecastBanner({
         p20,
         p50,
         p60,
+        p75,
         p90,
         p95,
         p99,
@@ -667,6 +741,84 @@ export default function GasForecastBanner({
       {/* ── Expanded Analytics & Presets Drawer ───────────────────────────────── */}
       {isExpanded && (
         <div className="p-4 pt-2 border-t border-slate-800/80 space-y-4">
+          {/* Interactive Fee Priority Slider */}
+          <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800/80 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-slate-300 flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-primary-400" />
+                Fee Priority Level
+              </span>
+              <span className="font-mono text-slate-200 font-semibold" data-testid="slider-selected-fee">
+                {presets[activePreset].stroops.toLocaleString()} Stroops ({presets[activePreset].xlm})
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={2}
+              step={1}
+              value={activePreset === "slow" ? 0 : activePreset === "fast" ? 2 : 1}
+              onChange={(e) => {
+                const idx = Number(e.target.value);
+                const key = idx === 0 ? "slow" : idx === 2 ? "fast" : "average";
+                handleSelectPreset(key);
+              }}
+              aria-label="Fee priority slider"
+              data-testid="fee-priority-slider"
+              className="w-full accent-primary-500 cursor-pointer"
+            />
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              {(
+                [
+                  { key: "slow", label: "Low" },
+                  { key: "average", label: "Normal" },
+                  { key: "fast", label: "Priority" },
+                ] as const
+              ).map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleSelectPreset(key)}
+                  className={`px-1.5 py-0.5 rounded transition-colors ${
+                    activePreset === key
+                      ? "text-primary-300 font-semibold bg-primary-500/15"
+                      : "hover:text-slate-200"
+                  }`}
+                  data-testid={`fee-tier-btn-${label.toLowerCase()}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Pre-flight Simulation Resource Footprint */}
+          {simulationFootprint && (
+            <div
+              className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-2.5 rounded-lg bg-slate-900/50 border border-slate-800/70 text-xs"
+              data-testid="simulation-footprint-summary"
+            >
+              <div>
+                <span className="text-slate-400 text-[11px] block">Pre-flight CPU Instructions</span>
+                <span className="font-mono text-slate-200 font-semibold">
+                  {simulationFootprint.cpuInstructions.toLocaleString()}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 text-[11px] block">Pre-flight Memory Limit</span>
+                <span className="font-mono text-slate-200 font-semibold">
+                  {simulationFootprint.memoryBytes.toLocaleString()} B
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 text-[11px] block">Computed Resource Fee</span>
+                <span className="font-mono text-primary-300 font-semibold">
+                  +{resourceFee.toLocaleString()} Stroops
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Preset Selector Cards */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -768,10 +920,16 @@ export default function GasForecastBanner({
           </div>
 
           {/* Statistical Metrics Breakdown */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800/60 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1 border-t border-slate-800/60 text-xs">
             <div className="p-2 rounded bg-slate-900/40 border border-slate-800/60">
               <span className="text-slate-400 text-[11px] block">Median Fee (p50)</span>
               <span className="font-mono text-slate-200 font-semibold">{metrics.p50} Stroops</span>
+            </div>
+            <div className="p-2 rounded bg-slate-900/40 border border-slate-800/60">
+              <span className="text-slate-400 text-[11px] block">75th Percentile (p75)</span>
+              <span className="font-mono text-slate-200 font-semibold" data-testid="metric-p75">
+                {metrics.p75} Stroops
+              </span>
             </div>
             <div className="p-2 rounded bg-slate-900/40 border border-slate-800/60">
               <span className="text-slate-400 text-[11px] block">90th Percentile (p90)</span>

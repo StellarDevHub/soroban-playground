@@ -1,0 +1,149 @@
+name: PR Security & Anti-Malware Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  security-audit:
+    name: Anti-Malware & Supply Chain Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js & Python
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Gate 1: Disallow Workflow & CI Tampering from Forks
+      - name: Guard Workflow & Critical Config Files
+        run: |
+          echo "Checking for unauthorized modifications to CI workflows and sensitive files..."
+          BASE_REF="origin/${{ github.base_ref }}"
+          CHANGED_FILES=$(git diff --name-only "$BASE_REF" HEAD)
+          
+          DISALLOWED_PATTERNS=(
+            "^\.github/workflows/"
+            "^\.github/actions/"
+            "^\.env"
+            "^\.npmrc"
+            "^\.gitmodules"
+          )
+          
+          VIOLATIONS=0
+          for file in $CHANGED_FILES; do
+            for pattern in "${DISALLOWED_PATTERNS[@]}"; do
+              if echo "$file" | grep -qE "$pattern"; then
+                echo "::error file=$file::Security Gate Violation: External PRs are prohibited from modifying critical config or workflow file: $file"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              fi
+            done
+          done
+          
+          if [ $VIOLATIONS -gt 0 ]; then
+            echo "ERROR: PR modifies $VIOLATIONS protected infrastructure files. PR rejected."
+            exit 1
+          fi
+          echo "✓ Workflow & configuration files integrity verified."
+
+      # Gate 2: Trojan Source & Invisible Unicode Characters (CVE-2021-42574)
+      - name: Detect Trojan Source & Zero-Width Obfuscation
+        run: |
+          echo "Scanning diff for invisible zero-width characters and bidirectional Unicode overrides..."
+          python3 - << 'EOF'
+          import subprocess
+          import sys
+          import re
+
+          base_ref = "origin/${{ github.base_ref }}"
+          diff_out = subprocess.check_output(["git", "diff", base_ref, "HEAD"], text=True, errors="replace")
+          
+          # Trojan Source & Invisible Unicode characters
+          # \u200B (Zero-width space), \u200C (ZWNJ), \u200D (ZWJ), \uFEFF (BOM), \u202A-\u202E (BiDi overrides)
+          bidi_pattern = re.compile(r'[\u200B-\u200D\uFEFF\u202A-\u202E]')
+          
+          violations = []
+          for i, line in enumerate(diff_out.splitlines(), start=1):
+              if line.startswith("+") and not line.startswith("+++"):
+                  match = bidi_pattern.search(line)
+                  if match:
+                      violations.append(f"Line contains hidden character U+{ord(match.group()):04X}: {line[:80]}")
+
+          if violations:
+              print(f"::error::Found {len(violations)} lines with invisible Unicode/Trojan Source characters!")
+              for v in violations[:10]:
+                  print(f"  - {v}")
+              sys.exit(1)
+          print("✓ No invisible characters or Trojan Source attacks detected.")
+          EOF
+
+      # Gate 3: Obfuscation, Dynamic Eval, Exfiltration & Shell Injection
+      - name: Static Security & Malware Signature Scan
+        run: |
+          echo "Scanning added code for dynamic code execution and data exfiltration patterns..."
+          python3 - << 'EOF'
+          import subprocess
+          import sys
+          import re
+
+          base_ref = "origin/${{ github.base_ref }}"
+          diff_out = subprocess.check_output(["git", "diff", base_ref, "HEAD"], text=True, errors="replace")
+
+          DANGEROUS_PATTERNS = [
+              (r'\beval\s*\(', "Dynamic eval() execution"),
+              (r'\bFunction\s*\([^)]*\)\s*\(', "Dynamic Function() constructor execution"),
+              (r'window\s*\[\s*[\'"`]eval[\'"`]\s*\]', "Dynamic window['eval'] property access"),
+              (r'child_process\s*\.\s*(?:exec|execSync|spawn|spawnSync)\s*\([^)]*(?:curl|wget|nc|bash|sh|powershell)', "Shell downloader/process spawning"),
+              (r'\|\s*(?:ba)?sh\b', "Piping command output directly into shell"),
+              (r'webhook\.site|pipedream\.net|requestbin|ngrok\.io|discord\.com/api/webhooks|api\.telegram\.org/bot', "Suspicious data exfiltration/webhook endpoint"),
+              (r'(?:localStorage|sessionStorage|document\.cookie).*(?:webhook|sendBeacon|pastebin)', "Credential exfiltration via web beacons/webhooks"),
+          ]
+
+          violations = []
+          current_file = ""
+          for line in diff_out.splitlines():
+              if line.startswith("diff --git a/"):
+                  parts = line.split(" b/")
+                  if len(parts) == 2:
+                      current_file = parts[1]
+              elif line.startswith("+") and not line.startswith("+++"):
+                  code = line[1:].strip()
+                  # Skip test assertions verifying security error messages or redis lua evals
+                  if "redis.eval" in code or "client.eval" in code:
+                      continue
+                  for pattern, desc in DANGEROUS_PATTERNS:
+                      if re.search(pattern, code, re.IGNORECASE):
+                          violations.append(f"{current_file}: {desc} -> {code[:90]}")
+
+          if violations:
+              print(f"::error::Found {len(violations)} malicious or high-risk code patterns!")
+              for v in violations:
+                  print(f"  - {v}")
+              sys.exit(1)
+          print("✓ No malicious dynamic execution or exfiltration signatures detected.")
+          EOF
+
+      # Gate 4: Binary Artifact Prevention
+      - name: Block Rogue Binary Artifacts
+        run: |
+          echo "Verifying no untracked compiled binary files are introduced..."
+          BASE_REF="origin/${{ github.base_ref }}"
+          CHANGED_FILES=$(git diff --name-only "$BASE_REF" HEAD)
+          
+          for file in $CHANGED_FILES; do
+            case "$file" in
+              *.exe|*.dll|*.so|*.dylib|*.bin|*.elf|*.tar.gz|*.zip)
+                echo "::error file=$file::Binary/archive artifact rejected: $file"
+                exit 1
+                ;;
+            esac
+          done
+          echo "✓ No binary artifacts found in PR."

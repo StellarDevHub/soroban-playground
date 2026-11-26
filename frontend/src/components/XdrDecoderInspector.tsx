@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
-import { xdr, scValToNative } from "@stellar/stellar-sdk";
+import React, { useState, useMemo } from "react";
 import {
   Code2,
   Copy,
@@ -14,64 +13,52 @@ import {
   Zap,
   RefreshCw,
   Layers,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Binary,
+  Maximize2,
+  Minimize2,
+  Info,
 } from "lucide-react";
+import {
+  XdrType,
+  decodeXdrPayload,
+  AstNode,
+  HexDumpRow,
+} from "@/lib/xdrDecoder";
 
 export interface XdrDecoderInspectorProps {
   initialXdr?: string;
   onSelectXdr?: (xdrString: string) => void;
 }
 
-type XdrType =
-  | "Auto"
-  | "ScVal"
-  | "TransactionEnvelope"
-  | "TransactionResult"
-  | "DiagnosticEvent"
-  | "ContractEvent"
-  | "LedgerKey";
-
-interface DecodeResult {
-  type: string;
-  nativeValue: any;
-  rawXdrObject: any;
-  jsonString: string;
-  error?: string;
-}
-
-// Sample base64 XDRs for quick testing
-const SAMPLE_XDRS = [
+// Sample base64 XDRs for quick testing across all Soroban data structures
+export const SAMPLE_XDRS = [
   {
     name: "ScVal (Symbol: 'hello')",
     type: "ScVal" as const,
-    xdr: "AAAAEAAAAAVoZWxsbw=="
+    xdr: "AAAAEAAAAAVoZWxsbw==",
   },
   {
     name: "ScVal (U32: 100)",
     type: "ScVal" as const,
-    xdr: "AAAAAwAAAAZkZWZhdWx0AAAAAA=="
+    xdr: "AAAAAwAAAAZkZWZhdWx0AAAAAA==",
   },
   {
     name: "ScVal (Vec of Symbols)",
     type: "ScVal" as const,
-    xdr: "AAAAEAAAAAEAAAAQAAAAA3N1Yw=="
+    xdr: "AAAAEAAAAAEAAAAQAAAAA3N1Yw==",
   },
   {
     name: "LedgerKey (Contract Data)",
     type: "LedgerKey" as const,
-    xdr: "AAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAEAAAAEaW5pdAAAAA=="
-  }
+    xdr: "AAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAEAAAAEaW5pdAAAAA==",
+  },
+  {
+    name: "TransactionEnvelope (Sample)",
+    type: "TransactionEnvelope" as const,
+    xdr: "AAAAAgAAAAA3+5nL9Xp2mN9bM7v10rG6s0000000000000000000AAAAZA==",
+  },
 ];
-
-function safeReplacer(_key: string, value: any) {
-  if (typeof value === "bigint") {
-    return value.toString();
-  }
-  if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
-    return Buffer.from(value).toString("hex");
-  }
-  return value;
-}
 
 export default function XdrDecoderInspector({
   initialXdr = "",
@@ -81,106 +68,22 @@ export default function XdrDecoderInspector({
   const [filterQuery, setFilterQuery] = useState<string>("");
   const [copiedRaw, setCopiedRaw] = useState<boolean>(false);
   const [copiedJson, setCopiedJson] = useState<boolean>(false);
+  const [copiedFieldId, setCopiedFieldId] = useState<string | null>(null);
+
+  // AST collapse/expand state
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({
     root: true,
   });
 
-  const decodeXdr = useCallback(
-    (inputStr: string, targetType: XdrType): DecodeResult => {
-      const cleanInput = inputStr.trim();
-      if (!cleanInput) {
-        return {
-          type: "Empty",
-          nativeValue: null,
-          rawXdrObject: null,
-          jsonString: "",
-        };
-      }
-
-      const typesToTry: Exclude<XdrType, "Auto">[] =
-        targetType === "Auto"
-          ? [
-              "ScVal",
-              "TransactionEnvelope",
-              "TransactionResult",
-              "DiagnosticEvent",
-              "ContractEvent",
-              "LedgerKey",
-            ]
-          : [targetType];
-
-      for (const t of typesToTry) {
-        try {
-          let decodedObj: any = null;
-          let nativeVal: any = null;
-
-          switch (t) {
-            case "ScVal": {
-              const scval = xdr.ScVal.fromXDR(cleanInput, "base64");
-              decodedObj = scval;
-              try {
-                nativeVal = scValToNative(scval);
-              } catch {
-                nativeVal = { arm: scval.switch() };
-              }
-              break;
-            }
-            case "TransactionEnvelope": {
-              decodedObj = xdr.TransactionEnvelope.fromXDR(cleanInput, "base64");
-              nativeVal = decodedObj.toJSON();
-              break;
-            }
-            case "TransactionResult": {
-              decodedObj = xdr.TransactionResult.fromXDR(cleanInput, "base64");
-              nativeVal = decodedObj.toJSON();
-              break;
-            }
-            case "DiagnosticEvent": {
-              decodedObj = xdr.DiagnosticEvent.fromXDR(cleanInput, "base64");
-              nativeVal = {
-                inSuccessfulContractCall: decodedObj.inSuccessfulContractCall(),
-                event: decodedObj.event().toJSON(),
-              };
-              break;
-            }
-            case "ContractEvent": {
-              decodedObj = xdr.ContractEvent.fromXDR(cleanInput, "base64");
-              nativeVal = decodedObj.toJSON();
-              break;
-            }
-            case "LedgerKey": {
-              decodedObj = xdr.LedgerKey.fromXDR(cleanInput, "base64");
-              nativeVal = decodedObj.toJSON();
-              break;
-            }
-          }
-
-          const jsonString = JSON.stringify(nativeVal, safeReplacer, 2);
-          return {
-            type: t,
-            nativeValue: nativeVal,
-            rawXdrObject: decodedObj,
-            jsonString,
-          };
-        } catch {
-          // continue to next type if Auto
-        }
-      }
-
-      return {
-        type: "Unknown",
-        nativeValue: null,
-        rawXdrObject: null,
-        jsonString: "",
-        error: "Failed to decode base64 XDR string. Please verify input and selected type.",
-      };
-    },
-    []
-  );
+  // Dual-pane bidirectional highlighting states
+  const [hoveredByteOffset, setHoveredByteOffset] = useState<number | null>(null);
+  const [highlightedByteRange, setHighlightedByteRange] = useState<[number, number] | null>(null);
+  const [hoveredAstId, setHoveredAstId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"dual" | "ast" | "hex">("dual");
 
   const decodeResult = useMemo(() => {
-    return decodeXdr(xdrInput, selectedType);
-  }, [xdrInput, selectedType, decodeXdr]);
+    return decodeXdrPayload(xdrInput, selectedType);
+  }, [xdrInput, selectedType]);
 
   const handleCopy = (text: string, isJson: boolean) => {
     navigator.clipboard.writeText(text);
@@ -193,6 +96,13 @@ export default function XdrDecoderInspector({
     }
   };
 
+  const handleCopyFieldValue = (id: string, value: any) => {
+    const textToCopy = typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedFieldId(id);
+    setTimeout(() => setCopiedFieldId(null), 1800);
+  };
+
   const toggleExpand = (path: string) => {
     setExpandedKeys((prev) => ({
       ...prev,
@@ -200,110 +110,127 @@ export default function XdrDecoderInspector({
     }));
   };
 
-  const renderJsonTree = (data: any, path = "root", depth = 0) => {
-    if (data === null) {
-      return <span className="text-gray-500 italic">null</span>;
-    }
-    if (data === undefined) {
-      return <span className="text-gray-500 italic">undefined</span>;
-    }
-    if (typeof data === "boolean") {
-      return <span className="text-purple-400 font-semibold">{data ? "true" : "false"}</span>;
-    }
-    if (typeof data === "number" || typeof data === "bigint") {
-      return <span className="text-amber-300 font-mono">{String(data)}</span>;
-    }
-    if (typeof data === "string") {
-      if (filterQuery && data.toLowerCase().includes(filterQuery.toLowerCase())) {
-        return (
-          <span className="text-emerald-300 bg-emerald-950/80 px-1 rounded font-mono">
-            &quot;{data}&quot;
+  const expandAll = () => {
+    const newKeys: Record<string, boolean> = {};
+    const traverse = (node?: AstNode) => {
+      if (!node) return;
+      newKeys[node.id] = true;
+      node.children?.forEach(traverse);
+    };
+    traverse(decodeResult.astRoot);
+    setExpandedKeys(newKeys);
+  };
+
+  const collapseAll = () => {
+    setExpandedKeys({ root: true });
+  };
+
+  // Render collapsible AST Tree with copyable fields and type annotation tooltips
+  const renderAstNode = (node: AstNode, depth = 0) => {
+    const isExpanded = expandedKeys[node.id] ?? (depth < 2);
+    const hasChildren = node.children && node.children.length > 0;
+    const isHovered = hoveredAstId === node.id;
+    const isByteHighlighted =
+      hoveredByteOffset !== null &&
+      node.byteRange &&
+      hoveredByteOffset >= node.byteRange[0] &&
+      hoveredByteOffset <= node.byteRange[1];
+
+    const matchesFilter =
+      !filterQuery ||
+      node.key.toLowerCase().includes(filterQuery.toLowerCase()) ||
+      (node.value !== undefined &&
+        String(node.value).toLowerCase().includes(filterQuery.toLowerCase()));
+
+    if (!matchesFilter && !hasChildren) return null;
+
+    return (
+      <div
+        key={node.id}
+        className={`group/ast py-1 px-2 rounded-lg transition-colors ${
+          isHovered || isByteHighlighted
+            ? "bg-cyan-950/60 ring-1 ring-cyan-500/50"
+            : "hover:bg-slate-900/60"
+        }`}
+        onMouseEnter={() => {
+          setHoveredAstId(node.id);
+          if (node.byteRange) setHighlightedByteRange(node.byteRange);
+        }}
+        onMouseLeave={() => {
+          setHoveredAstId(null);
+          setHighlightedByteRange(null);
+        }}
+      >
+        <div className="flex items-center gap-2 text-xs">
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => toggleExpand(node.id)}
+              className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-mono focus:outline-none"
+            >
+              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <span className="font-semibold text-slate-200">{node.key}</span>
+            </button>
+          ) : (
+            <span className="font-mono text-cyan-300 font-medium pl-4">{node.key}:</span>
+          )}
+
+          {/* Type annotation badge with tooltip */}
+          <span
+            title={node.typeTooltip || node.type}
+            className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700/60 font-mono flex items-center gap-1 cursor-help"
+          >
+            <Info size={10} className="text-cyan-400" />
+            {node.type}
           </span>
-        );
-      }
-      return <span className="text-emerald-400 font-mono">&quot;{data}&quot;</span>;
-    }
 
-    if (Array.isArray(data)) {
-      if (data.length === 0) return <span className="text-gray-400">[]</span>;
-      const isExpanded = expandedKeys[path] ?? (depth < 2);
+          {/* Value display */}
+          {!hasChildren && node.value !== undefined && (
+            <span
+              className={`font-mono ${
+                typeof node.value === "string"
+                  ? "text-emerald-400"
+                  : typeof node.value === "number" || typeof node.value === "bigint"
+                  ? "text-amber-300"
+                  : typeof node.value === "boolean"
+                  ? "text-purple-400"
+                  : "text-slate-300"
+              }`}
+            >
+              {typeof node.value === "string" ? `"${node.value}"` : String(node.value)}
+            </span>
+          )}
 
-      return (
-        <div className="inline-block w-full">
-          <button
-            type="button"
-            onClick={() => toggleExpand(path)}
-            className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-mono text-xs cursor-pointer focus:outline-none"
-          >
-            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <span className="text-gray-400">Array({data.length})</span>
-          </button>
-
-          {isExpanded && (
-            <div className="pl-4 border-l border-cyan-900/40 my-1 space-y-1">
-              {data.map((item, idx) => (
-                <div key={`${path}-${idx}`} className="flex items-start gap-2">
-                  <span className="text-slate-500 text-xs font-mono">{idx}:</span>
-                  {renderJsonTree(item, `${path}[${idx}]`, depth + 1)}
-                </div>
-              ))}
-            </div>
+          {/* Copyable field value button */}
+          {!hasChildren && node.value !== undefined && (
+            <button
+              type="button"
+              title="Copy field value"
+              onClick={() => handleCopyFieldValue(node.id, node.value)}
+              className="opacity-0 group-hover/ast:opacity-100 p-1 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded transition ml-auto"
+            >
+              {copiedFieldId === node.id ? (
+                <Check size={12} className="text-emerald-400" />
+              ) : (
+                <Copy size={12} />
+              )}
+            </button>
           )}
         </div>
-      );
-    }
 
-    if (typeof data === "object") {
-      const keys = Object.keys(data);
-      if (keys.length === 0) return <span className="text-gray-400">{"{}"}</span>;
-      const isExpanded = expandedKeys[path] ?? (depth < 2);
-
-      return (
-        <div className="inline-block w-full">
-          <button
-            type="button"
-            onClick={() => toggleExpand(path)}
-            className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-mono text-xs cursor-pointer focus:outline-none"
-          >
-            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <span className="text-slate-300 font-medium">Object</span>
-            <span className="text-slate-500 text-[11px]">({keys.length} keys)</span>
-          </button>
-
-          {isExpanded && (
-            <div className="pl-4 border-l border-cyan-900/40 my-1 space-y-1">
-              {keys.map((key) => {
-                const subPath = `${path}.${key}`;
-                const keyMatches =
-                  filterQuery && key.toLowerCase().includes(filterQuery.toLowerCase());
-
-                return (
-                  <div key={subPath} className="flex items-start gap-2 text-xs">
-                    <span
-                      className={`font-mono ${
-                        keyMatches
-                          ? "text-amber-300 bg-amber-950/80 px-1 rounded font-semibold"
-                          : "text-cyan-300"
-                      }`}
-                    >
-                      {key}:
-                    </span>
-                    <div className="flex-1">{renderJsonTree(data[key], subPath, depth + 1)}</div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    return <span>{String(data)}</span>;
+        {/* Children AST nodes */}
+        {hasChildren && isExpanded && (
+          <div className="pl-4 ml-1.5 border-l border-cyan-900/30 my-1 space-y-1">
+            {node.children!.map((child) => renderAstNode(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
     <div className="flex flex-col h-full bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-      {/* Header Bar */}
+      {/* Top Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-gradient-to-tr from-cyan-600 to-teal-500 text-white shadow-lg shadow-cyan-500/20">
@@ -311,51 +238,92 @@ export default function XdrDecoderInspector({
           </div>
           <div>
             <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
-              Soroban XDR Inspector
+              Soroban XDR Disassembler & Hex Inspector
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20">
-                Interactive Decoder
+                Interactive AST
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              Decode base64 XDR return values, diagnostic events, and ledger keys in real time
+              Interactive dual-pane disassembly, AST tree navigation, and bidirectional hex byte highlighting
             </p>
           </div>
         </div>
 
-        {/* Decoder Type Switcher */}
-        <div className="flex items-center gap-2 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
-          <Layers size={14} className="text-slate-400 ml-2" />
-          <span className="text-xs text-slate-400 mr-1">Type:</span>
-          {(
-            [
-              "Auto",
-              "ScVal",
-              "TransactionEnvelope",
-              "TransactionResult",
-              "DiagnosticEvent",
-              "LedgerKey",
-            ] as XdrType[]
-          ).map((t) => (
+        {/* Dual-Pane View Toggles and XDR Type Switcher */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
             <button
-              key={t}
               type="button"
-              onClick={() => setSelectedType(t)}
-              className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-all ${
-                selectedType === t
-                  ? "bg-cyan-500 text-slate-950 font-semibold shadow-md shadow-cyan-500/30"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              onClick={() => setActiveTab("dual")}
+              className={`px-2.5 py-1 text-xs font-medium rounded-lg transition ${
+                activeTab === "dual"
+                  ? "bg-cyan-500 text-slate-950 font-semibold shadow"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              {t}
+              Dual Pane
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={() => setActiveTab("ast")}
+              className={`px-2.5 py-1 text-xs font-medium rounded-lg transition ${
+                activeTab === "ast"
+                  ? "bg-cyan-500 text-slate-950 font-semibold shadow"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              AST Tree
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("hex")}
+              className={`px-2.5 py-1 text-xs font-medium rounded-lg transition ${
+                activeTab === "hex"
+                  ? "bg-cyan-500 text-slate-950 font-semibold shadow"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Hex Dump
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+            <Layers size={14} className="text-slate-400 ml-2" />
+            <span className="text-xs text-slate-400 mr-1">Type:</span>
+            {(
+              [
+                "Auto",
+                "TransactionEnvelope",
+                "ScVal",
+                "LedgerEntryData",
+                "DiagnosticEvent",
+              ] as XdrType[]
+            ).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setSelectedType(t)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-all ${
+                  selectedType === t
+                    ? "bg-cyan-500 text-slate-950 font-semibold shadow-md shadow-cyan-500/30"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Main Content Body */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 flex-1 divide-y lg:divide-y-0 lg:divide-x divide-slate-800">
-        {/* Left Side: XDR Input & Presets */}
-        <div className="flex flex-col p-6 space-y-5 bg-slate-950">
+      {/* Main Dual-Pane Content Body */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 flex-1 divide-y lg:divide-y-0 lg:divide-x divide-slate-800 min-h-0 overflow-hidden">
+        {/* Left Column: XDR Input & Hex Dump View (5 columns) */}
+        <div
+          className={`flex flex-col p-5 space-y-4 bg-slate-950 overflow-y-auto ${
+            activeTab === "ast" ? "hidden" : activeTab === "hex" ? "lg:col-span-12" : "lg:col-span-5"
+          }`}
+        >
           <div className="flex items-center justify-between">
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
               <FileCode size={14} className="text-cyan-400" />
@@ -372,20 +340,20 @@ export default function XdrDecoderInspector({
             )}
           </div>
 
-          <div className="relative flex-1 min-h-[160px]">
+          <div className="relative min-h-[110px]">
             <textarea
               value={xdrInput}
               onChange={(e) => setXdrInput(e.target.value)}
               placeholder="Paste base64 XDR payload here (e.g. AAAAEAAAAAVoZWxsbw==)..."
-              className="w-full h-full p-4 font-mono text-xs bg-slate-900/70 text-cyan-200 border border-slate-800 rounded-xl focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition resize-none"
+              className="w-full h-28 p-3 font-mono text-xs bg-slate-900/70 text-cyan-200 border border-slate-800 rounded-xl focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition resize-none"
             />
           </div>
 
-          {/* Sample Presets */}
+          {/* Quick Presets */}
           <div>
             <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-2">
               <Sparkles size={14} className="text-amber-400" />
-              <span>Quick Sample Presets:</span>
+              <span>Presets:</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {SAMPLE_XDRS.map((sample) => (
@@ -396,22 +364,82 @@ export default function XdrDecoderInspector({
                     setSelectedType(sample.type);
                     setXdrInput(sample.xdr);
                   }}
-                  className="px-3 py-1.5 text-xs bg-slate-900 border border-slate-800 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-300 rounded-lg transition-all flex items-center gap-1.5"
+                  className="px-2.5 py-1 text-[11px] bg-slate-900 border border-slate-800 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-300 rounded-lg transition-all flex items-center gap-1.5"
                 >
-                  <Zap size={12} className="text-cyan-400" />
+                  <Zap size={11} className="text-cyan-400" />
                   {sample.name}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Dual-Pane Hex Dump Inspector */}
+          <div className="flex-1 flex flex-col min-h-[220px] bg-slate-900/50 rounded-xl border border-slate-800 p-3 overflow-hidden">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 mb-2">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Binary size={14} className="text-teal-400" />
+                <span>Hex Dump Inspector ({decodeResult.rawBytes.length} bytes)</span>
+              </div>
+              {hoveredByteOffset !== null && (
+                <span className="text-[11px] font-mono text-cyan-400">
+                  Byte Offset: 0x{hoveredByteOffset.toString(16).toUpperCase()} ({hoveredByteOffset})
+                </span>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-x-auto overflow-y-auto font-mono text-[11px] space-y-1">
+              {decodeResult.hexRows.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-600 text-xs">
+                  No binary bytes to display.
+                </div>
+              ) : (
+                decodeResult.hexRows.map((row) => (
+                  <div key={row.offset} className="flex items-center gap-3 hover:bg-slate-800/40 px-1 py-0.5 rounded">
+                    <span className="text-slate-500 select-none">{row.offsetHex}</span>
+                    <div className="flex items-center gap-1.5 flex-1">
+                      {row.bytes.map((byte) => {
+                        const isHovered = hoveredByteOffset === byte.offset;
+                        const isRangeHighlighted =
+                          highlightedByteRange &&
+                          byte.offset >= highlightedByteRange[0] &&
+                          byte.offset <= highlightedByteRange[1];
+
+                        return (
+                          <span
+                            key={byte.offset}
+                            onMouseEnter={() => setHoveredByteOffset(byte.offset)}
+                            onMouseLeave={() => setHoveredByteOffset(null)}
+                            className={`cursor-pointer px-1 rounded transition-colors ${
+                              isHovered || isRangeHighlighted
+                                ? "bg-cyan-500 text-slate-950 font-bold shadow-sm"
+                                : "text-slate-300 hover:text-cyan-300"
+                            }`}
+                          >
+                            {byte.hex}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <span className="text-slate-500 select-none tracking-widest pl-2 border-l border-slate-800">
+                      {row.ascii}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Right Side: Decoded JSON Tree & Visual Inspection */}
-        <div className="flex flex-col p-6 bg-slate-900/40">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        {/* Right Column: Interactive Collapsible AST Tree Inspector (7 columns) */}
+        <div
+          className={`flex flex-col p-5 bg-slate-900/40 overflow-hidden ${
+            activeTab === "hex" ? "hidden" : activeTab === "ast" ? "lg:col-span-12" : "lg:col-span-7"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Decoded Inspection
+                Interactive XDR AST View
               </span>
               {decodeResult.type && decodeResult.type !== "Empty" && (
                 <span className="px-2 py-0.5 text-xs font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-full flex items-center gap-1">
@@ -421,16 +449,26 @@ export default function XdrDecoderInspector({
               )}
             </div>
 
-            {decodeResult.jsonString && (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCopy(xdrInput, false)}
-                  className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition flex items-center gap-1"
-                >
-                  {copiedRaw ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                  Copy XDR
-                </button>
+            <div className="flex items-center gap-2">
+              {decodeResult.astRoot && (
+                <>
+                  <button
+                    type="button"
+                    onClick={expandAll}
+                    className="px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition flex items-center gap-1"
+                  >
+                    <Maximize2 size={11} /> Expand All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={collapseAll}
+                    className="px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition flex items-center gap-1"
+                  >
+                    <Minimize2 size={11} /> Collapse
+                  </button>
+                </>
+              )}
+              {decodeResult.jsonString && (
                 <button
                   type="button"
                   onClick={() => handleCopy(decodeResult.jsonString, true)}
@@ -439,11 +477,11 @@ export default function XdrDecoderInspector({
                   {copiedJson ? <Check size={12} className="text-slate-950" /> : <Copy size={12} />}
                   Copy JSON
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
-          {/* Search Filter for Decoded JSON */}
+          {/* Search Filter for AST Fields and Values */}
           {decodeResult.nativeValue !== null && (
             <div className="relative mb-3">
               <Search
@@ -454,14 +492,14 @@ export default function XdrDecoderInspector({
                 type="text"
                 value={filterQuery}
                 onChange={(e) => setFilterQuery(e.target.value)}
-                placeholder="Filter decoded fields or values..."
+                placeholder="Filter decoded AST fields, types, or values..."
                 className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-950 text-slate-200 border border-slate-800 rounded-xl focus:outline-none focus:border-cyan-500 transition"
               />
             </div>
           )}
 
-          {/* Decoded Content Viewer */}
-          <div className="flex-1 bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-y-auto max-h-[380px]">
+          {/* Decoded AST Container */}
+          <div className="flex-1 bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-y-auto">
             {decodeResult.error ? (
               <div className="p-4 bg-rose-950/40 border border-rose-800/50 rounded-xl text-rose-300 text-xs">
                 <p className="font-semibold mb-1">Decoding Error</p>
@@ -470,11 +508,13 @@ export default function XdrDecoderInspector({
             ) : decodeResult.nativeValue === null ? (
               <div className="flex flex-col items-center justify-center h-48 text-center text-slate-500">
                 <RefreshCw size={24} className="mb-2 opacity-40 animate-pulse" />
-                <p className="text-xs">Enter or paste a base64 XDR string on the left to inspect decoded details.</p>
+                <p className="text-xs">
+                  Enter or paste a base64 XDR payload to disassemble and inspect the AST hierarchy.
+                </p>
               </div>
             ) : (
               <div className="font-mono text-xs">
-                {renderJsonTree(decodeResult.nativeValue, "root")}
+                {decodeResult.astRoot && renderAstNode(decodeResult.astRoot)}
               </div>
             )}
           </div>

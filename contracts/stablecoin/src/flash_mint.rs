@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracttype, Address, Bytes, Env};
+use soroban_sdk::contracttype;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -17,8 +17,17 @@ import {
   inferStrategy,
   mergeRecords,
   resolveField,
+  threeWayMerge,
   unionIds,
 } from "@/lib/offline/conflict";
+import { computeBackoffDelay, createOfflineEngine } from "@/lib/offline/engine";
+import {
+  idbPutOperation,
+  idbGetPendingOperations,
+  idbDeleteOperation,
+  idbClearOperations,
+  isIndexedDbSupported,
+} from "@/lib/offline/indexedDbQueue";
 import { safeStorage } from "@/lib/offline/storage";
 import { INITIAL_CONNECTIVITY_STATE } from "@/lib/offline/types";
 
@@ -309,5 +318,134 @@ describe("connectivity defaults", () => {
     expect(INITIAL_CONNECTIVITY_STATE.status).toBe("unknown");
     expect(INITIAL_CONNECTIVITY_STATE.lastOnlineAt).toBeNull();
     expect(INITIAL_CONNECTIVITY_STATE.failureCount).toBe(0);
+  });
+});
+
+describe("threeWayMerge", () => {
+  const base = {
+    title: "Initial Title",
+    content: "Initial Content",
+    tags: ["solana", "stellar"],
+  };
+
+  it("adopts local modification when remote is unchanged from base", () => {
+    const local = { ...base, title: "Updated Local Title" };
+    const remote = { ...base };
+    const result = threeWayMerge(local, remote, base);
+
+    expect(result.value.title).toBe("Updated Local Title");
+    expect(result.value.content).toBe("Initial Content");
+    expect(result.conflicts).toHaveLength(0);
+    expect(result.dirty).toBe(true);
+  });
+
+  it("adopts remote modification when local is unchanged from base", () => {
+    const local = { ...base };
+    const remote = { ...base, content: "Remote Content Revision" };
+    const result = threeWayMerge(local, remote, base);
+
+    expect(result.value.title).toBe("Initial Title");
+    expect(result.value.content).toBe("Remote Content Revision");
+    expect(result.conflicts).toHaveLength(0);
+    expect(result.dirty).toBe(true);
+  });
+
+  it("converges cleanly when both sides make identical changes", () => {
+    const local = { ...base, title: "Same New Title" };
+    const remote = { ...base, title: "Same New Title" };
+    const result = threeWayMerge(local, remote, base);
+
+    expect(result.value.title).toBe("Same New Title");
+    expect(result.conflicts).toHaveLength(0);
+  });
+
+  it("resolves conflicting array tags with union strategy", () => {
+    const local = { ...base, tags: ["solana", "stellar", "offline"] };
+    const remote = { ...base, tags: ["solana", "stellar", "idb"] };
+    const result = threeWayMerge(local, remote, base);
+
+    expect(result.value.tags).toEqual(["solana", "stellar", "offline", "idb"]);
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.conflicts[0].strategy).toBe("union");
+  });
+
+  it("falls back to two-way mergeRecords when base is omitted", () => {
+    const local = { pinned: "local" };
+    const remote = { pinned: "remote" };
+    const result = threeWayMerge(local, remote, undefined, {
+      overrides: { pinned: "local-wins" },
+    });
+    expect(result.value.pinned).toBe("local");
+  });
+});
+
+describe("computeBackoffDelay and exponential backoff", () => {
+  it("returns 0 for zero or negative failures", () => {
+    expect(computeBackoffDelay(0)).toBe(0);
+    expect(computeBackoffDelay(-1)).toBe(0);
+  });
+
+  it("calculates exponential delays correctly", () => {
+    expect(computeBackoffDelay(1, 1000, 60000)).toBe(1000); // 1000 * 2^0
+    expect(computeBackoffDelay(2, 1000, 60000)).toBe(2000); // 1000 * 2^1
+    expect(computeBackoffDelay(3, 1000, 60000)).toBe(4000); // 1000 * 2^2
+    expect(computeBackoffDelay(4, 1000, 60000)).toBe(8000); // 1000 * 2^3
+  });
+
+  it("respects ceiling boundary", () => {
+    expect(computeBackoffDelay(10, 1000, 30000)).toBe(30000);
+  });
+});
+
+describe("offline engine batchUpdates", () => {
+  it("wraps subscriber emissions in custom batchUpdates runner", () => {
+    let batchRunnerCount = 0;
+    const batcher = (fn: () => void) => {
+      batchRunnerCount += 1;
+      fn();
+    };
+
+    const engine = createOfflineEngine({
+      batchUpdates: batcher,
+    });
+
+    const receivedStates: unknown[] = [];
+    engine.subscribe((s) => receivedStates.push(s));
+
+    engine.setStatus("offline");
+    expect(batchRunnerCount).toBeGreaterThan(0);
+    expect(receivedStates.length).toBeGreaterThan(0);
+    engine.destroy();
+  });
+});
+
+describe("indexedDbQueue operations", () => {
+  it("checks IndexedDB environment support safely without throwing", () => {
+    const supported = isIndexedDbSupported();
+    expect(typeof supported).toBe("boolean");
+  });
+
+  it("handles basic operations safely in test environment", async () => {
+    const op = {
+      id: "test-op-1",
+      kind: "test.push",
+      payload: { data: "sample" },
+      queuedAt: Date.now(),
+      attempts: 0,
+      lastAttemptAt: null,
+      lastError: null,
+    };
+
+    const putRes = await idbPutOperation(op);
+    expect(typeof putRes).toBe("boolean");
+
+    const pending = await idbGetPendingOperations();
+    expect(Array.isArray(pending)).toBe(true);
+
+    const delRes = await idbDeleteOperation("test-op-1");
+    expect(typeof delRes).toBe("boolean");
+
+    const clearRes = await idbClearOperations();
+    expect(typeof clearRes).toBe("boolean");
   });
 });

@@ -3,9 +3,12 @@
 
 //! # NFT Rental Protocol with Collateral-Free Delegated Usage Rights
 //!
-//! Separates legal ownership from user rights (ERC-4907 style).
-//! Allows utility and gaming NFTs to be rented collateral-free with automated expiration,
-//! escrowed upfront fee delivery, and instant listing cancellations.
+//! Separates legal ownership from user rights (ERC-4907 style). The lender
+//! (`ownerOf`) never loses custody: only the scoped `userOf` role is delegated.
+//! User rights expire lazily at the stored ledger sequence, so no transaction is
+//! required to revoke them, and a renter can never transfer, burn, or sub-lease
+//! the asset. Upfront rental fees are escrowed until the lease starts, and an
+//! already-leased or escrow-committed token cannot change hands.
 
 #![no_std]
 
@@ -17,7 +20,8 @@ use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env};
 
 use crate::storage::{
     get_admin, get_balance, get_escrow, get_listing, get_nft, is_initialized, remove_escrow,
-    remove_listing, set_admin, set_balance, set_escrow, set_initialized, set_listing, set_nft,
+    remove_listing, remove_nft, set_admin, set_balance, set_escrow, set_initialized, set_listing,
+    set_nft,
 };
 use crate::types::{Error, EscrowRecord, NFTRecord, RentalListing};
 
@@ -75,6 +79,11 @@ impl NFTRental {
         if nft.owner != owner {
             return Err(Error::Unauthorized);
         }
+        // A paid lease is immutable for its term: the lender cannot overwrite
+        // the renter's user rights while they are still active.
+        if Self::is_lease_active(&env, &nft) {
+            return Err(Error::TokenCurrentlyLeased);
+        }
 
         let current_ledger = env.ledger().sequence();
         if expires_at_ledger <= current_ledger {
@@ -92,23 +101,20 @@ impl NFTRental {
         Ok(())
     }
 
-    /// Returns current user of the NFT.
-    /// If expiration ledger reached or exceeded, automatically reverts to owner without gas from owner!
-    pub fn user_of(env: Env, token_id: u64) -> Address {
+    /// Returns the temporary user of the NFT, or `None` when no lease is active.
+    /// Expiration is evaluated against the current ledger sequence on read, so
+    /// user rights revert to `None` automatically without any transaction.
+    pub fn user_of(env: Env, token_id: u64) -> Option<Address> {
         let nft = match get_nft(&env, token_id) {
             Ok(n) => n,
-            Err(_) => return env.current_contract_address(),
+            Err(_) => return None,
         };
 
-        let current_ledger = env.ledger().sequence();
-        if current_ledger <= nft.expires_at_ledger {
-            if let Some(user) = nft.user {
-                return user;
-            }
+        if Self::is_lease_active(&env, &nft) {
+            nft.user
+        } else {
+            None
         }
-
-        // Automated expiration: user rights revert automatically to legal owner
-        nft.owner
     }
 
     /// Returns expiration ledger sequence for the user rights. Reverts to 0 if expired.
@@ -118,8 +124,7 @@ impl NFTRental {
             Err(_) => return 0,
         };
 
-        let current_ledger = env.ledger().sequence();
-        if current_ledger <= nft.expires_at_ledger {
+        if Self::is_lease_active(&env, &nft) {
             nft.expires_at_ledger
         } else {
             0
@@ -132,7 +137,8 @@ impl NFTRental {
         Ok(nft.owner)
     }
 
-    /// Transfer legal ownership. Renters cannot transfer or sub-lease.
+    /// Transfer legal ownership. Renters cannot transfer or sub-lease, and the
+    /// lender is immutable while a lease is active (the renter paid for it).
     pub fn transfer_ownership(
         env: Env,
         from: Address,
@@ -146,6 +152,9 @@ impl NFTRental {
         if nft.owner != from {
             return Err(Error::Unauthorized);
         }
+        if Self::is_lease_active(&env, &nft) {
+            return Err(Error::TokenCurrentlyLeased);
+        }
 
         nft.owner = to.clone();
         nft.user = None;
@@ -154,6 +163,31 @@ impl NFTRental {
 
         env.events()
             .publish((symbol_short!("transfer"), token_id), (from, to));
+        Ok(())
+    }
+
+    /// Burn the NFT permanently. Only the legal owner may burn, never a renter,
+    /// and only when no lease or escrow commitment is outstanding.
+    pub fn burn_nft(env: Env, owner: Address, token_id: u64) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        owner.require_auth();
+
+        let nft = get_nft(&env, token_id)?;
+        if nft.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+        if Self::is_lease_active(&env, &nft) {
+            return Err(Error::TokenCurrentlyLeased);
+        }
+        if get_escrow(&env, token_id).is_ok() {
+            return Err(Error::ActiveEscrow);
+        }
+
+        remove_nft(&env, token_id);
+        remove_listing(&env, token_id);
+
+        env.events()
+            .publish((symbol_short!("burn"), token_id), owner);
         Ok(())
     }
 
@@ -180,8 +214,7 @@ impl NFTRental {
             return Err(Error::InvalidDuration);
         }
 
-        let current_ledger = env.ledger().sequence();
-        if current_ledger <= nft.expires_at_ledger && nft.user.is_some() {
+        if Self::is_lease_active(&env, &nft) {
             return Err(Error::TokenCurrentlyLeased);
         }
 
@@ -207,15 +240,18 @@ impl NFTRental {
         Self::assert_initialized(&env)?;
         owner.require_auth();
 
-        let mut listing = get_listing(&env, token_id)?;
+        let listing = get_listing(&env, token_id)?;
         if listing.owner != owner {
             return Err(Error::Unauthorized);
         }
         if !listing.is_active {
             return Err(Error::ListingNotActive);
         }
+        // A renter has already locked the fee; the owner cannot pull the offer.
+        if get_escrow(&env, token_id).is_ok() {
+            return Err(Error::ActiveEscrow);
+        }
 
-        listing.is_active = false;
         remove_listing(&env, token_id);
 
         env.events()
@@ -237,6 +273,11 @@ impl NFTRental {
         let listing = get_listing(&env, token_id)?;
         if !listing.is_active {
             return Err(Error::ListingNotActive);
+        }
+        // One escrow per token: a second reservation would overwrite the first
+        // renter's locked fee and strand their funds.
+        if get_escrow(&env, token_id).is_ok() {
+            return Err(Error::ActiveEscrow);
         }
         if duration_ledgers < listing.min_duration || duration_ledgers > listing.max_duration {
             return Err(Error::InvalidDuration);
@@ -279,6 +320,14 @@ impl NFTRental {
         }
 
         let mut nft = get_nft(&env, token_id)?;
+        // The escrowed fee belongs to the owner recorded at reservation time;
+        // refuse to settle against a token that changed hands or is leased.
+        if nft.owner != escrow.owner {
+            return Err(Error::Unauthorized);
+        }
+        if Self::is_lease_active(&env, &nft) {
+            return Err(Error::TokenCurrentlyLeased);
+        }
         let current_ledger = env.ledger().sequence();
         let expires_at_ledger = current_ledger + escrow.duration_ledgers;
 
@@ -342,6 +391,13 @@ impl NFTRental {
 
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         get_admin(&env)
+    }
+
+    /// A lease is active only while a user is set and the current ledger has not
+    /// passed the stored expiration. This read-time check is what makes expiry
+    /// automatic and transaction-free.
+    fn is_lease_active(env: &Env, nft: &NFTRecord) -> bool {
+        nft.user.is_some() && env.ledger().sequence() <= nft.expires_at_ledger
     }
 
     fn assert_initialized(env: &Env) -> Result<(), Error> {

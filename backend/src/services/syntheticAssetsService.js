@@ -22,11 +22,67 @@ const CACHE_TTL = {
   PROTOCOL_PARAMS: 300, // 5 minutes
 };
 
+const DEFAULT_EMA_TIME_CONSTANT_MINUTES = 30;
+const DEFAULT_MAX_PRICE_DEVIATION = 0.1;
+const PRICE_EMA_KEY_PREFIX = 'price:ema:';
+const POSITION_UPDATE_COLUMNS = new Set([
+  'status',
+  'collateral_amount',
+  'minted_amount',
+  'margin',
+  'leverage',
+  'direction',
+  'type',
+]);
+
+function positiveNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Calculate a time-aware EMA. A time delta of one time constant moves 63.2%
+ * toward the new price, independent of the update frequency.
+ */
+export function calculateEma(previousPrice, currentPrice, elapsedMs, timeConstantMs) {
+  if (
+    !Number.isFinite(previousPrice) ||
+    !Number.isFinite(currentPrice) ||
+    !Number.isFinite(elapsedMs) ||
+    !Number.isFinite(timeConstantMs) ||
+    elapsedMs < 0 ||
+    timeConstantMs <= 0
+  ) {
+    throw new TypeError('EMA inputs must be finite and non-negative');
+  }
+
+  const alpha = 1 - Math.exp(-elapsedMs / timeConstantMs);
+  return previousPrice + alpha * (currentPrice - previousPrice);
+}
+
+export function relativePriceDeviation(price, benchmark) {
+  if (!Number.isFinite(price) || !Number.isFinite(benchmark) || benchmark <= 0) {
+    throw new TypeError('Price and benchmark must be finite positive numbers');
+  }
+  return Math.abs(price - benchmark) / benchmark;
+}
+
 class SyntheticAssetsService {
   constructor() {
     this.contractId = process.env.SYNTHETIC_ASSETS_CONTRACT_ID;
     this.collateralToken = process.env.COLLATERAL_TOKEN;
     this.oracleAddress = process.env.ORACLE_ADDRESS;
+    this.emaTimeConstantMs =
+      positiveNumber(
+        process.env.SYNTHETIC_PRICE_EMA_TIME_CONSTANT_MINUTES,
+        DEFAULT_EMA_TIME_CONSTANT_MINUTES
+      ) *
+      60 *
+      1000;
+    this.maxPriceDeviation = positiveNumber(
+      process.env.SYNTHETIC_PRICE_MAX_DEVIATION,
+      DEFAULT_MAX_PRICE_DEVIATION
+    );
   }
 
   /**
@@ -287,11 +343,44 @@ class SyntheticAssetsService {
    */
   async updatePrice(assetSymbol, newPrice, confidence) {
     try {
+      const spotPrice = Number(newPrice);
+      if (!Number.isFinite(spotPrice) || spotPrice <= 0) {
+        throw new TypeError('Asset price must be a finite positive number');
+      }
+
+      const now = Date.now();
+      const previousEma = await this.getPriceEma(assetSymbol);
+      let smoothedPrice = spotPrice;
+      if (previousEma) {
+        const deviation = relativePriceDeviation(
+          spotPrice,
+          previousEma.price
+        );
+        if (deviation > this.maxPriceDeviation) {
+          const error = new Error(
+            `Price update for ${assetSymbol} deviates ${(deviation * 100).toFixed(2)}% from its EMA benchmark`
+          );
+          error.code = 'PRICE_DEVIATION_TOO_HIGH';
+          throw error;
+        }
+        smoothedPrice = calculateEma(
+          previousEma.price,
+          spotPrice,
+          Math.max(0, now - previousEma.timestamp),
+          this.emaTimeConstantMs
+        );
+      }
+
       const result = await invokeContract({
         contractId: this.contractId,
         method: 'update_price',
-        params: [assetSymbol, newPrice, confidence],
+        params: [assetSymbol, smoothedPrice, confidence],
         auth: true,
+      });
+
+      await this.savePriceEma(assetSymbol, {
+        price: smoothedPrice,
+        timestamp: now,
       });
 
       // Invalidate price cache
@@ -299,15 +388,16 @@ class SyntheticAssetsService {
 
       // Log price update
       await this.logAssetEvent('PRICE_UPDATE', assetSymbol, {
-        newPrice,
+        newPrice: smoothedPrice,
+        spotPrice,
         confidence,
         timestamp: new Date(),
       });
 
       // Broadcast via WebSocket
-      this.broadcastPriceUpdate(assetSymbol, newPrice);
+      this.broadcastPriceUpdate(assetSymbol, smoothedPrice);
 
-      return { success: true, data: result };
+      return { success: true, price: smoothedPrice, data: result };
     } catch (error) {
       logger.error(`Failed to update price for ${assetSymbol}:`, error);
       throw error;
@@ -561,7 +651,7 @@ class SyntheticAssetsService {
         ['OPEN', 'COLLATERAL']
       );
 
-      for (const position of positions.rows) {
+      for (const position of positions) {
         const isLiquidatable = await this.isLiquidatable(position.position_id);
         if (isLiquidatable) {
           await this.recordLiquidationAlert(position.position_id);
@@ -609,6 +699,9 @@ class SyntheticAssetsService {
 
   async updatePosition(positionId, updates) {
     const fields = Object.keys(updates).map((key, i) => {
+      if (!POSITION_UPDATE_COLUMNS.has(key)) {
+        throw new Error(`Unsupported position update column: ${key}`);
+      }
       assertSafeIdentifier(key, 'column');
       return `${key} = $${i + 2}`;
     });
@@ -617,6 +710,35 @@ class SyntheticAssetsService {
     await databaseService.query(
       `UPDATE positions SET ${fields.join(', ')}, updated_at = NOW() WHERE position_id = $1`,
       [positionId, ...values]
+    );
+  }
+
+  async getPriceEma(assetSymbol) {
+    const cached = await redisService.get(
+      `${PRICE_EMA_KEY_PREFIX}${assetSymbol}`
+    );
+    if (!cached) return null;
+
+    try {
+      const state = JSON.parse(cached);
+      if (
+        Number.isFinite(state.price) &&
+        state.price > 0 &&
+        Number.isFinite(state.timestamp)
+      ) {
+        return state;
+      }
+    } catch (error) {
+      logger.warn(`Ignoring invalid EMA state for ${assetSymbol}:`, error);
+    }
+    return null;
+  }
+
+  async savePriceEma(assetSymbol, state) {
+    await redisService.set(
+      `${PRICE_EMA_KEY_PREFIX}${assetSymbol}`,
+      JSON.stringify(state),
+      Math.ceil((this.emaTimeConstantMs * 2) / 1000)
     );
   }
 

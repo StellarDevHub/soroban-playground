@@ -9,9 +9,11 @@ import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
 interface EditorProps {
   code: string;
   setCode: (value: string) => void;
+  modelKey?: string;
   viewStateKey?: string;
   onFormat?: (source?: string) => void;
   formatDiagnostics?: RustFormatDiagnostic[];
+  vimMode?: boolean;
 }
 
 function EditorLoadingState() {
@@ -30,18 +32,22 @@ function EditorLoadingState() {
 export default function Editor({
   code,
   setCode,
+  modelKey,
   viewStateKey,
   onFormat,
   formatDiagnostics,
+  vimMode,
 }: EditorProps) {
   const { peers, isConnected } = useCollaborativeEditor();
-  const { containerRef, isEditorReady, languageServiceStatus } = useMonaco({
+  const { containerRef, isEditorReady, languageServiceStatus, vimModeActive } = useMonaco({
     language: "rust",
     value: code,
     onChange: setCode,
+    modelKey,
     viewStateKey,
     onFormat,
     formatDiagnostics,
+    vimMode,
   });
 
   return (
@@ -52,6 +58,16 @@ export default function Editor({
           lib.rs (Soroban Smart Contract)
         </span>
         <div className="flex items-center gap-3">
+          {vimModeActive && (
+            <span
+              role="status"
+              data-testid="monaco-vim-badge"
+              aria-label="Monaco Vim editing mode active"
+              className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 tracking-wider"
+            >
+              VIM
+            </span>
+          )}
           {languageServiceStatus && (
             <span
               role="status"

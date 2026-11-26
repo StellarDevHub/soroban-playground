@@ -9,6 +9,7 @@ import {
   createVerify,
   generateKeyPairSync,
   createHash,
+  timingSafeEqual,
 } from 'crypto';
 
 import {
@@ -77,6 +78,83 @@ export function aesDecrypt({ iv, ciphertext, tag }, key) {
     decipher.final(),
   ]);
   return decrypted;
+}
+
+/***
+ * Envelope encryption: encrypt a secret with a fresh per-secret Data
+ * Encryption Key (DEK), then wrap the DEK with a Key Encryption Key (KEK).
+ *
+ * The KEK is supplied by a KMS adapter, so it never resides in application
+ * memory beyond the wrap/unwrap call. The adapter must implement:
+ *   - wrapKey(dekBuffer) => Promise<string>   (returns opaque wrapped DEK)
+ *   - unwrapKey(wrappedDek) => Promise<Buffer>
+ *   - kekId: string                           (identifier of the active KEK)
+ *
+ * @param {Buffer|string} plaintext
+ * @param {{ wrapKey: Function, unwrapKey: Function, kekId: string }} kms
+ * @returns {Promise<{ v: number, kekId: string, wrappedDek: string, iv: string, ciphertext: string, tag: string }>}
+ */
+export async function envelopeEncrypt(plaintext, kms) {
+  if (!kms || typeof kms.wrapKey !== 'function' || !kms.kekId) {
+    throw new Error('envelopeEncrypt: a KMS adapter with wrapKey and kekId is required');
+  }
+  const dek = randomBytes(AES_KEY_LENGTH);
+  try {
+    const payload = aesEncrypt(plaintext, dek);
+    const wrappedDek = await kms.wrapKey(dek);
+    return {
+      v: 1,
+      kekId: kms.kekId,
+      wrappedDek,
+      iv: payload.iv,
+      ciphertext: payload.ciphertext,
+      tag: payload.tag,
+    };
+  } finally {
+    dek.fill(0);
+  }
+}
+
+/***
+ * Decrypt an envelope produced by envelopeEncrypt.
+ * @param {{ v: number, kekId: string, wrappedDek: string, iv: string, ciphertext: string, tag: string }} envelope
+ * @param {{ unwrapKey: Function }} kms
+ * @returns {Promise<Buffer>}
+ */
+export async function envelopeDecrypt(envelope, kms) {
+  if (!envelope || envelope.v !== 1) {
+    throw new Error('envelopeDecrypt: unsupported envelope version');
+  }
+  if (!kms || typeof kms.unwrapKey !== 'function') {
+    throw new Error('envelopeDecrypt: a KMS adapter with unwrapKey is required');
+  }
+  const dek = await kms.unwrapKey(envelope.wrappedDek, envelope.kekId);
+  try {
+    if (!Buffer.isBuffer(dek) || dek.length !== AES_KEY_LENGTH) {
+      throw new Error('envelopeDecrypt: unwrapped DEK has invalid length');
+    }
+    return aesDecrypt(envelope, dek);
+  } finally {
+    dek.fill(0);
+  }
+}
+
+/***
+ * Re-wrap an envelope's DEK under the current KEK without touching the
+ * plaintext-bearing ciphertext. Used for KEK rotation: the DEK is unwrapped
+ * with the old KEK and rewrapped with the new one; ciphertext is unchanged.
+ * @param {object} envelope
+ * @param {{ unwrapKey: Function, wrapKey: Function, kekId: string }} kms
+ * @returns {Promise<object>} new envelope
+ */
+export async function rotateEnvelopeKek(envelope, kms) {
+  const dek = await kms.unwrapKey(envelope.wrappedDek, envelope.kekId);
+  try {
+    const wrappedDek = await kms.wrapKey(dek);
+    return { ...envelope, kekId: kms.kekId, wrappedDek };
+  } finally {
+    dek.fill(0);
+  }
 }
 
 /***

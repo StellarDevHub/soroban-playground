@@ -118,6 +118,32 @@ pub fn set_history_index(env: &Env, location: &String, observed_at: u64, record_
         &record_id,
     );
 }
+
+pub fn get_epoch_reports(env: &Env, station_id: u32, epoch: u64) -> soroban_sdk::Vec<crate::types::EpochReport> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EpochReports(station_id, epoch))
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env))
+}
+
+pub fn set_epoch_reports(env: &Env, station_id: u32, epoch: u64, reports: &soroban_sdk::Vec<crate::types::EpochReport>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::EpochReports(station_id, epoch), reports);
+}
+
+pub fn set_epoch_consensus(env: &Env, station_id: u32, epoch: u64, consensus: &crate::types::EpochConsensus) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::EpochConsensus(station_id, epoch), consensus);
+}
+
+pub fn get_epoch_consensus(env: &Env, station_id: u32, epoch: u64) -> Result<crate::types::EpochConsensus, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EpochConsensus(station_id, epoch))
+        .ok_or(Error::ConsensusNotReached)
+}
 pub fn get_history_index(env: &Env, location: &String, observed_at: u64) -> Option<u32> {
     env.storage()
         .persistent()

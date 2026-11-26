@@ -88,24 +88,49 @@ function updateLatencyEma(ep, observedMs) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-class SorobanRpcManager {
+export class SorobanRpcManager {
   constructor() {
-    const rawFallbacks = process.env.SOROBAN_RPC_FALLBACK_URLS
-      ? process.env.SOROBAN_RPC_FALLBACK_URLS.split(',').map((u) => u.trim())
-      : DEFAULT_FALLBACK_ENDPOINTS;
+    const configured = [
+      [
+        'Public RPC',
+        process.env.SOROBAN_RPC_PUBLIC_URL || process.env.SOROBAN_RPC_URL,
+      ],
+      ['QuickNode', process.env.QUICKNODE_RPC_URL],
+      ['Blockdaemon', process.env.BLOCKDAEMON_RPC_URL],
+      ...(process.env.SOROBAN_RPC_FALLBACK_URLS
+        ? process.env.SOROBAN_RPC_FALLBACK_URLS.split(',').map((url) => [
+            null,
+            url.trim(),
+          ])
+        : []),
+    ].filter(([, url]) => Boolean(url));
 
-    this.endpoints = Array.from(new Set(rawFallbacks)).map((url) => ({
+    const rawEndpoints =
+      configured.length > 0
+        ? configured
+        : DEFAULT_FALLBACK_ENDPOINTS.map((url) => [null, url]);
+
+    this.endpoints = Array.from(
+      new Map(
+        rawEndpoints.map(([name, url]) => [
+          url.trim(),
+          name || url.trim().replace(/^https?:\/\//, ''),
+        ])
+      )
+    ).map(([url, name]) => ({
       url,
+      name,
       state: CIRCUIT_STATES.CLOSED,
       failCount: 0,
       lastFailureTime: null,
       isHealthy: true,
-      // Latency tracking (#1575)
-      latencyEmaMs: null, // EMA of successful call latencies (ms)
-      latencySamples: 0, // total successful samples recorded
-      lastLatencyMs: null, // most recent observed latency
+      latencyEmaMs: null,
+      latencySamples: 0,
+      lastLatencyMs: null,
       lastHealthyAt: null,
       latestLedger: null,
+      rateLimitedUntil: null,
+      backoffAttempt: 0,
     }));
 
     this.failureThreshold = Number.parseInt(
@@ -114,6 +139,10 @@ class SorobanRpcManager {
     );
     this.resetTimeoutMs = Number.parseInt(
       process.env.RPC_RESET_TIMEOUT_MS || '30000',
+      10
+    );
+    this.maxLedgerLag = Number.parseInt(
+      process.env.RPC_MAX_LEDGER_LAG || '50',
       10
     );
     this.activeEndpointIndex = 0;
@@ -138,6 +167,15 @@ class SorobanRpcManager {
   checkCircuitStates() {
     const now = Date.now();
     for (const ep of this.endpoints) {
+      if (
+        ep.rateLimitedUntil &&
+        now >= ep.rateLimitedUntil &&
+        ep.state === CIRCUIT_STATES.OPEN
+      ) {
+        ep.rateLimitedUntil = null;
+        ep.state = CIRCUIT_STATES.HALF_OPEN;
+        ep.isHealthy = false;
+      }
       if (
         ep.state === CIRCUIT_STATES.OPEN &&
         ep.lastFailureTime &&
@@ -253,6 +291,24 @@ class SorobanRpcManager {
     const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
     const start = Date.now();
     try {
+      const url = new URL(ep.url);
+      url.pathname =
+        url.pathname.replace(/\/(?:soroban\/)?rpc\/?$/, '').replace(/\/$/, '') +
+        '/health';
+      const healthResponse = await fetch(url.toString(), {
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+
+      if (healthResponse.status === 429) {
+        const error = new Error('HTTP 429 Too Many Requests');
+        error.status = 429;
+        throw error;
+      }
+      if (!healthResponse.ok) {
+        throw new Error(`HTTP ${healthResponse.status}`);
+      }
+
       const request = (method) =>
         fetch(ep.url, {
           method: 'POST',
@@ -290,10 +346,18 @@ class SorobanRpcManager {
       ep.lastHealthyAt = Date.now();
       ep.latestLedger = latestLedger?.sequence ?? latestLedger;
       return true;
-    } catch {
+    } catch (err) {
       ep.isHealthy = false;
       ep.lastFailureTime = Date.now();
-      if (ep.state === CIRCUIT_STATES.CLOSED) ep.state = CIRCUIT_STATES.OPEN;
+      if (err?.status === 429) {
+        ep.backoffAttempt = Math.min(ep.backoffAttempt + 1, 6);
+        ep.rateLimitedUntil =
+          Date.now() +
+          Math.min(1000 * Math.pow(2, ep.backoffAttempt - 1), 60000);
+        ep.state = CIRCUIT_STATES.OPEN;
+      } else if (ep.state === CIRCUIT_STATES.CLOSED) {
+        ep.state = CIRCUIT_STATES.OPEN;
+      }
       return false;
     } finally {
       clearTimeout(timeout);
@@ -302,10 +366,30 @@ class SorobanRpcManager {
 
   startHealthChecks() {
     if (this.healthTimer || this.endpoints.length === 0) return;
-    const poll = () => {
-      Promise.all(
+    const poll = async () => {
+      await Promise.all(
         this.endpoints.map((endpoint) => this.checkEndpointHealth(endpoint))
       ).catch(() => {});
+      const ledgers = this.endpoints
+        .map((endpoint) => Number(endpoint.latestLedger))
+        .filter((ledger) => Number.isFinite(ledger) && ledger > 0);
+      if (ledgers.length === 0) return;
+      const referenceLedger = Math.max(...ledgers);
+      for (const endpoint of this.endpoints) {
+        const ledger = Number(endpoint.latestLedger);
+        if (
+          endpoint.isHealthy &&
+          ledger > 0 &&
+          referenceLedger - ledger > this.maxLedgerLag
+        ) {
+          endpoint.isHealthy = false;
+          endpoint.state = CIRCUIT_STATES.OPEN;
+          endpoint.lastFailureTime = Date.now();
+          console.warn(
+            `[RPC Health] Evicted lagging endpoint ${endpoint.url}: ledger ${ledger}, reference ${referenceLedger}`
+          );
+        }
+      }
     };
     poll();
     this.healthTimer = setInterval(poll, HEALTH_CHECK_INTERVAL_MS);
@@ -350,6 +434,9 @@ class SorobanRpcManager {
       if (ep.state === CIRCUIT_STATES.OPEN) {
         continue;
       }
+      if (ep.rateLimitedUntil && ep.rateLimitedUntil > Date.now()) {
+        continue;
+      }
 
       const callStartHr = process.hrtime();
       const callStart = Date.now();
@@ -383,6 +470,8 @@ class SorobanRpcManager {
           } catch (_) {}
 
           ep.failCount = 0;
+          ep.backoffAttempt = 0;
+          ep.rateLimitedUntil = null;
           ep.state = CIRCUIT_STATES.CLOSED;
           ep.isHealthy = true;
           this.activeEndpointIndex = idx;
@@ -422,6 +511,20 @@ class SorobanRpcManager {
         ep.failCount += 1;
         ep.lastFailureTime = Date.now();
         this._totalFailures += 1;
+
+        const status =
+          err?.status ||
+          err?.statusCode ||
+          err?.response?.status ||
+          err?.cause?.status;
+        if (Number(status) === 429) {
+          ep.backoffAttempt = Math.min(ep.backoffAttempt + 1, 6);
+          ep.rateLimitedUntil =
+            Date.now() +
+            Math.min(1000 * Math.pow(2, ep.backoffAttempt - 1), 60000);
+          ep.state = CIRCUIT_STATES.OPEN;
+          ep.isHealthy = false;
+        }
 
         if (
           ep.failCount >= this.failureThreshold ||
@@ -488,6 +591,11 @@ class SorobanRpcManager {
           ep.latencyEmaMs !== null ? Math.round(ep.latencyEmaMs) : null,
         latencySamples: ep.latencySamples,
         lastLatencyMs: ep.lastLatencyMs,
+        name: ep.name,
+        rateLimitedUntil: ep.rateLimitedUntil
+          ? new Date(ep.rateLimitedUntil).toISOString()
+          : null,
+        backoffAttempt: ep.backoffAttempt,
       })),
       callGraph: {
         frameCount: this._callHistory.length,
@@ -507,6 +615,8 @@ class SorobanRpcManager {
       ep.latencyEmaMs = null;
       ep.latencySamples = 0;
       ep.lastLatencyMs = null;
+      ep.rateLimitedUntil = null;
+      ep.backoffAttempt = 0;
     }
     this.activeEndpointIndex = 0;
     this._totalRequests = 0;

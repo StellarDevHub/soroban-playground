@@ -13,7 +13,9 @@ import { join } from 'node:path';
 const apiPath = join(__dirname, '../src/routes/api.js');
 const apiSource = readFileSync(apiPath, 'utf8');
 
-jest.mock('../src/routes/warranty.js', () => require('./_helpers/stubRouter'));
+jest.mock('../src/routes/warrantyManagement.js', () =>
+  require('./_helpers/stubRouter')
+);
 jest.mock('../src/routes/favorites.js', () => require('./_helpers/stubRouter'));
 jest.mock('../src/routes/workspace.js', () => require('./_helpers/stubRouter'));
 jest.mock('../src/routes/search.js', () => require('./_helpers/stubRouter'));
@@ -139,12 +141,13 @@ describe('route gateway (#1491)', () => {
       'applies mutating rate limiter on %s',
       (prefix) => {
         const mountPath = prefix.replace('/api', '');
-        const line = apiSource
-          .split('\n')
-          .find((l) => l.includes(`use('${mountPath}'`));
-        expect(line).toBeDefined();
-        expect(line).toMatch(/stellarIdValidation/);
-        expect(line).toMatch(/mutatingRouteLimiter/);
+        const pathOffset = apiSource.indexOf(`'${mountPath}'`);
+        const statementStart = apiSource.lastIndexOf('router.use(', pathOffset);
+        const statementEnd = apiSource.indexOf(');', pathOffset);
+        const statement = apiSource.slice(statementStart, statementEnd);
+        expect(statementStart).toBeGreaterThanOrEqual(0);
+        expect(statement).toMatch(/stellarIdValidation/);
+        expect(statement).toMatch(/mutatingRouteLimiter/);
       }
     );
   });

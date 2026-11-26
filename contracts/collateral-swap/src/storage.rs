@@ -14,6 +14,10 @@ pub enum DataKey {
     UserDebt(Address),
     TokenPrice(Address),
     DexRate(Address, Address),
+    MaxPriceDeviationBps,
+    BaseSwitchFeeBps,
+    DeviationFeeMultiplierBps,
+    ProtocolFees(Address),
 }
 
 pub fn is_initialized(env: &Env) -> bool {
@@ -99,4 +103,62 @@ pub fn set_dex_rate(env: &Env, from: &Address, to: &Address, rate_bps: i128) {
     env.storage()
         .persistent()
         .set(&DataKey::DexRate(from.clone(), to.clone()), &rate_bps);
+}
+
+/// Default maximum tolerated deviation between DEX rate and oracle rate (5%).
+pub const DEFAULT_MAX_PRICE_DEVIATION_BPS: i128 = 500;
+/// Default share of the observed deviation that is charged as extra switching fee (50%).
+pub const DEFAULT_DEVIATION_FEE_MULTIPLIER_BPS: i128 = 5_000;
+
+pub fn get_max_price_deviation_bps(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxPriceDeviationBps)
+        .unwrap_or(DEFAULT_MAX_PRICE_DEVIATION_BPS)
+}
+
+pub fn set_max_price_deviation_bps(env: &Env, bps: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxPriceDeviationBps, &bps);
+}
+
+pub fn get_base_switch_fee_bps(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::BaseSwitchFeeBps)
+        .unwrap_or(0)
+}
+
+pub fn set_base_switch_fee_bps(env: &Env, bps: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::BaseSwitchFeeBps, &bps);
+}
+
+pub fn get_deviation_fee_multiplier_bps(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::DeviationFeeMultiplierBps)
+        .unwrap_or(DEFAULT_DEVIATION_FEE_MULTIPLIER_BPS)
+}
+
+pub fn set_deviation_fee_multiplier_bps(env: &Env, bps: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::DeviationFeeMultiplierBps, &bps);
+}
+
+pub fn get_protocol_fees(env: &Env, token: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::ProtocolFees(token.clone()))
+        .unwrap_or(0)
+}
+
+pub fn add_protocol_fees(env: &Env, token: &Address, amount: i128) {
+    let total = get_protocol_fees(env, token) + amount;
+    env.storage()
+        .persistent()
+        .set(&DataKey::ProtocolFees(token.clone()), &total);
 }

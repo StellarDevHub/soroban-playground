@@ -26,6 +26,7 @@ export class ResilientWebSocketClient {
   private isExplicitlyClosed = false;
   private heartbeatTimer: any = null;
   private heartbeatTimeoutTimer: any = null;
+  private reconnectTimer: any = null;
   private messageBuffer: string[] = [];
   private listeners: Map<string, Set<WebSocketEventListener>> = new Map();
 
@@ -50,6 +51,7 @@ export class ResilientWebSocketClient {
     }
 
     this.isExplicitlyClosed = false;
+    this.clearReconnectTimer();
 
     try {
       this.ws = new WebSocket(this.url);
@@ -110,6 +112,7 @@ export class ResilientWebSocketClient {
     this.heartbeatTimer = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.sendRaw(this.pingMessage);
+        this.resetHeartbeatTimeout();
         this.heartbeatTimeoutTimer = setTimeout(() => {
           this.ws?.close();
         }, this.heartbeatTimeoutMs);
@@ -132,8 +135,18 @@ export class ResilientWebSocketClient {
     this.resetHeartbeatTimeout();
   }
 
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
   private scheduleReconnect(): void {
     if (this.isExplicitlyClosed || this.reconnectAttempts >= this.maxReconnectAttempts) {
+      return;
+    }
+    if (this.reconnectTimer) {
       return;
     }
 
@@ -143,7 +156,8 @@ export class ResilientWebSocketClient {
       this.maxReconnectDelayMs
     );
 
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       if (!this.isExplicitlyClosed) {
         this.connect();
       }
@@ -210,6 +224,7 @@ export class ResilientWebSocketClient {
   public close(): void {
     this.isExplicitlyClosed = true;
     this.stopHeartbeat();
+    this.clearReconnectTimer();
     if (this.ws) {
       this.ws.close();
       this.ws = null;

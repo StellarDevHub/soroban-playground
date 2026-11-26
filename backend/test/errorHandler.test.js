@@ -127,7 +127,7 @@ describe('error middleware', () => {
       const res = createMockRes();
       errorHandler(new Error('boom'), {}, res, () => {});
       assert.equal(res.statusCode, 500);
-      assert.equal(res.payload.message, 'boom');
+      assert.equal(res.payload.message, 'Internal server error');
       assert.equal(res.payload.statusCode, 500);
     } finally {
       console.error = originalConsoleError;
@@ -163,14 +163,14 @@ describe('error middleware', () => {
     }
   });
 
-  test('errorHandler behavior in development/test environment (NODE_ENV !== production)', () => {
+  test('errorHandler hides 5xx details outside production but preserves safe 4xx details', () => {
     const originalEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
     const originalConsoleError = console.error;
     console.error = () => {};
 
     try {
-      // 500 error: returns original message and details
+      // 500 errors never expose their raw message or details
       let res = createMockRes();
       const err500 = createHttpError(500, 'DB connection failed', {
         stack: 'db:123',
@@ -178,10 +178,33 @@ describe('error middleware', () => {
       errorHandler(err500, {}, res, () => {});
       assert.equal(res.statusCode, 500);
       assert.deepEqual(res.payload, {
-        message: 'DB connection failed',
+        message: 'Internal server error',
         statusCode: 500,
-        details: { stack: 'db:123' },
       });
+
+      for (const nodeEnv of ['staging', undefined]) {
+        if (nodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = nodeEnv;
+        }
+
+        res = createMockRes();
+        errorHandler(
+          createHttpError(503, 'database password=secret', {
+            connectionString: 'postgres://user:secret@db',
+          }),
+          {},
+          res,
+          () => {}
+        );
+        assert.deepEqual(res.payload, {
+          message: 'Internal server error',
+          statusCode: 503,
+        });
+      }
+
+      process.env.NODE_ENV = 'development';
 
       // 400 error: returns details and original message
       res = createMockRes();
@@ -202,7 +225,11 @@ describe('error middleware', () => {
       assert.equal(res.statusCode, 400);
       assert.equal('details' in res.payload, false);
     } finally {
-      process.env.NODE_ENV = originalEnv;
+      if (originalEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalEnv;
+      }
       console.error = originalConsoleError;
     }
   });

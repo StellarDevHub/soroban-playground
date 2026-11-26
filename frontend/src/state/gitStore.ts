@@ -20,6 +20,7 @@ import {
   markPushed,
   mergeBranch,
   rebaseBranch,
+  recordPush,
   setRemote,
 } from "@/lib/git/repository";
 import { applyResolutions } from "@/lib/git/conflicts";
@@ -97,6 +98,13 @@ export interface GitStore {
   setRemote: (remote: GitRemoteConfig | null) => void;
   /** Mark commits as pushed. */
   markPushed: (commitIds: string[]) => void;
+  /** Record a successful push and its remote HEAD. */
+  recordPush: (options: {
+    branch: string;
+    sha: string;
+    localCommitId?: string | null;
+    commitIds: string[];
+  }) => void;
   /** Clear the status/error line. */
   clearMessages: () => void;
 }
@@ -343,6 +351,9 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
   markPushed: (commitIds) =>
     set((state) => ({ repo: markPushed(state.repo, commitIds) })),
+
+  recordPush: (options) =>
+    set((state) => ({ repo: recordPush(state.repo, options) })),
 
   clearMessages: () => set({ lastMessage: null, error: null }),
 }));

@@ -13,6 +13,7 @@ class ClusterManager {
       options.workerScript || resolve(__dirname, 'src/server.js');
     this.restartDelay = options.restartDelay || 100;
     this.workers = new Map();
+    this.drainingWorkers = new Set();
     this.isShuttingDown = false;
   }
 
@@ -41,6 +42,7 @@ class ClusterManager {
         'warn'
       );
       this.workers.delete(worker.id);
+      if (this.drainingWorkers.delete(worker.id)) return;
       setTimeout(() => {
         if (!this.isShuttingDown) this._spawnWorker();
       }, this.restartDelay);
@@ -74,6 +76,7 @@ class ClusterManager {
 
     process.on('SIGTERM', () => this._gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => this._gracefulShutdown('SIGINT'));
+    process.on('SIGHUP', () => this._rollingRestart());
 
     this._log(`Cluster ready. Workers: ${[...this.workers.keys()].join(', ')}`);
   }
@@ -83,6 +86,26 @@ class ClusterManager {
     this.workers.set(worker.id, worker);
     this._log(`Spawned worker PID ${worker.process.pid} (id: ${worker.id})`);
     return worker;
+  }
+
+  _rollingRestart() {
+    if (this.isShuttingDown) return;
+    this._log('Master received SIGHUP. Starting a rolling worker restart.', 'warn');
+
+    for (const worker of [...this.workers.values()]) {
+      const replacement = this._spawnWorker();
+      replacement.once('online', () => {
+        this.drainingWorkers.add(worker.id);
+        worker.send({ type: 'shutdown' }, (error) => {
+          if (error) {
+            this._log(
+              `Failed to signal worker ${worker.id} for restart: ${error.message}`,
+              'error'
+            );
+          }
+        });
+      });
+    }
   }
 
   _gracefulShutdown(signal) {
@@ -96,7 +119,7 @@ class ClusterManager {
     const timeout = setTimeout(() => {
       this._log('Graceful shutdown timed out. Forcing exit.', 'error');
       process.exit(1);
-    }, 10_000);
+    }, 15_000);
 
     let remaining = this.workers.size;
     if (remaining === 0) {

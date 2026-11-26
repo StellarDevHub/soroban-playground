@@ -335,3 +335,103 @@ describe("AssetGallery – selection", () => {
     fireEvent.click(screen.getByTestId("asset-card-XLM:native"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// [FRONTEND-290] Lazy Loading, WebP & Virtualization Tests
+// ---------------------------------------------------------------------------
+
+describe("AssetGallery – [FRONTEND-290] Performance & Virtualization", () => {
+  it("enforces loading='lazy' and decoding='async' on asset images", () => {
+    render(<AssetGallery assets={assets} />);
+    const img = screen.getByTestId("asset-image-USDC:GA5Z");
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(img).toHaveAttribute("decoding", "async");
+    expect(img).toHaveAttribute("data-loading", "lazy");
+  });
+
+  it("renders responsive <picture> with image/webp source for WebP browser support", () => {
+    render(<AssetGallery assets={assets} />);
+    const picture = screen.getByTestId("asset-picture-USDC:GA5Z");
+    expect(picture).toBeInTheDocument();
+
+    const source = picture.querySelector("source");
+    expect(source).not.toBeNull();
+    expect(source).toHaveAttribute("type", "image/webp");
+    expect(source?.getAttribute("srcset")).toMatch(/\.webp/);
+  });
+
+  it("renders lightweight SVG shimmer while image is loading, then hides it on load", () => {
+    render(<AssetGallery assets={assets} />);
+    const shimmer = screen.getByTestId("asset-shimmer-USDC:GA5Z");
+    expect(shimmer).toBeInTheDocument();
+
+    const img = screen.getByTestId("asset-image-USDC:GA5Z");
+    // Trigger successful image load
+    fireEvent.load(img);
+
+    // After load, shimmer is removed and image opacity is 1
+    expect(screen.queryByTestId("asset-shimmer-USDC:GA5Z")).not.toBeInTheDocument();
+    expect(img).toHaveStyle("opacity: 1");
+  });
+
+  it("falls back gracefully to initials placeholder when image fails to load", () => {
+    render(<AssetGallery assets={assets} />);
+    const img = screen.getByTestId("asset-image-USDC:GA5Z");
+
+    // Trigger image loading failure
+    fireEvent.error(img);
+
+    // Image container is replaced with placeholder initials
+    expect(screen.queryByTestId("asset-image-USDC:GA5Z")).not.toBeInTheDocument();
+    expect(screen.getByTestId("asset-placeholder-USDC:GA5Z")).toBeInTheDocument();
+    expect(screen.getByTestId("asset-placeholder-USDC:GA5Z")).toHaveTextContent("US");
+  });
+
+  it("renders virtualized container when virtualized=true with a large collection", () => {
+    const largeAssets: AssetItem[] = Array.from({ length: 40 }, (_, i) => ({
+      id: `NFT-${i}`,
+      symbol: `NFT${i}`,
+      name: `Soroban Collectible #${i}`,
+      imageUrl: `https://example.com/nft-${i}.png`,
+    }));
+
+    render(
+      <AssetGallery
+        assets={largeAssets}
+        virtualized={true}
+        viewportHeight={500}
+        estimatedCardHeight={150}
+      />,
+    );
+
+    const virtualContainer = screen.getByTestId("asset-gallery-virtualized-container");
+    expect(virtualContainer).toBeInTheDocument();
+    expect(virtualContainer).toHaveStyle("overflow-y: auto");
+
+    // Check that items are windowed and rendered
+    expect(screen.getByTestId("asset-card-NFT-0")).toBeInTheDocument();
+  });
+
+  it("updates virtual window on scroll event without crash", () => {
+    const largeAssets: AssetItem[] = Array.from({ length: 40 }, (_, i) => ({
+      id: `NFT-${i}`,
+      symbol: `NFT${i}`,
+      name: `Soroban Collectible #${i}`,
+      imageUrl: `https://example.com/nft-${i}.png`,
+    }));
+
+    render(
+      <AssetGallery
+        assets={largeAssets}
+        virtualized={true}
+        viewportHeight={500}
+        estimatedCardHeight={150}
+      />,
+    );
+
+    const virtualContainer = screen.getByTestId("asset-gallery-virtualized-container");
+    fireEvent.scroll(virtualContainer, { target: { scrollTop: 450 } });
+
+    expect(virtualContainer).toBeInTheDocument();
+  });
+});

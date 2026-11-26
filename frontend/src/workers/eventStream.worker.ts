@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import { scValToNative, xdr } from "@stellar/stellar-sdk";
+
 /**
  * eventStream.worker.ts
  *
@@ -22,6 +24,10 @@ export type WsEvent =
       ledger_closed_at: string;
       event_type: string;
       data: string;
+      topics?: unknown[] | string;
+      topic?: unknown[] | string;
+      raw_xdr?: string | null;
+      ledger_sequence?: number;
     }
   | {
       type: "quorum_update";
@@ -50,6 +56,7 @@ type IncomingWorkerMessage =
     }
   | { type: "connect"; url: string }
   | { type: "disconnect" }
+  | { type: "decode_events"; payload: WsEvent[] }
   | { type: "set_filter"; contractId?: string; eventType?: string };
 
 type OutgoingWorkerMessage =
@@ -151,14 +158,75 @@ function writeEventToRing(event: WsEvent): void {
 function emitEvents(events: WsEvent[]): void {
   if (events.length === 0) return;
 
+  const decodedEvents = events.map(decodeEvent);
+
   if (fallbackMode) {
-    post({ type: "fallback_events", payload: events });
+    post({ type: "fallback_events", payload: decodedEvents });
     return;
   }
 
-  for (const event of events) {
+  for (const event of decodedEvents) {
     writeEventToRing(event);
   }
+}
+
+function decodeScVal(
+  value: string,
+): { decoded: true; value: unknown } | { decoded: false; value: string } {
+  try {
+    return {
+      decoded: true,
+      value: scValToNative(xdr.ScVal.fromXDR(value, "base64")),
+    };
+  } catch {
+    return { decoded: false, value };
+  }
+}
+
+function decodeTopics(topics: unknown): unknown[] | undefined {
+  let values = topics;
+  if (typeof values === "string") {
+    try {
+      values = JSON.parse(values) as unknown;
+    } catch {
+      values = [values];
+    }
+  }
+  if (!Array.isArray(values)) return undefined;
+  return values.map((topic) => {
+    if (typeof topic !== "string") return topic;
+    const result = decodeScVal(topic);
+    return result.decoded ? result.value : topic;
+  });
+}
+
+function serializeValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return (
+      JSON.stringify(value, (_key, nestedValue: unknown) =>
+        typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue,
+      ) ?? String(value)
+    );
+  } catch {
+    return String(value);
+  }
+}
+
+function decodeEvent(event: WsEvent): WsEvent {
+  if (event.type !== "event") return event;
+
+  const decodedTopics = decodeTopics(event.topics ?? event.topic);
+  const rawData = event.raw_xdr ?? event.data;
+  const decodedData = decodeScVal(rawData);
+
+  return {
+    ...event,
+    ...(decodedTopics ? { topics: decodedTopics } : {}),
+    ...(decodedData.decoded
+      ? { data: serializeValue(decodedData.value) }
+      : {}),
+  };
 }
 
 // ── Reconnection with exponential backoff ─────────────────────────────────────
@@ -306,6 +374,14 @@ function openSocket(url: string): void {
       currentUrl = null;
       reconnectAttempt = 0;
       closeSocket();
+      break;
+    }
+
+    case "decode_events": {
+      post({
+        type: "fallback_events",
+        payload: msg.payload.map(decodeEvent),
+      });
       break;
     }
 

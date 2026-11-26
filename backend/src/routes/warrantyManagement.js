@@ -12,9 +12,11 @@
  *   GET    /warranty/products/:id
  *   GET    /warranty/products/count
  *   POST   /warranty/warranties
+ *   GET    /warranty/warranties/:id/valid
  *   GET    /warranty/warranties/:id
  *   GET    /warranty/warranties/count
  *   POST   /warranty/claims
+ *   POST   /warranty/claims/:id/process
  *   PATCH  /warranty/claims/:id/resolve
  *   GET    /warranty/claims/:id
  *   GET    /warranty/claims/count
@@ -150,28 +152,47 @@ router.post(
   '/products',
   rateLimitMiddleware('invoke'),
   asyncHandler(async (req, res, next) => {
-    const { contractId, manufacturer, name, warrantyDurationSecs, network } =
-      req.body || {};
+    const {
+      contractId,
+      admin,
+      manufacturer,
+      name,
+      defaultWarrantySecs,
+      warrantyDurationSecs,
+      network,
+    } = req.body || {};
+
+    const duration = defaultWarrantySecs ?? warrantyDurationSecs;
     const errs = requireFields(req.body, [
       'contractId',
       'manufacturer',
       'name',
-      'warrantyDurationSecs',
     ]);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
     if (!validateContractId(contractId))
       return next(createHttpError(400, 'Invalid contractId'));
+    if (admin !== undefined && !validateAddress(admin))
+      return next(createHttpError(400, 'Invalid admin address'));
     if (!validateAddress(manufacturer))
       return next(createHttpError(400, 'Invalid manufacturer address'));
-    if (typeof warrantyDurationSecs !== 'number' || warrantyDurationSecs <= 0)
+    if (
+      typeof duration !== 'number' ||
+      !Number.isFinite(duration) ||
+      duration <= 0
+    )
       return next(
-        createHttpError(400, 'warrantyDurationSecs must be a positive number')
+        createHttpError(400, 'defaultWarrantySecs must be greater than 0')
       );
 
     const result = await invoke(
       contractId,
       'register_product',
-      { manufacturer, name, warranty_duration_secs: warrantyDurationSecs },
+      {
+        ...(admin ? { admin } : {}),
+        manufacturer,
+        name,
+        warranty_duration_secs: duration,
+      },
       network
     );
     return res
@@ -259,20 +280,24 @@ router.post(
   '/warranties',
   rateLimitMiddleware('invoke'),
   asyncHandler(async (req, res, next) => {
-    const { contractId, issuer, productId, owner, serialNumber, network } =
-      req.body || {};
-    const errs = requireFields(req.body, [
-      'contractId',
-      'issuer',
-      'productId',
-      'owner',
-      'serialNumber',
-    ]);
+    const {
+      contractId,
+      admin,
+      issuer,
+      productId,
+      owner,
+      serialNumber,
+      network,
+    } = req.body || {};
+    const caller = admin || issuer;
+    const errs = requireFields(req.body, ['contractId', 'productId', 'owner']);
     if (errs) return next(createHttpError(400, 'Validation failed', errs));
+    if (!caller)
+      return next(createHttpError(400, 'admin or issuer is required'));
     if (!validateContractId(contractId))
       return next(createHttpError(400, 'Invalid contractId'));
-    if (!validateAddress(issuer))
-      return next(createHttpError(400, 'Invalid issuer address'));
+    if (!validateAddress(caller))
+      return next(createHttpError(400, 'Invalid admin/issuer address'));
     if (!validateAddress(owner))
       return next(createHttpError(400, 'Invalid owner address'));
     if (typeof productId !== 'number' || productId < 1)
@@ -281,7 +306,12 @@ router.post(
     const result = await invoke(
       contractId,
       'issue_warranty',
-      { issuer, product_id: productId, owner, serial_number: serialNumber },
+      {
+        issuer: caller,
+        product_id: productId,
+        owner,
+        ...(serialNumber ? { serial_number: serialNumber } : {}),
+      },
       network
     );
     return res.status(201).json({
@@ -303,6 +333,29 @@ router.get(
     const { network } = req.query;
     const result = await invoke(contractId, 'warranty_count', {}, network);
     return res.json({ success: true, count: result.parsed });
+  })
+);
+
+/**
+ * GET /warranty/warranties/:id/valid
+ */
+router.get(
+  '/warranties/:id/valid',
+  rateLimitMiddleware('invoke'),
+  asyncHandler(async (req, res, next) => {
+    const contractId = getContractId(req);
+    const warrantyId = Number(req.params.id);
+    if (!Number.isInteger(warrantyId) || warrantyId < 1)
+      return next(createHttpError(400, 'Invalid warranty id'));
+    const { network } = req.query;
+
+    const result = await invoke(
+      contractId,
+      'is_warranty_valid',
+      { warranty_id: warrantyId },
+      network
+    );
+    return res.json({ success: true, valid: Boolean(result.parsed) });
   })
 );
 
@@ -366,6 +419,44 @@ router.post(
     return res
       .status(201)
       .json({ success: true, claimId: result.parsed, output: result.parsed });
+  })
+);
+
+/**
+ * POST /warranty/claims/:id/process
+ * Approve or reject a claim.
+ */
+router.post(
+  '/claims/:id/process',
+  rateLimitMiddleware('invoke'),
+  asyncHandler(async (req, res, next) => {
+    const { contractId, admin, resolver, approve, network } = req.body || {};
+    const claimId = Number(req.params.id);
+    if (!Number.isInteger(claimId) || claimId < 1)
+      return next(createHttpError(400, 'Invalid claim id'));
+    const caller = admin || resolver;
+    const errs = requireFields(req.body, ['contractId']);
+    if (errs) return next(createHttpError(400, 'Validation failed', errs));
+    if (!caller)
+      return next(createHttpError(400, 'admin or resolver is required'));
+    if (!validateContractId(contractId))
+      return next(createHttpError(400, 'Invalid contractId'));
+    if (!validateAddress(caller))
+      return next(createHttpError(400, 'Invalid admin/resolver address'));
+    if (typeof approve !== 'boolean')
+      return next(createHttpError(400, 'approve must be a boolean'));
+
+    const result = await invoke(
+      contractId,
+      'resolve_claim',
+      { resolver: caller, claim_id: claimId, approve },
+      network
+    );
+    return res.json({
+      success: true,
+      message: approve ? 'Claim approved' : 'Claim rejected',
+      output: result.parsed,
+    });
   })
 );
 

@@ -79,3 +79,13 @@ export interface BatchVoteItem {
   choice: VoteChoice;
   credits: number;
 }
+
+export interface TreasuryImpactSimulation {
+  baselineBalance: number;
+  simulatedBalance: number;
+  netDelta: number;
+  deltaPct: number;
+  currency: string;
+  impactType: 'drawdown' | 'inflow' | 'neutral' | 'fee_adjustment';
+  description: string;
+}

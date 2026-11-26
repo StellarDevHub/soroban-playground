@@ -1,25 +1,61 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{Address, Env, String, Vec};
 
-use crate::types::{DataKey, Error, InstanceKey, PauseAction, PauseProposal};
+use crate::types::{DataKey, Error, InstanceKey};
 
-// ── Admin / init ──────────────────────────────────────────────────────────────
+// ── Init / admin set ──────────────────────────────────────────────────────────
 
 pub fn is_initialized(env: &Env) -> bool {
-    env.storage().instance().has(&InstanceKey::Admin)
+    env.storage().instance().has(&InstanceKey::Admins)
 }
 
-pub fn set_admin(env: &Env, admin: &Address) {
-    env.storage().instance().set(&InstanceKey::Admin, admin);
+pub fn set_admins(env: &Env, admins: &Vec<Address>) {
+    env.storage().instance().set(&InstanceKey::Admins, admins);
 }
 
-pub fn get_admin(env: &Env) -> Result<Address, Error> {
+pub fn get_admins(env: &Env) -> Vec<Address> {
     env.storage()
         .instance()
-        .get(&InstanceKey::Admin)
+        .get(&InstanceKey::Admins)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn is_admin(env: &Env, addr: &Address) -> bool {
+    get_admins(env).contains(addr)
+}
+
+pub fn set_admin_threshold(env: &Env, threshold: u32) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::AdminThreshold, &threshold);
+}
+
+pub fn get_admin_threshold(env: &Env) -> Result<u32, Error> {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::AdminThreshold)
         .ok_or(Error::NotInitialized)
+}
+
+// ── Guardians ─────────────────────────────────────────────────────────────────
+
+pub fn set_guardians(env: &Env, guardians: &Vec<Address>) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::Guardians, guardians);
+}
+
+pub fn get_guardians(env: &Env) -> Vec<Address> {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::Guardians)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn is_guardian(env: &Env, addr: &Address) -> bool {
+    get_guardians(env).contains(addr)
 }
 
 // ── Pause state ───────────────────────────────────────────────────────────────
@@ -45,6 +81,10 @@ pub fn get_pause_reason(env: &Env) -> Option<String> {
     env.storage().instance().get(&InstanceKey::PauseReason)
 }
 
+pub fn clear_pause_reason(env: &Env) {
+    env.storage().instance().remove(&InstanceKey::PauseReason);
+}
+
 pub fn set_pause_timestamp(env: &Env, timestamp: u64) {
     env.storage()
         .instance()
@@ -55,80 +95,45 @@ pub fn get_pause_timestamp(env: &Env) -> Option<u64> {
     env.storage().instance().get(&InstanceKey::PauseTimestamp)
 }
 
-// ── Threshold ─────────────────────────────────────────────────────────────────
-
-pub fn set_threshold(env: &Env, threshold: u32) {
+pub fn clear_pause_timestamp(env: &Env) {
     env.storage()
         .instance()
-        .set(&InstanceKey::Threshold, &threshold);
+        .remove(&InstanceKey::PauseTimestamp);
 }
 
-pub fn get_threshold(env: &Env) -> Result<u32, Error> {
-    env.storage()
-        .instance()
-        .get(&InstanceKey::Threshold)
-        .ok_or(Error::NotInitialized)
+// ── Unpause schedule ──────────────────────────────────────────────────────────
+
+pub fn set_unpause_eta(env: &Env, eta: u64) {
+    env.storage().instance().set(&InstanceKey::UnpauseEta, &eta);
 }
 
-// ── Guardians ─────────────────────────────────────────────────────────────────
+pub fn get_unpause_eta(env: &Env) -> Option<u64> {
+    env.storage().instance().get(&InstanceKey::UnpauseEta)
+}
 
-pub fn is_guardian(env: &Env, addr: &Address) -> bool {
+pub fn clear_unpause_eta(env: &Env) {
+    env.storage().instance().remove(&InstanceKey::UnpauseEta);
+}
+
+// ── Base collateral ───────────────────────────────────────────────────────────
+
+pub fn set_token(env: &Env, token: &Address) {
+    env.storage().instance().set(&InstanceKey::Token, token);
+}
+
+pub fn get_token(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&InstanceKey::Token)
+}
+
+pub fn set_balance(env: &Env, user: &Address, amount: i128) {
     env.storage()
         .persistent()
-        .get(&DataKey::Guardian(addr.clone()))
-        .unwrap_or(false)
+        .set(&DataKey::Balance(user.clone()), &amount);
 }
 
-pub fn set_guardian(env: &Env, addr: &Address, is_guardian: bool) {
+pub fn get_balance(env: &Env, user: &Address) -> i128 {
     env.storage()
         .persistent()
-        .set(&DataKey::Guardian(addr.clone()), &is_guardian);
-}
-
-pub fn get_guardian_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&InstanceKey::GuardianCount)
+        .get(&DataKey::Balance(user.clone()))
         .unwrap_or(0)
-}
-
-pub fn set_guardian_count(env: &Env, count: u32) {
-    env.storage()
-        .instance()
-        .set(&InstanceKey::GuardianCount, &count);
-}
-
-// ── Proposals ─────────────────────────────────────────────────────────────────
-
-pub fn next_proposal_id(env: &Env) -> u32 {
-    let id: u32 = env
-        .storage()
-        .instance()
-        .get(&InstanceKey::ProposalCount)
-        .unwrap_or(0)
-        + 1;
-    env.storage()
-        .instance()
-        .set(&InstanceKey::ProposalCount, &id);
-    id
-}
-
-pub fn get_proposal_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&InstanceKey::ProposalCount)
-        .unwrap_or(0)
-}
-
-pub fn set_proposal(env: &Env, id: u32, proposal: &PauseProposal) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Proposal(id), proposal);
-}
-
-pub fn get_proposal(env: &Env, id: u32) -> Result<PauseProposal, Error> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Proposal(id))
-        .ok_or(Error::ProposalNotFound)
 }

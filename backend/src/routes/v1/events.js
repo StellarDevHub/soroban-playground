@@ -8,6 +8,7 @@ import {
   createHttpError,
 } from '../../middleware/errorHandler.js';
 import { QueryBuilder } from '../../services/queryBuilder.js';
+import databaseService from '../../services/databaseService.js';
 import cacheService from '../../services/cacheService.js';
 import { listEmittedEvents } from '../../services/emittedEventsService.js';
 
@@ -111,7 +112,7 @@ router.post(
       });
 
       // 3. Execute against the configured database connection.
-      const rows = await eventBuilder.execute(sql, params);
+      const rows = await databaseService.query(sql, params);
       const { edges, pageInfo } = eventBuilder.buildPageInfo(
         rows,
         pageSize,

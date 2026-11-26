@@ -16,6 +16,13 @@ export default function TransactionStatus({
 }: TransactionStatusProps) {
   if (transactions.length === 0) return null;
 
+  const bridgeStages = [
+    "Source Transaction Confirmed",
+    "Relayer Picked Up",
+    "Proof Generated",
+    "Destination Minted",
+  ];
+
   return (
     <div
       className="flex flex-col space-y-2 p-4 bg-gray-900 border border-gray-800 rounded-xl shadow-lg"

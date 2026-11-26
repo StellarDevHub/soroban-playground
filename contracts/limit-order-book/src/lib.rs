@@ -5,7 +5,9 @@
 //!
 //! On-chain limit order book with price-time priority matching:
 //! - Place buy/sell limit orders with price and quantity.
-//! - Automatic matching: best bid meets best ask (price-time priority).
+//! - Bucketed price-level queues with linked-list order indices.
+//! - Automatic matching: best bid meets best ask (strict price-time priority).
+//! - Capped maximum matched fills per transaction (`MAX_MATCHED_FILLS`).
 //! - Partial fills supported; orders remain open until fully filled or cancelled.
 //! - Admin-controlled emergency pause/unpause.
 //! - Comprehensive event emissions for all state changes.
@@ -19,10 +21,12 @@ mod types;
 use soroban_sdk::{contract, contractimpl, symbol_short, vec, Address, Env, Vec};
 
 use crate::storage::{
-    add_total_volume, get_admin, get_order, get_order_count, is_initialized, is_paused, set_admin,
-    set_order, set_order_count, set_paused,
+    add_total_volume, enqueue_order, get_admin, get_best_price, get_order, get_raw_order, get_order_count,
+    get_price_level, is_initialized, is_paused, remove_price_level, set_admin,
+    set_best_price, set_order, set_order_count, set_paused, set_price_level, unlink_order,
+    NULL_IDX,
 };
-use crate::types::{DataKey, Error, InstanceKey, Order, OrderStatus, Side, Trade};
+use crate::types::{Error, Order, OrderStatus, Side, Trade, MAX_MATCHED_FILLS, DataKey};
 
 #[contract]
 pub struct LimitOrderBookContract;
@@ -40,6 +44,8 @@ impl LimitOrderBookContract {
         set_admin(&env, &admin);
         set_order_count(&env, 0);
         set_paused(&env, false);
+        set_best_price(&env, Side::Buy, 0);
+        set_best_price(&env, Side::Sell, 0);
         env.events()
             .publish((symbol_short!("init"),), (admin.clone(),));
         Ok(())
@@ -99,7 +105,7 @@ impl LimitOrderBookContract {
         let order = Order {
             id,
             owner: owner.clone(),
-            side: side.clone(),
+            side,
             price,
             quantity,
             remaining: quantity,
@@ -112,14 +118,15 @@ impl LimitOrderBookContract {
             (symbol_short!("placed"),),
             (id, owner, side, price, quantity),
         );
-
-        // Attempt immediate matching
+        // Attempt immediate matching (enqueues remaining quantity into bucketed price-level queue)
         Self::try_match(&env, id)?;
+
 
         Ok(id)
     }
 
-    /// Cancel an open or partially-filled order.
+    /// Cancel an open or partially-filled order and unlink it from its price-level queue.
+    /// Cancel an open or partially-filled order and unlink it from its price-level queue.
     pub fn cancel_order(env: Env, owner: Address, order_id: u64) -> Result<(), Error> {
         owner.require_auth();
         let mut order = get_order(&env, order_id).ok_or(Error::OrderNotFound)?;
@@ -129,20 +136,27 @@ impl LimitOrderBookContract {
         if order.status == OrderStatus::Filled || order.status == OrderStatus::Cancelled {
             return Err(Error::OrderInactive);
         }
+        // Unlink order from its price level bucket.
+        unlink_order(&env, &order);
         order.status = OrderStatus::Cancelled;
         set_order(&env, &order);
-        env.events()
-            .publish((symbol_short!("cancelled"),), (order_id,));
+        env.events().publish((symbol_short!("cancelled"),), (order_id,));
         Ok(())
     }
 
     // ── Matching engine ───────────────────────────────────────────────────────
 
-    /// Attempt to match order `aggressor_id` against resting orders.
-    /// Scans all orders (gas-bounded to 200 iterations) for the best counterpart.
+    /// Attempt to match order `aggressor_id` against resting orders in strict
+    /// price-time priority, capped at `MAX_MATCHED_FILLS` per invocation.
     pub fn match_order(env: Env, aggressor_id: u64) -> Result<Vec<Trade>, Error> {
         Self::assert_not_paused(&env)?;
         Self::try_match(&env, aggressor_id)
+    }
+
+    /// Alias for `match_order` matching the `match_orders(env, order_id)` signature.
+    pub fn match_orders(env: Env, order_id: u64) -> Result<Vec<Trade>, Error> {
+        Self::assert_not_paused(&env)?;
+        Self::try_match(&env, order_id)
     }
 
     // ── Views ─────────────────────────────────────────────────────────────────
@@ -170,7 +184,21 @@ impl LimitOrderBookContract {
         get_order_count(&env)
     }
 
-    // ── Internal helpers ──────────────────────────────────────────────────────
+    pub fn best_bid(env: Env) -> i128 {
+        get_best_price(&env, Side::Buy)
+    }
+
+    pub fn best_ask(env: Env) -> i128 {
+        get_best_price(&env, Side::Sell)
+    }
+
+    // View to expose current matched fills counter (used by benchmark test).
+    pub fn matched_fills(env: Env) -> u32 {
+        env.storage()
+            .temporary()
+            .get(&DataKey::MatchedFills)
+            .unwrap_or(0u32)
+    }
 
     fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
         if !is_initialized(env) {
@@ -193,10 +221,11 @@ impl LimitOrderBookContract {
         Ok(())
     }
 
-    /// Core matching logic: price-time priority.
-    /// Scans up to 200 existing orders and matches against the best resting counterpart.
-    fn try_match(env: &Env, aggressor_id: u64) -> Result<Vec<Trade>, Error> {
-        let mut aggressor = match get_order(env, aggressor_id) {
+    /// Core matching logic: O(1) per-fill traversal of bucketed price-level FIFO queues
+    /// with linked-list order indices. Enforces strict price-time priority and caps fills
+    /// at `MAX_MATCHED_FILLS`.
+    pub(crate) fn try_match(env: &Env, aggressor_id: u64) -> Result<Vec<Trade>, Error> {
+        let mut aggressor = match get_raw_order(env, aggressor_id) {
             Some(o) => o,
             None => return Err(Error::OrderNotFound),
         };
@@ -205,107 +234,126 @@ impl LimitOrderBookContract {
             return Ok(vec![env]);
         }
 
-        let total = get_order_count(env);
+        let opposite_side = match aggressor.side {
+            Side::Buy => Side::Sell,
+            Side::Sell => Side::Buy,
+        };
+
         let mut trades: Vec<Trade> = vec![env];
-        let scan_limit = total.min(200);
+        let mut fills: u32 = 0;
+        // Reset temporary fill counter for this transaction.
+        env.storage().temporary().set(&DataKey::MatchedFills, &0u32);
+        let mut total_matched_volume: i128 = 0;
+        let ledger_seq = env.ledger().sequence();
 
-        while aggressor.remaining > 0 {
-            let mut best_match: Option<(u64, Order)> = None;
 
-            for resting_id in 1..=scan_limit {
-                if resting_id == aggressor_id {
-                    continue;
+        let mut best_opp_price = get_best_price(env, opposite_side);
+        let initial_best_opp_price = best_opp_price;
+
+        while aggressor.remaining > 0 && fills < MAX_MATCHED_FILLS && best_opp_price != 0 {
+            let price_crosses = match aggressor.side {
+                Side::Buy => aggressor.price >= best_opp_price,
+                Side::Sell => aggressor.price <= best_opp_price,
+            };
+            if !price_crosses {
+                break;
+            }
+
+            let mut level = match get_price_level(env, opposite_side, best_opp_price) {
+                Some(lvl) => lvl,
+                None => {
+                    best_opp_price = 0;
+                    break;
                 }
+            };
 
-                let resting = match get_order(env, resting_id) {
-                    Some(o) => o,
-                    None => continue,
+            let exec_price = best_opp_price;
+
+
+            let mut cur = level.nodes.get(level.head_idx);
+            let mut head_changed = false;
+            while aggressor.remaining > 0
+                && fills < MAX_MATCHED_FILLS
+                && level.head_idx != NULL_IDX
+            {
+                let head_idx = level.head_idx;
+                let mut node = match cur.take() {
+                    Some(n) => n,
+                    None => break,
+                };
+                let resting_id = node.order_id;
+                let fill_qty = aggressor.remaining.min(node.remaining);
+
+                aggressor.remaining -= fill_qty;
+                node.remaining -= fill_qty;
+                aggressor.status = if aggressor.remaining == 0 {
+                    OrderStatus::Filled
+                } else {
+                    OrderStatus::PartiallyFilled
                 };
 
-                if resting.status == OrderStatus::Filled || resting.status == OrderStatus::Cancelled
-                {
-                    continue;
+                if node.remaining == 0 {
+                    let next_idx = node.next_idx;
+                    level.nodes.set(head_idx, node);
+                    level.head_idx = next_idx;
+                    if next_idx != NULL_IDX {
+                        cur = level.nodes.get(next_idx);
+                        head_changed = true;
+                    } else {
+                        level.tail_idx = NULL_IDX;
+                    }
+                } else {
+                    level.nodes.set(head_idx, node);
                 }
 
-                if resting.side == aggressor.side {
-                    continue;
-                }
+                total_matched_volume += fill_qty;
+                fills += 1;
 
-                let price_matches = match aggressor.side {
-                    Side::Buy => aggressor.price >= resting.price,
-                    Side::Sell => aggressor.price <= resting.price,
+                let (buy_id, sell_id) = match aggressor.side {
+                    Side::Buy => (aggressor_id, resting_id),
+                    Side::Sell => (resting_id, aggressor_id),
                 };
-
-                if !price_matches {
-                    continue;
-                }
-
-                let candidate_better = match &best_match {
-                    None => true,
-                    Some((_, best)) => match aggressor.side {
-                        Side::Buy => {
-                            resting.price < best.price
-                                || (resting.price == best.price
-                                    && resting.created_at < best.created_at)
-                        }
-                        Side::Sell => {
-                            resting.price > best.price
-                                || (resting.price == best.price
-                                    && resting.created_at < best.created_at)
-                        }
-                    },
-                };
-
-                if candidate_better {
-                    best_match = Some((resting_id, resting));
+                trades.push_back(Trade {
+                    buy_order_id: buy_id,
+                    sell_order_id: sell_id,
+                    price: exec_price,
+                    quantity: fill_qty,
+                    executed_at: ledger_seq,
+                });
+            }
+            if head_changed && level.head_idx != NULL_IDX {
+                if let Some(mut hn) = level.nodes.get(level.head_idx) {
+                    hn.prev_idx = NULL_IDX;
+                    level.nodes.set(level.head_idx, hn);
                 }
             }
 
-            let (resting_id, mut resting) = match best_match {
-                Some(pair) => pair,
-                None => break,
-            };
-
-            let fill_qty = aggressor.remaining.min(resting.remaining);
-            let exec_price = resting.price;
-
-            aggressor.remaining -= fill_qty;
-            resting.remaining -= fill_qty;
-
-            aggressor.status = if aggressor.remaining == 0 {
-                OrderStatus::Filled
+            if level.head_idx == NULL_IDX {
+                let next_p = level.next_price;
+                remove_price_level(env, opposite_side, best_opp_price);
+                best_opp_price = next_p;
             } else {
-                OrderStatus::PartiallyFilled
-            };
-            resting.status = if resting.remaining == 0 {
-                OrderStatus::Filled
-            } else {
-                OrderStatus::PartiallyFilled
-            };
+                set_price_level(env, opposite_side, best_opp_price, &level);
+                break;
+            }
+        }
 
+        if best_opp_price != initial_best_opp_price {
+            set_best_price(env, opposite_side, best_opp_price);
+        }
+
+        if total_matched_volume > 0 {
+
+            add_total_volume(env, total_matched_volume);
+
+            env.storage().temporary().set(&DataKey::MatchedFills, &fills);
             set_order(env, &aggressor);
-            set_order(env, &resting);
-            add_total_volume(env, fill_qty);
+        }
 
-            let (buy_id, sell_id) = match aggressor.side {
-                Side::Buy => (aggressor_id, resting_id),
-                Side::Sell => (resting_id, aggressor_id),
-            };
-
-            let trade = Trade {
-                buy_order_id: buy_id,
-                sell_order_id: sell_id,
-                price: exec_price,
-                quantity: fill_qty,
-                executed_at: env.ledger().sequence(),
-            };
-
-            env.events().publish(
-                (symbol_short!("trade"),),
-                (buy_id, sell_id, exec_price, fill_qty),
-            );
-
-            trades.push_back(trade);
+        if aggressor.remaining > 0 {
+            enqueue_order(env, &aggressor);
+        } else {
+            unlink_order(env, &aggressor);
         }
 
         Ok(trades)

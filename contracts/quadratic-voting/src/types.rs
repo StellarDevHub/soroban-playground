@@ -41,6 +41,8 @@ pub enum InstanceKey {
     TotalSupply,
     /// Quorum in basis points (default 400 = 4%)
     QuorumBps,
+    /// Address of the DID registry contract used for proof-of-unique-human
+    DidRegistry,
 }
 
 #[contracttype]
@@ -52,6 +54,8 @@ pub enum DataKey {
     Whitelisted(Address),
     /// Voted: (proposal_id, voter)
     Voted(u32, Address),
+    /// Locked token balance for an address until the given ledger timestamp
+    Locked(Address),
 }
 
 #[contracterror]
@@ -71,4 +75,12 @@ pub enum Error {
     VotingStillActive = 11,
     InsufficientVotingPower = 12,
     QuorumNotReached = 13,
+    /// Arithmetic overflow in quadratic cost computation
+    Overflow = 14,
+    /// Voter has no verified unique-human identity in the DID registry
+    IdentityNotVerified = 15,
+    /// DID registry contract not configured
+    DidRegistryNotSet = 16,
+    /// Voter tokens are locked for an active election
+    TokensLocked = 17,
 }

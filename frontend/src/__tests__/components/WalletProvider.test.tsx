@@ -7,6 +7,7 @@ const mockWalletKit = {
   setWallet: jest.fn(),
   refreshSupportedWallets: jest.fn(),
   fetchAddress: jest.fn(),
+  getAddress: jest.fn(),
   getNetwork: jest.fn(),
   signTransaction: jest.fn(),
   disconnect: jest.fn(),
@@ -133,6 +134,8 @@ describe("WalletProvider", () => {
       { id: "freighter", isAvailable: true },
     ]);
     mockWalletKit.fetchAddress.mockResolvedValue({ address: TEST_ADDRESS });
+    // Session restore confirms the cached account with the wallet (#2035).
+    mockWalletKit.getAddress.mockResolvedValue({ address: TEST_ADDRESS });
     mockWalletKit.getNetwork.mockResolvedValue({
       network: "TESTNET",
       networkPassphrase: "Test SDF Network ; September 2015",

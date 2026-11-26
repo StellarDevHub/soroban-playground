@@ -5,7 +5,8 @@ export type WalletType =
   | "hana"
   | "walletconnect"
   | "rango"
-  | "soroban-wallet";
+  | "soroban-wallet"
+  | "passkey";
 
 export type ConnectionStatus =
   | "idle"

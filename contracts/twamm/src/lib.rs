@@ -60,6 +60,8 @@ use soroban_sdk::{
 
 /// One unit in fixed-point representation (1.0 == SCALE).
 const SCALE: i128 = 1_000_000_000_000_000_000_i128; // 1e18
+/// Smallest supported TWAMM order lifetime.
+const MIN_ORDER_DURATION_LEDGERS: u32 = 10;
 
 /// Integer square root via Newton's method (returns floor(sqrt(n))).
 fn isqrt(n: i128) -> i128 {
@@ -93,6 +95,26 @@ fn fp_div(a: i128, b: i128) -> i128 {
 
 /// Fixed-point sqrt: returns sqrt(a) where a is in fixed-point (18 decimals).
 /// Result is also in fixed-point.
+fn fp_mul_checked(a: i128, b: i128) -> Result<i128, Error> {
+    Ok(a.checked_mul(b).ok_or(Error::Overflow)? / SCALE)
+}
+
+/// Fixed-point divide that rejects zero denominators and intermediate overflow.
+fn fp_div_checked(a: i128, b: i128) -> Result<i128, Error> {
+    if b == 0 {
+        return Err(Error::Overflow);
+    }
+    Ok(a.checked_mul(SCALE).ok_or(Error::Overflow)? / b)
+}
+
+/// Fixed-point square root that rejects intermediate overflow.
+fn fp_sqrt_checked(a: i128) -> Result<i128, Error> {
+    if a <= 0 {
+        return Ok(0);
+    }
+    Ok(isqrt(a.checked_mul(SCALE).ok_or(Error::Overflow)?))
+}
+
 fn fp_sqrt(a: i128) -> i128 {
     if a <= 0 {
         return 0;
@@ -120,7 +142,7 @@ fn fp_exp_neg(x: i128) -> i128 {
     let term4 = x4 / 24;
     let term5 = x5 / 120;
 
-    SCALE - term1 + term2 - term3 + term4 - term5
+    (SCALE - term1 + term2 - term3 + term4 - term5).clamp(0, SCALE)
 }
 
 // ─── Storage key types ───────────────────────────────────────────────────────
@@ -226,15 +248,15 @@ impl TwammContract {
         env.storage().persistent().set(&DataKey::Pool, pool);
     }
 
-    fn next_order_id(env: &Env) -> u64 {
+    fn next_order_id(env: &Env) -> Result<u64, Error> {
         let seq: u64 = env
             .storage()
             .persistent()
             .get(&DataKey::OrderSeq)
             .unwrap_or(0u64);
-        let next = seq + 1;
+        let next = seq.checked_add(1).ok_or(Error::Overflow)?;
         env.storage().persistent().set(&DataKey::OrderSeq, &next);
-        next
+        Ok(next)
     }
 
     fn load_order(env: &Env, id: u64) -> Result<TwammOrder, Error> {
@@ -255,24 +277,24 @@ impl TwammContract {
     /// This is the core lazy-evaluation function.  It advances the AMM state
     /// by settling all aggregate TWAMM flow accumulated between
     /// `last_updated_ledger` and the current ledger.
-    fn apply_virtual_orders(env: &Env, pool: &mut PoolState) {
+    fn apply_virtual_orders(env: &Env, pool: &mut PoolState) -> Result<(), Error> {
         let current_ledger = env.ledger().sequence();
         if current_ledger <= pool.last_updated_ledger {
-            return;
+            return Ok(());
         }
         let delta = (current_ledger - pool.last_updated_ledger) as i128;
 
         // If no virtual orders are active, nothing to do except advance the clock.
         if pool.agg_rate_a == 0 && pool.agg_rate_b == 0 {
             pool.last_updated_ledger = current_ledger;
-            return;
+            return Ok(());
         }
 
         // Convert raw reserves to fixed-point for the math below.
-        let x = pool.reserve_a.saturating_mul(SCALE); // A in fp
-        let y = pool.reserve_b.saturating_mul(SCALE); // B in fp
+        let x = pool.reserve_a.checked_mul(SCALE).ok_or(Error::Overflow)?; // A in fp
+        let y = pool.reserve_b.checked_mul(SCALE).ok_or(Error::Overflow)?; // B in fp
 
-        let k = fp_mul(x, y); // invariant in fp²
+        let k = fp_mul_checked(x, y)?; // invariant in fp²
 
         // Aggregate sell rates (already fixed-point per ledger).
         let a = pool.agg_rate_a; // rate A→B
@@ -281,61 +303,65 @@ impl TwammContract {
         let (new_x_fp, new_y_fp) = if b == 0 {
             // Only A→B orders: simple one-sided linear approximation.
             // sell_amount = a * delta (fixed-point tokens A)
-            let sold = a.saturating_mul(delta);
+            let sold = a.checked_mul(delta).ok_or(Error::Overflow)?;
             // dx = sold, dy = -k/x' + k/x (constant product)
-            let new_x = x.saturating_add(sold);
+            let new_x = x.checked_add(sold).ok_or(Error::Overflow)?;
             if new_x <= 0 {
                 (x, y)
             } else {
-                let new_y = fp_div(k, new_x);
+                let new_y = fp_div_checked(k, new_x)?;
                 (new_x, new_y)
             }
         } else if a == 0 {
             // Only B→A orders.
-            let sold = b.saturating_mul(delta);
-            let new_y = y.saturating_add(sold);
+            let sold = b.checked_mul(delta).ok_or(Error::Overflow)?;
+            let new_y = y.checked_add(sold).ok_or(Error::Overflow)?;
             if new_y <= 0 {
                 (x, y)
             } else {
-                let new_x = fp_div(k, new_y);
+                let new_x = fp_div_checked(k, new_y)?;
                 (new_x, new_y)
             }
         } else {
             // Both directions: piecewise-linear closed-form formula.
             // c = sqrt(a/b), p = sqrt(a*b)
-            let c = fp_sqrt(fp_div(a, b));
-            let p = fp_sqrt(fp_mul(a, b));
+            let c = fp_sqrt_checked(fp_div_checked(a, b)?)?;
+            let p = fp_sqrt_checked(fp_mul_checked(a, b)?)?;
 
             if c == 0 || p == 0 {
                 (x, y)
             } else {
-                let sqrt_k = fp_sqrt(k);
+                let sqrt_k = fp_sqrt_checked(k)?;
                 if sqrt_k == 0 {
                     (x, y)
                 } else {
                     // exponent: 2 * p * Δt / sqrt(k)
-                    let exp_arg =
-                        fp_div(fp_mul(2 * SCALE, fp_mul(p, delta * SCALE / SCALE)), sqrt_k);
+                    let exponent_numerator = p
+                        .checked_mul(2)
+                        .and_then(|value| value.checked_mul(delta))
+                        .ok_or(Error::Overflow)?;
+                    let exp_arg = fp_div_checked(exponent_numerator, sqrt_k)?;
                     let e_neg = fp_exp_neg(exp_arg); // e^(-exp_arg) in fp
 
                     // one_minus_e = 1 - e^(-arg)
                     let one_minus_e = SCALE - e_neg;
 
                     // X' = sqrt(k)/c * (x/sqrt(k) + (1-e)*(c/2 - y/(2*sqrt(k)*c)))
-                    let x_over_sqrtk = fp_div(x, sqrt_k);
+                    let x_over_sqrtk = fp_div_checked(x, sqrt_k)?;
                     let c_half = c / 2;
-                    let y_part = fp_div(y, fp_mul(2 * SCALE, fp_mul(sqrt_k, c)));
-                    let bracket_x = x_over_sqrtk
-                        .saturating_add(fp_mul(one_minus_e, c_half.saturating_sub(y_part)));
-                    let new_x = fp_mul(fp_div(sqrt_k, c), bracket_x);
+                    let y_denominator = fp_mul_checked(2 * SCALE, fp_mul_checked(sqrt_k, c)?)?;
+                    let y_part = fp_div_checked(y, y_denominator)?;
+                    let x_adjustment = fp_mul_checked(one_minus_e, c_half.checked_sub(y_part).ok_or(Error::Overflow)?)?;
+                    let bracket_x = x_over_sqrtk.checked_add(x_adjustment).ok_or(Error::Overflow)?;
+                    let new_x = fp_mul_checked(fp_div_checked(sqrt_k, c)?, bracket_x)?;
 
                     // Y' = sqrt(k)*c * (y/(sqrt(k)*c) + (1-e)*(1/2 - x*c/(2*sqrt(k))))
-                    let y_over_sqrtk_c = fp_div(y, fp_mul(sqrt_k, c));
+                    let y_over_sqrtk_c = fp_div_checked(y, fp_mul_checked(sqrt_k, c)?)?;
                     let half = SCALE / 2;
-                    let xc_part = fp_div(fp_mul(x, c), fp_mul(2 * SCALE, sqrt_k));
-                    let bracket_y = y_over_sqrtk_c
-                        .saturating_add(fp_mul(one_minus_e, half.saturating_sub(xc_part)));
-                    let new_y = fp_mul(fp_mul(sqrt_k, c), bracket_y);
+                    let xc_part = fp_div_checked(fp_mul_checked(x, c)?, fp_mul_checked(2 * SCALE, sqrt_k)?)?;
+                    let y_adjustment = fp_mul_checked(one_minus_e, half.checked_sub(xc_part).ok_or(Error::Overflow)?)?;
+                    let bracket_y = y_over_sqrtk_c.checked_add(y_adjustment).ok_or(Error::Overflow)?;
+                    let new_y = fp_mul_checked(fp_mul_checked(sqrt_k, c)?, bracket_y)?;
 
                     (new_x.max(SCALE), new_y.max(SCALE))
                 }
@@ -346,11 +372,12 @@ impl TwammContract {
         pool.reserve_a = (new_x_fp / SCALE).max(1);
         pool.reserve_b = (new_y_fp / SCALE).max(1);
         pool.last_updated_ledger = current_ledger;
+        Ok(())
     }
 
     /// Recompute aggregate rates by scanning all active orders.
     /// Called after an order is submitted or cancelled to keep `agg_rate_a/b` accurate.
-    fn recompute_rates(env: &Env, pool: &mut PoolState) {
+    fn recompute_rates(env: &Env, pool: &mut PoolState) -> Result<(), Error> {
         let seq: u64 = env
             .storage()
             .persistent()
@@ -367,15 +394,16 @@ impl TwammContract {
             {
                 if order.status == OrderStatus::Active && order.end_ledger > current {
                     if order.sell_a {
-                        ra = ra.saturating_add(order.rate_per_ledger);
+                        ra = ra.checked_add(order.rate_per_ledger).ok_or(Error::Overflow)?;
                     } else {
-                        rb = rb.saturating_add(order.rate_per_ledger);
+                        rb = rb.checked_add(order.rate_per_ledger).ok_or(Error::Overflow)?;
                     }
                 }
             }
         }
         pool.agg_rate_a = ra;
         pool.agg_rate_b = rb;
+        Ok(())
     }
 }
 
@@ -452,7 +480,7 @@ impl TwammContract {
         }
 
         // Lazy-evaluate pending virtual orders.
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         // Deduct fee.
         let fee = amount_in * pool.fee_bps as i128 / 10_000;
@@ -508,7 +536,7 @@ impl TwammContract {
         if pool.paused {
             return Err(Error::Paused);
         }
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         pool.reserve_a += amount_a;
         pool.reserve_b += amount_b;
@@ -542,7 +570,7 @@ impl TwammContract {
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
-        if duration_ledgers == 0 {
+        if duration_ledgers < MIN_ORDER_DURATION_LEDGERS {
             return Err(Error::InvalidDuration);
         }
 
@@ -552,18 +580,15 @@ impl TwammContract {
         }
 
         // Settle pending virtual orders before registering the new rate.
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         let start_ledger = env.ledger().sequence();
-        let end_ledger = start_ledger + duration_ledgers;
+        let end_ledger = start_ledger.checked_add(duration_ledgers).ok_or(Error::Overflow)?;
 
         // Fixed-point rate per ledger.
-        let rate_per_ledger = fp_div(
-            amount.saturating_mul(SCALE), // scale amount to fp
-            (duration_ledgers as i128).saturating_mul(SCALE),
-        );
+        let rate_per_ledger = fp_div_checked(amount, duration_ledgers as i128)?;
 
-        let id = Self::next_order_id(&env);
+        let id = Self::next_order_id(&env)?;
         let order = TwammOrder {
             id,
             owner: owner.clone(),
@@ -579,9 +604,9 @@ impl TwammContract {
 
         // Update aggregate rates incrementally.
         if sell_a {
-            pool.agg_rate_a = pool.agg_rate_a.saturating_add(rate_per_ledger);
+            pool.agg_rate_a = pool.agg_rate_a.checked_add(rate_per_ledger).ok_or(Error::Overflow)?;
         } else {
-            pool.agg_rate_b = pool.agg_rate_b.saturating_add(rate_per_ledger);
+            pool.agg_rate_b = pool.agg_rate_b.checked_add(rate_per_ledger).ok_or(Error::Overflow)?;
         }
         Self::save_pool(&env, &pool);
 
@@ -618,7 +643,7 @@ impl TwammContract {
         let mut pool = Self::load_pool(&env)?;
 
         // Settle pending virtual orders before cancellation.
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         let current_ledger = env.ledger().sequence();
         let duration = (order.end_ledger - order.start_ledger) as i128;
@@ -642,7 +667,7 @@ impl TwammContract {
         Self::save_order(&env, &order);
 
         // Remove rate contribution and recompute aggregates.
-        Self::recompute_rates(&env, &mut pool);
+        Self::recompute_rates(&env, &mut pool)?;
         Self::save_pool(&env, &pool);
 
         env.events().publish(
@@ -659,7 +684,7 @@ impl TwammContract {
     /// Anyone can call this to clean up stale orders and reclaim gas.
     pub fn settle_expired(env: Env) -> Result<u32, Error> {
         let mut pool = Self::load_pool(&env)?;
-        Self::apply_virtual_orders(&env, &mut pool);
+        Self::apply_virtual_orders(&env, &mut pool)?;
 
         let current_ledger = env.ledger().sequence();
         let seq: u64 = env
@@ -685,7 +710,7 @@ impl TwammContract {
         }
 
         if settled > 0 {
-            Self::recompute_rates(&env, &mut pool);
+            Self::recompute_rates(&env, &mut pool)?;
             Self::save_pool(&env, &pool);
         }
 
@@ -762,18 +787,18 @@ mod test {
     use super::*;
     use soroban_sdk::{testutils::Ledger, Env};
 
-    fn setup() -> (Env, Address, TwammContractClient<'static>) {
+    fn setup() -> (Env, Address, Address) {
         let env = Env::default();
         env.mock_all_auths();
         let contract_id = env.register_contract(None, TwammContract);
-        let client = TwammContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
-        (env, admin, client)
+        (env, admin, contract_id)
     }
 
     #[test]
     fn test_initialize() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &2_000_000, &30)
             .unwrap();
@@ -785,7 +810,8 @@ mod test {
 
     #[test]
     fn test_initialize_twice_fails() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &2_000_000, &30)
             .unwrap();
@@ -797,7 +823,8 @@ mod test {
 
     #[test]
     fn test_spot_swap() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &1_000_000, &30)
             .unwrap();
@@ -811,8 +838,21 @@ mod test {
     }
 
     #[test]
+    fn test_submit_order_rejects_duration_below_minimum() {
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &1_000_000_000, &1_000_000_000, &30).unwrap();
+        let trader = Address::generate(&env);
+        assert_eq!(
+            client.submit_order(&trader, &true, &100_000, &(MIN_ORDER_DURATION_LEDGERS - 1)),
+            Err(Ok(Error::InvalidDuration))
+        );
+    }
+
+    #[test]
     fn test_submit_order() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -821,13 +861,71 @@ mod test {
         assert_eq!(id, 1);
         let order = client.get_order(&id).unwrap();
         assert_eq!(order.owner, trader);
-        assert!(order.rate_per_ledger > 0);
+        assert_eq!(order.rate_per_ledger, fp_div_checked(100_000, 100).unwrap());
         assert_eq!(order.status, OrderStatus::Active);
     }
 
     #[test]
+    fn test_submit_order_rejects_rate_overflow() {
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &1_000_000_000, &1_000_000_000, &30).unwrap();
+        let trader = Address::generate(&env);
+        // The scaled numerator cannot fit in i128 and must fail instead of wrapping.
+        assert_eq!(
+            client.submit_order(&trader, &true, &i128::MAX, &MIN_ORDER_DURATION_LEDGERS),
+            Err(Ok(Error::Overflow))
+        );
+    }
+
+    #[test]
+    fn test_aggregate_rate_overflow_is_rejected() {
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &1_000_000_000, &1_000_000_000, &30).unwrap();
+        let trader = Address::generate(&env);
+        let amount = i128::MAX / SCALE;
+
+        for _ in 0..10 {
+            client
+                .submit_order(&trader, &true, &amount, &MIN_ORDER_DURATION_LEDGERS)
+                .unwrap();
+        }
+        assert_eq!(
+            client.submit_order(&trader, &true, &amount, &MIN_ORDER_DURATION_LEDGERS),
+            Err(Ok(Error::Overflow))
+        );
+    }
+
+    #[test]
+    fn test_multiple_opposing_orders_keep_balanced_pool_near_spot_price() {
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &1_000_000_000, &1_000_000_000, &30).unwrap();
+        let trader = Address::generate(&env);
+
+        for _ in 0..4 {
+            client.submit_order(&trader, &true, &100_000, &100).unwrap();
+            client.submit_order(&trader, &false, &100_000, &100).unwrap();
+        }
+
+        env.ledger().with_mut(|ledger| ledger.sequence_number += 50);
+        // A spot swap forces lazy settlement of the accumulated virtual orders.
+        client.swap(&trader, &true, &1_000, &0).unwrap();
+
+        let price = client.spot_price().unwrap();
+        let one_percent = SCALE / 100;
+        assert!(
+            (price - SCALE).abs() <= one_percent,
+            "balanced opposing orders should keep spot near 1.0; price={}",
+            price
+        );
+    }
+
+    #[test]
     fn test_cancel_order_refund() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -848,7 +946,8 @@ mod test {
 
     #[test]
     fn test_cancel_completed_order_fails() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -865,7 +964,8 @@ mod test {
 
     #[test]
     fn test_pause_blocks_swap() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &1_000_000, &30)
             .unwrap();
@@ -879,13 +979,14 @@ mod test {
 
     #[test]
     fn test_settle_expired() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
         let trader = Address::generate(&env);
-        client.submit_order(&trader, &true, &100_000, &5).unwrap();
-        client.submit_order(&trader, &false, &50_000, &5).unwrap();
+        client.submit_order(&trader, &true, &100_000, &10).unwrap();
+        client.submit_order(&trader, &false, &50_000, &10).unwrap();
         // Advance past both orders
         env.ledger().with_mut(|li| li.sequence_number += 10);
         let settled = client.settle_expired().unwrap();
@@ -894,7 +995,8 @@ mod test {
 
     #[test]
     fn test_lazy_virtual_order_affects_reserves() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
@@ -918,7 +1020,8 @@ mod test {
 
     #[test]
     fn test_spot_price() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000, &2_000_000, &30)
             .unwrap();
@@ -929,19 +1032,21 @@ mod test {
 
     #[test]
     fn test_order_count() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();
         assert_eq!(client.order_count(), 0);
         let trader = Address::generate(&env);
-        client.submit_order(&trader, &true, &1_000, &5).unwrap();
+        client.submit_order(&trader, &true, &1_000, &10).unwrap();
         assert_eq!(client.order_count(), 1);
     }
 
     #[test]
     fn test_unauthorized_cancel() {
-        let (env, admin, client) = setup();
+        let (env, admin, contract_id) = setup();
+        let client = TwammContractClient::new(&env, &contract_id);
         client
             .initialize(&admin, &1_000_000_000, &1_000_000_000, &30)
             .unwrap();

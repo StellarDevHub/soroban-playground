@@ -168,8 +168,11 @@ fn renewal_extends_quota_and_expiry() {
     let id = list_basic_dataset(&env, &client, &provider);
 
     let l1 = client.purchase_access(&buyer, &id, &2_u32);
+    client.submit_query(&buyer, &id, &b(&env, 0x61));
+    client.submit_query(&buyer, &id, &b(&env, 0x62));
     let l2 = client.purchase_access(&buyer, &id, &3_u32);
     assert_eq!(l2.queries_total, 5);
+    assert_eq!(l2.queries_used, 2);
     assert!(l2.expires_at > l1.expires_at);
     // Each purchase = flat (100) + price_per_query * quantity. Renewal charges
     // the flat fee again, by design — providers price the per-license overhead.
@@ -262,4 +265,240 @@ fn verify_commitment_matches_sha256_of_preimage() {
     assert!(client.verify_commitment(&commitment, &preimage));
     let other = Bytes::from_slice(&env, b"different");
     assert!(!client.verify_commitment(&commitment, &other));
+}
+
+
+#[test]
+fn lease_grant_is_persisted_and_rejects_access_after_expiry() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+
+    let events_before = env.events().all().len();
+    let license = client.purchase_access(&buyer, &id, &2_u32);
+    assert_eq!(env.events().all().len(), events_before + 2);
+    assert_eq!(client.get_lease_expiry(&id, &buyer), Some(license.expires_at));
+    assert_eq!(client.get_dataset_buyers(&id).len(), 1);
+    assert!(client.has_valid_lease(&id, &buyer));
+
+    env.ledger().with_mut(|ledger| ledger.timestamp = license.expires_at);
+    assert!(!client.has_valid_lease(&id, &buyer));
+    assert_eq!(
+        client.try_submit_query(&buyer, &id, &b(&env, 0x31)).err().unwrap().unwrap(),
+        Error::LicenseExpired
+    );
+}
+
+#[test]
+fn lease_extension_charges_prorated_flat_fee_and_extends_from_expiry() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+
+    let initial = client.purchase_access(&buyer, &id, &2_u32);
+    let half_duration = (7 * 24 * 60 * 60u64) / 2;
+    env.ledger().with_mut(|ledger| ledger.timestamp += half_duration);
+
+    let extended = client.extend_lease(&buyer, &id, &half_duration);
+    assert_eq!(extended.expires_at, initial.expires_at + half_duration);
+    // Half of the 100-unit flat fee, rounded up; no additional query quota.
+    assert_eq!(extended.total_paid, initial.total_paid + 50);
+    assert_eq!(extended.queries_total, initial.queries_total);
+    assert_eq!(client.get_lease_expiry(&id, &buyer), Some(extended.expires_at));
+}
+
+#[test]
+fn cleanup_removes_expired_lease_and_updates_active_buyers() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+
+    let license = client.purchase_access(&buyer, &id, &2_u32);
+    assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 1);
+    env.ledger().with_mut(|ledger| ledger.timestamp = license.expires_at + 1);
+
+    let (cleaned, examined, complete) = client.cleanup_expired_leases(&id, &10);
+    assert_eq!((cleaned, examined, complete), (1, 1, true));
+    assert_eq!(client.get_lease_expiry(&id, &buyer), None);
+    assert_eq!(client.get_license(&id, &buyer), None);
+    assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 0);
+    assert_eq!(client.cleanup_expired_leases(&id, &10), (0, 1, true));
+}
+
+
+#[test]
+fn cleanup_processes_buyers_in_bounded_batches() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let expired_buyer = Address::generate(&env);
+    let active_buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+
+    let expired = client.purchase_access(&expired_buyer, &id, &1_u32);
+    let active = client.purchase_access(&active_buyer, &id, &1_u32);
+    env.ledger().with_mut(|ledger| ledger.timestamp = expired.expires_at + 1);
+
+    let events_before_cleanup = env.events().all().len();
+    assert_eq!(client.cleanup_expired_leases(&id, &1), (1, 1, false));
+    assert_eq!(env.events().all().len(), events_before_cleanup + 1);
+    assert_eq!(client.get_license(&id, &expired_buyer), None);
+    assert!(client.get_license(&id, &active_buyer).is_some());
+    assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 1);
+    assert_eq!(client.get_dataset_buyers(&id).len(), 1);
+
+    assert_eq!(client.cleanup_expired_leases(&id, &1), (0, 1, true));
+    assert_eq!(client.get_lease_expiry(&id, &active_buyer), Some(active.expires_at));
+
+    env.ledger().with_mut(|ledger| ledger.timestamp = active.expires_at + 1);
+    assert_eq!(client.cleanup_expired_leases(&id, &1), (0, 1, false));
+    assert_eq!(client.cleanup_expired_leases(&id, &1), (1, 1, true));
+    assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 0);
+    assert_eq!(client.get_dataset_buyers(&id).len(), 0);
+}
+
+#[test]
+fn exhausted_quota_does_not_make_time_valid_lease_inactive() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+
+    client.purchase_access(&buyer, &id, &1_u32);
+    client.submit_query(&buyer, &id, &b(&env, 0x71));
+    assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 1);
+
+    let renewal = client.purchase_access(&buyer, &id, &1_u32);
+    assert_eq!(renewal.queries_used, 1);
+    assert_eq!(renewal.queries_total, 2);
+    let stats = client.get_dataset_stats(&id).unwrap();
+    assert_eq!(stats.active_buyers, 1);
+    assert_eq!(stats.license_count, 1);
+}
+
+#[test]
+fn expired_lease_extension_reactivates_buyer_without_resetting_quota() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+
+    let original = client.purchase_access(&buyer, &id, &3_u32);
+    client.submit_query(&buyer, &id, &b(&env, 0x72));
+    env.ledger().with_mut(|ledger| ledger.timestamp = original.expires_at + 10);
+
+    let extended = client.extend_lease(&buyer, &id, &86_400_u64);
+    assert_eq!(extended.expires_at, original.expires_at + 10 + 86_400);
+    assert_eq!(extended.queries_used, 1);
+    assert_eq!(extended.queries_total, 3);
+    assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 1);
+}
+
+#[test]
+fn cleanup_rejects_zero_or_oversized_batches() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+
+    assert_eq!(
+        client.try_cleanup_expired_leases(&id, &0).err().unwrap().unwrap(),
+        Error::InvalidParameter
+    );
+    assert_eq!(
+        client.try_cleanup_expired_leases(&id, &51).err().unwrap().unwrap(),
+        Error::InvalidParameter
+    );
+}
+
+#[test]
+fn lease_extension_rejects_zero_duration() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+    client.purchase_access(&buyer, &id, &1_u32);
+
+    assert_eq!(
+        client.try_extend_lease(&buyer, &id, &0).err().unwrap().unwrap(),
+        Error::InvalidParameter
+    );
+}
+
+
+#[test]
+fn legacy_license_without_lease_key_remains_valid_and_migrates_on_extension() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, DataMarketplaceContract);
+    let client = DataMarketplaceContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+    let now = env.ledger().timestamp();
+    let legacy = License {
+        dataset_id: id,
+        buyer: buyer.clone(),
+        purchased_at: now,
+        expires_at: now + 10_000,
+        queries_total: 4,
+        queries_used: 1,
+        total_paid: 140,
+    };
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::License(id, buyer.clone()), &legacy);
+    });
+
+    assert_eq!(client.get_lease_expiry(&id, &buyer), None);
+    assert!(client.has_valid_lease(&id, &buyer));
+    client.submit_query(&buyer, &id, &b(&env, 0x73));
+    let migrated = client.extend_lease(&buyer, &id, &3_600_u64);
+    assert_eq!(migrated.queries_used, 2);
+    assert_eq!(client.get_lease_expiry(&id, &buyer), Some(migrated.expires_at));
+}
+
+
+#[test]
+fn extending_after_cleanup_restores_buyer_to_indexed_roster() {
+    let (env, _admin, client) = setup();
+    let provider = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    register_provider(&env, &client, &provider);
+    let id = list_basic_dataset(&env, &client, &provider);
+
+    let original = client.purchase_access(&buyer, &id, &2_u32);
+    env.ledger()
+        .with_mut(|ledger| ledger.timestamp = original.expires_at + 1);
+
+    assert_eq!(client.cleanup_expired_leases(&id, &10), (1, 1, true));
+    assert_eq!(client.get_dataset_buyers(&id).len(), 0);
+
+    let extended = client.extend_lease(&buyer, &id, &3_600_u64);
+    let buyers = client.get_dataset_buyers(&id);
+    assert_eq!(buyers.len(), 1);
+    assert_eq!(buyers.get(0), Some(buyer.clone()));
+    assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 1);
+
+    env.ledger()
+        .with_mut(|ledger| ledger.timestamp = extended.expires_at + 1);
+    assert_eq!(client.cleanup_expired_leases(&id, &10), (1, 2, true));
+    assert_eq!(client.get_dataset_buyers(&id).len(), 0);
+    assert_eq!(client.get_license(&id, &buyer), None);
+    assert_eq!(client.get_dataset_stats(&id).unwrap().active_buyers, 0);
 }

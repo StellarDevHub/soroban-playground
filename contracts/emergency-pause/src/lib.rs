@@ -3,26 +3,39 @@
 
 //! # Emergency Pause Contract
 //!
-//! Guardian multi-sig role with capability to pause token transfers during exploits.
-//! This is a critical component required for enterprise scalability, resilience, and production operation.
+//! Multi-role circuit breaker for Soroban smart contracts.
 //!
-//! ## Features
-//! - Multi-sig guardian role for pause/unpause actions
+//! ## Roles
+//! - **Guardian** — can pause immediately when an exploit is detected and can
+//!   cancel a pending unpause.
+//! - **Admin** — a configurable multi-signature set (threshold >= 2). Admins
+//!   control role management, the unpause schedule, and the final unpause.
+//!
+//! ## Safety rails
+//! - Every unpause goes through a mandatory 24-hour timelock.
+//! - Users may recover their own base collateral after the contract has been
+//!   continuously paused for more than 14 days.
 #![cfg_attr(not(test), no_std)]
 
 mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env, String, Symbol, Vec};
 
 use crate::storage::{
-    get_admin, get_guardian_count, get_pause_reason, get_pause_timestamp, get_proposal,
-    get_proposal_count, get_threshold, is_guardian, is_initialized, is_paused, next_proposal_id,
-    set_admin, set_guardian, set_guardian_count, set_pause_reason, set_pause_timestamp, set_paused,
-    set_proposal, set_threshold,
+    clear_pause_reason, clear_pause_timestamp, clear_unpause_eta, get_admin_threshold, get_admins,
+    get_balance, get_guardians, get_pause_reason, get_pause_timestamp, get_token, get_unpause_eta,
+    is_admin, is_guardian, is_initialized, is_paused, set_admin_threshold, set_admins, set_balance,
+    set_guardians, set_pause_reason, set_pause_timestamp, set_paused, set_token, set_unpause_eta,
 };
-use crate::types::{Error, PauseAction, PauseProposal};
+use crate::types::Error;
+
+/// Mandatory delay between scheduling and executing an unpause.
+pub const UNPAUSE_TIMELOCK_SECS: u64 = 86_400;
+
+/// Continuous-pause duration after which users may recover base collateral.
+pub const EMERGENCY_WITHDRAW_DELAY_SECS: u64 = 14 * 86_400;
 
 #[contract]
 pub struct EmergencyPause;
@@ -31,91 +44,180 @@ pub struct EmergencyPause;
 impl EmergencyPause {
     // ── Initialisation ────────────────────────────────────────────────────────
 
-    /// Initialize the contract with an admin and a signature threshold.
-    /// The threshold must be >= 1 and <= number of guardians.
-    pub fn initialize(env: Env, admin: Address, threshold: u32) -> Result<(), Error> {
+    /// Initialize the contract with a multi-sig admin set and threshold.
+    ///
+    /// The threshold must be at least 2 and no greater than the number of
+    /// distinct admins. Every initial admin must authorize initialization.
+    pub fn initialize(env: Env, admins: Vec<Address>, threshold: u32) -> Result<(), Error> {
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
         }
-        admin.require_auth();
 
-        if threshold == 0 {
-            return Err(Error::InvalidThreshold);
+        Self::validate_admin_config(&env, &admins, threshold)?;
+
+        for admin in admins.iter() {
+            admin.require_auth();
         }
 
-        set_admin(&env, &admin);
-        set_threshold(&env, threshold);
+        set_admins(&env, &admins);
+        set_admin_threshold(&env, threshold);
+        set_guardians(&env, &Vec::new(&env));
         set_paused(&env, false);
-        set_guardian_count(&env, 0);
+        clear_pause_reason(&env);
+        clear_pause_timestamp(&env);
+        clear_unpause_eta(&env);
 
-        env.events().publish((symbol_short!("init"),), admin);
+        env.events()
+            .publish((symbol_short!("init"),), (admins, threshold));
 
         Ok(())
     }
 
-    // ── Guardian management ───────────────────────────────────────────────────
+    /// Alias for [`Self::initialize`].
+    pub fn init(env: Env, admins: Vec<Address>, threshold: u32) -> Result<(), Error> {
+        Self::initialize(env, admins, threshold)
+    }
 
-    /// Add a guardian (admin only).
-    pub fn add_guardian(env: Env, caller: Address, guardian: Address) -> Result<(), Error> {
-        Self::assert_admin(&env, &caller)?;
+    // ── Guardian management (multi-sig admin only) ────────────────────────────
 
-        if is_guardian(&env, &guardian) {
+    /// Add a guardian. Requires the full multi-sig admin quorum.
+    pub fn add_guardian(env: Env, signers: Vec<Address>, guardian: Address) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
+
+        let mut guardians = get_guardians(&env);
+        if guardians.contains(&guardian) {
             return Err(Error::GuardianAlreadyAdded);
         }
 
-        set_guardian(&env, &guardian, true);
-        let count = get_guardian_count(&env) + 1;
-        set_guardian_count(&env, count);
+        guardians.push_back(guardian.clone());
+        set_guardians(&env, &guardians);
 
         env.events().publish((symbol_short!("guardian"),), guardian);
 
         Ok(())
     }
 
-    /// Remove a guardian (admin only).
-    pub fn remove_guardian(env: Env, caller: Address, guardian: Address) -> Result<(), Error> {
-        Self::assert_admin(&env, &caller)?;
+    /// Remove a guardian. Requires the full multi-sig admin quorum.
+    pub fn remove_guardian(
+        env: Env,
+        signers: Vec<Address>,
+        guardian: Address,
+    ) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
 
-        if !is_guardian(&env, &guardian) {
-            return Err(Error::GuardianNotFound);
-        }
-
-        set_guardian(&env, &guardian, false);
-        let count = get_guardian_count(&env).saturating_sub(1);
-        set_guardian_count(&env, count);
+        let mut guardians = get_guardians(&env);
+        let index = Self::index_of(&guardians, &guardian).ok_or(Error::GuardianNotFound)?;
+        guardians.remove(index);
+        set_guardians(&env, &guardians);
 
         env.events().publish((symbol_short!("un_guard"),), guardian);
 
         Ok(())
     }
 
-    /// Check if an address is a guardian.
+    /// Check if an address is an active guardian.
     pub fn is_guardian(env: Env, addr: Address) -> bool {
         is_guardian(&env, &addr)
     }
 
-    /// Get the current guardian count.
-    pub fn guardian_count(env: Env) -> u32 {
-        get_guardian_count(&env)
+    /// Get the current guardian set.
+    pub fn get_guardians(env: Env) -> Vec<Address> {
+        get_guardians(&env)
     }
 
-    // ── Threshold management ──────────────────────────────────────────────────
+    /// Get the current guardian count.
+    pub fn guardian_count(env: Env) -> u32 {
+        get_guardians(&env).len()
+    }
 
-    /// Update the signature threshold (admin only).
-    pub fn set_threshold(env: Env, caller: Address, new_threshold: u32) -> Result<(), Error> {
-        Self::assert_admin(&env, &caller)?;
+    // ── Admin management (multi-sig admin only) ───────────────────────────────
 
-        if new_threshold == 0 {
+    /// Add an admin signer. Requires the current multi-sig admin quorum.
+    pub fn add_admin(env: Env, signers: Vec<Address>, admin: Address) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
+
+        let mut admins = get_admins(&env);
+        if admins.contains(&admin) {
+            return Err(Error::AdminAlreadyAdded);
+        }
+
+        admins.push_back(admin.clone());
+        set_admins(&env, &admins);
+
+        env.events().publish((symbol_short!("admin"),), admin);
+
+        Ok(())
+    }
+
+    /// Remove an admin signer. Requires the current multi-sig admin quorum and
+    /// must not leave fewer admins than the configured threshold.
+    pub fn remove_admin(env: Env, signers: Vec<Address>, admin: Address) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
+
+        let mut admins = get_admins(&env);
+        let index = Self::index_of(&admins, &admin).ok_or(Error::AdminNotFound)?;
+
+        let threshold = get_admin_threshold(&env)?;
+        if admins.len().saturating_sub(1) < threshold {
             return Err(Error::InvalidThreshold);
         }
 
-        let guardian_count = get_guardian_count(&env);
-        if new_threshold > guardian_count + 1 {
-            // Allow threshold up to guardian_count + 1 (admin counts as a signer)
-            return Err(Error::InvalidThreshold);
-        }
+        admins.remove(index);
+        set_admins(&env, &admins);
 
-        set_threshold(&env, new_threshold);
+        env.events().publish((symbol_short!("un_admin"),), admin);
+
+        Ok(())
+    }
+
+    /// Replace the entire admin signer set and threshold.
+    /// Requires the current multi-sig admin quorum.
+    pub fn set_admins(
+        env: Env,
+        signers: Vec<Address>,
+        new_admins: Vec<Address>,
+        new_threshold: u32,
+    ) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
+        Self::validate_admin_config(&env, &new_admins, new_threshold)?;
+
+        set_admins(&env, &new_admins);
+        set_admin_threshold(&env, new_threshold);
+
+        env.events()
+            .publish((symbol_short!("admins"),), (new_admins, new_threshold));
+
+        Ok(())
+    }
+
+    /// Alias for [`Self::set_admins`].
+    pub fn update_admins(
+        env: Env,
+        signers: Vec<Address>,
+        new_admins: Vec<Address>,
+        new_threshold: u32,
+    ) -> Result<(), Error> {
+        Self::set_admins(env, signers, new_admins, new_threshold)
+    }
+
+    /// Update the multi-sig admin threshold. Requires admin quorum.
+    pub fn set_admin_threshold(
+        env: Env,
+        signers: Vec<Address>,
+        new_threshold: u32,
+    ) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
+
+        let admins = get_admins(&env);
+        Self::validate_threshold(new_threshold, admins.len())?;
+
+        set_admin_threshold(&env, new_threshold);
 
         env.events()
             .publish((symbol_short!("thresh"),), new_threshold);
@@ -123,132 +225,219 @@ impl EmergencyPause {
         Ok(())
     }
 
-    /// Get the current signature threshold.
-    pub fn get_threshold(env: Env) -> Result<u32, Error> {
-        get_threshold(&env)
+    /// Backwards-compatible alias for [`Self::set_admin_threshold`].
+    pub fn set_threshold(env: Env, signers: Vec<Address>, new_threshold: u32) -> Result<(), Error> {
+        Self::set_admin_threshold(env, signers, new_threshold)
     }
 
-    // ── Proposal lifecycle ────────────────────────────────────────────────────
+    /// Check if an address is an admin signer.
+    pub fn is_admin(env: Env, addr: Address) -> bool {
+        is_admin(&env, &addr)
+    }
 
-    /// Create a pause/unpause proposal. Returns the proposal ID.
-    pub fn create_proposal(
-        env: Env,
-        proposer: Address,
-        action: PauseAction,
-        reason: String,
-        ttl_seconds: u64,
-    ) -> Result<u32, Error> {
-        proposer.require_auth();
+    /// Get the current admin signer set.
+    pub fn get_admins(env: Env) -> Vec<Address> {
+        get_admins(&env)
+    }
+
+    /// Get the first admin address (legacy single-admin accessor).
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        get_admins(&env).get(0).ok_or(Error::NotInitialized)
+    }
+
+    /// Get the current admin count.
+    pub fn admin_count(env: Env) -> u32 {
+        get_admins(&env).len()
+    }
+
+    /// Get the current multi-sig admin threshold.
+    pub fn get_admin_threshold(env: Env) -> Result<u32, Error> {
+        get_admin_threshold(&env)
+    }
+
+    /// Backwards-compatible alias for [`Self::get_admin_threshold`].
+    pub fn get_threshold(env: Env) -> Result<u32, Error> {
+        get_admin_threshold(&env)
+    }
+
+    // ── Pause / unpause lifecycle ─────────────────────────────────────────────
+
+    /// Immediately pause the contract. Callable by an active guardian or admin.
+    /// Re-pausing refreshes `paused_at` and cancels any pending unpause.
+    pub fn pause(env: Env, caller: Address) -> Result<(), Error> {
+        Self::pause_internal(&env, caller, None)
+    }
+
+    /// Immediately pause the contract and record a public reason.
+    pub fn pause_with_reason(env: Env, caller: Address, reason: String) -> Result<(), Error> {
+        Self::pause_internal(&env, caller, Some(reason))
+    }
+
+    /// Schedule an unpause after the mandatory 24-hour timelock.
+    /// Requires the full multi-sig admin quorum and a paused contract.
+    pub fn schedule_unpause(env: Env, signers: Vec<Address>) -> Result<u64, Error> {
         Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
+
+        if !is_paused(&env) {
+            return Err(Error::AlreadyInState);
+        }
 
         let now = env.ledger().timestamp();
-        let id = next_proposal_id(&env);
-        let proposal = PauseProposal {
-            id,
-            proposer: proposer.clone(),
-            action,
-            reason,
-            created_at: now,
-            expires_at: now + ttl_seconds,
-            executed: false,
-            signers: soroban_sdk::Vec::new(&env),
-        };
-        set_proposal(&env, id, &proposal);
+        let eta = now
+            .checked_add(UNPAUSE_TIMELOCK_SECS)
+            .ok_or(Error::Overflow)?;
+        set_unpause_eta(&env, eta);
 
         env.events()
-            .publish((symbol_short!("proposed"),), (id, proposer));
+            .publish((Symbol::new(&env, "unpause_scheduled"),), eta);
 
-        Ok(id)
+        Ok(eta)
     }
 
-    /// Sign a proposal. Guardian-only. Increments signature count.
-    pub fn sign_proposal(env: Env, signer: Address, proposal_id: u32) -> Result<(), Error> {
-        signer.require_auth();
+    /// Cancel a pending unpause. Callable by a guardian or admin when an
+    /// exploit is still active.
+    pub fn cancel_unpause(env: Env, caller: Address) -> Result<(), Error> {
         Self::assert_initialized(&env)?;
+        caller.require_auth();
 
-        if !is_guardian(&env, &signer) {
+        if !is_guardian(&env, &caller) && !is_admin(&env, &caller) {
             return Err(Error::Unauthorized);
         }
 
-        let mut proposal = get_proposal(&env, proposal_id)?;
-
-        if proposal.executed {
-            return Err(Error::ProposalAlreadyExecuted);
+        if get_unpause_eta(&env).is_none() {
+            return Err(Error::NoPendingUnpause);
         }
 
-        let now = env.ledger().timestamp();
-        if now > proposal.expires_at {
-            return Err(Error::ProposalExpired);
-        }
-
-        // Check if already signed
-        if proposal.signers.contains(&signer) {
-            return Err(Error::AlreadyExists);
-        }
-
-        proposal.signers.push_back(signer.clone());
-        set_proposal(&env, proposal_id, &proposal);
+        clear_unpause_eta(&env);
 
         env.events()
-            .publish((symbol_short!("signed"),), (proposal_id, signer));
+            .publish((Symbol::new(&env, "unpause_cancelled"),), caller);
 
         Ok(())
     }
 
-    /// Execute a proposal once enough signatures are collected.
-    pub fn execute_proposal(env: Env, executor: Address, proposal_id: u32) -> Result<(), Error> {
-        executor.require_auth();
+    /// Execute a scheduled unpause once the 24-hour timelock has elapsed.
+    /// Requires the full multi-sig admin quorum.
+    pub fn execute_unpause(env: Env, signers: Vec<Address>) -> Result<(), Error> {
         Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
 
-        let mut proposal = get_proposal(&env, proposal_id)?;
-
-        if proposal.executed {
-            return Err(Error::ProposalAlreadyExecuted);
+        if !is_paused(&env) {
+            return Err(Error::AlreadyInState);
         }
 
+        let eta = get_unpause_eta(&env).ok_or(Error::NoPendingUnpause)?;
         let now = env.ledger().timestamp();
-        if now > proposal.expires_at {
-            return Err(Error::ProposalExpired);
+        if now < eta {
+            return Err(Error::TimeLockNotExpired);
         }
 
-        let threshold = get_threshold(&env)?;
-        let signatures = proposal.signers.len();
-        if signatures < threshold {
-            return Err(Error::InsufficientSignatures);
-        }
+        set_paused(&env, false);
+        clear_pause_timestamp(&env);
+        clear_pause_reason(&env);
+        clear_unpause_eta(&env);
 
-        // Execute the action
-        match proposal.action {
-            PauseAction::Pause => {
-                if is_paused(&env) {
-                    return Err(Error::AlreadyInState);
-                }
-                set_paused(&env, true);
-                set_pause_timestamp(&env, now);
-                if proposal.reason.len() > 0 {
-                    set_pause_reason(&env, &proposal.reason);
-                }
-                env.events().publish((symbol_short!("paused"),), now);
-            }
-            PauseAction::Unpause => {
-                if !is_paused(&env) {
-                    return Err(Error::AlreadyInState);
-                }
-                set_paused(&env, false);
-                env.storage()
-                    .instance()
-                    .remove(&crate::types::InstanceKey::PauseReason);
-                env.storage()
-                    .instance()
-                    .remove(&crate::types::InstanceKey::PauseTimestamp);
-                env.events().publish((symbol_short!("unpaused"),), executor);
-            }
-        }
-
-        proposal.executed = true;
-        set_proposal(&env, proposal_id, &proposal);
+        env.events().publish((symbol_short!("unpaused"),), now);
 
         Ok(())
+    }
+
+    // ── Base collateral / emergency withdrawals ───────────────────────────────
+
+    /// Configure the token used for collateral transfers. Admin quorum only.
+    pub fn set_token(env: Env, signers: Vec<Address>, token: Address) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        Self::assert_admin_quorum(&env, &signers)?;
+
+        set_token(&env, &token);
+
+        env.events().publish((symbol_short!("token"),), token);
+
+        Ok(())
+    }
+
+    /// Record base collateral for `user`. If a token has been configured, the
+    /// collateral is pulled into this contract first.
+    pub fn deposit(env: Env, user: Address, amount: i128) -> Result<(), Error> {
+        Self::assert_initialized(&env)?;
+        user.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        let current = get_balance(&env, &user);
+        let updated = current.checked_add(amount).ok_or(Error::Overflow)?;
+
+        if let Some(token_addr) = get_token(&env) {
+            token::Client::new(&env, &token_addr).transfer(
+                &user,
+                &env.current_contract_address(),
+                &amount,
+            );
+        }
+
+        set_balance(&env, &user, updated);
+
+        env.events()
+            .publish((symbol_short!("deposit"),), (user, amount));
+
+        Ok(())
+    }
+
+    /// Withdraw the caller's own base collateral after more than 14 days of
+    /// continuous pause.
+    ///
+    /// Checks-effects-interactions: the balance is zeroed before the external
+    /// token transfer, preventing reentrancy / double-withdrawal.
+    pub fn emergency_withdraw(env: Env, user: Address) -> Result<i128, Error> {
+        Self::assert_initialized(&env)?;
+        user.require_auth();
+
+        if !is_paused(&env) {
+            return Err(Error::AlreadyInState);
+        }
+
+        let paused_at = get_pause_timestamp(&env).ok_or(Error::AlreadyInState)?;
+        let withdraw_after = paused_at
+            .checked_add(EMERGENCY_WITHDRAW_DELAY_SECS)
+            .ok_or(Error::Overflow)?;
+
+        if env.ledger().timestamp() <= withdraw_after {
+            return Err(Error::EmergencyWithdrawNotAllowed);
+        }
+
+        let amount = get_balance(&env, &user);
+        if amount <= 0 {
+            return Err(Error::InsufficientBalance);
+        }
+
+        // Effects before interactions.
+        set_balance(&env, &user, 0);
+
+        if let Some(token_addr) = get_token(&env) {
+            token::Client::new(&env, &token_addr).transfer(
+                &env.current_contract_address(),
+                &user,
+                &amount,
+            );
+        }
+
+        env.events()
+            .publish((Symbol::new(&env, "emergency_withdrawal"),), (user, amount));
+
+        Ok(amount)
+    }
+
+    /// Returns a user's tracked base collateral balance.
+    pub fn balance(env: Env, user: Address) -> i128 {
+        get_balance(&env, &user)
+    }
+
+    /// Returns the configured collateral token, if any.
+    pub fn get_token(env: Env) -> Option<Address> {
+        get_token(&env)
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
@@ -268,19 +457,9 @@ impl EmergencyPause {
         get_pause_timestamp(&env)
     }
 
-    /// Returns the current admin address.
-    pub fn get_admin(env: Env) -> Result<Address, Error> {
-        get_admin(&env)
-    }
-
-    /// Returns proposal details.
-    pub fn get_proposal(env: Env, proposal_id: u32) -> Result<PauseProposal, Error> {
-        get_proposal(&env, proposal_id)
-    }
-
-    /// Returns the total number of proposals.
-    pub fn proposal_count(env: Env) -> u32 {
-        get_proposal_count(&env)
+    /// Returns the scheduled unpause timestamp, if one is pending.
+    pub fn get_unpause_eta(env: Env) -> Option<u64> {
+        get_unpause_eta(&env)
     }
 
     // ── Guarded action ────────────────────────────────────────────────────────
@@ -297,13 +476,97 @@ impl EmergencyPause {
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
-    fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
+    fn pause_internal(env: &Env, caller: Address, reason: Option<String>) -> Result<(), Error> {
+        Self::assert_initialized(env)?;
         caller.require_auth();
-        let admin = get_admin(env)?;
-        if *caller != admin {
+
+        if !is_guardian(env, &caller) && !is_admin(env, &caller) {
             return Err(Error::Unauthorized);
         }
+
+        let now = env.ledger().timestamp();
+        set_paused(env, true);
+        set_pause_timestamp(env, now);
+        clear_unpause_eta(env);
+
+        match reason {
+            Some(value) => set_pause_reason(env, &value),
+            None => clear_pause_reason(env),
+        }
+
+        env.events()
+            .publish((symbol_short!("paused"),), (caller, now));
+
         Ok(())
+    }
+
+    fn assert_admin_quorum(env: &Env, signers: &Vec<Address>) -> Result<(), Error> {
+        let threshold = get_admin_threshold(env)?;
+        if threshold < 2 {
+            return Err(Error::InvalidThreshold);
+        }
+        if signers.len() < threshold {
+            return Err(Error::InsufficientSignatures);
+        }
+
+        let admins = get_admins(env);
+        let mut seen = Vec::new(env);
+
+        for signer in signers.iter() {
+            if !admins.contains(&signer) {
+                return Err(Error::Unauthorized);
+            }
+            if seen.contains(&signer) {
+                return Err(Error::DuplicateSigner);
+            }
+
+            signer.require_auth();
+            seen.push_back(signer);
+        }
+
+        if seen.len() < threshold {
+            return Err(Error::InsufficientSignatures);
+        }
+
+        Ok(())
+    }
+
+    fn validate_admin_config(
+        env: &Env,
+        admins: &Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), Error> {
+        Self::validate_threshold(threshold, admins.len())?;
+
+        for i in 0..admins.len() {
+            let current = admins.get(i).ok_or(Error::InvalidThreshold)?;
+            for j in (i + 1)..admins.len() {
+                if current == admins.get(j).ok_or(Error::InvalidThreshold)? {
+                    return Err(Error::DuplicateSigner);
+                }
+            }
+        }
+
+        let _ = env;
+        Ok(())
+    }
+
+    fn validate_threshold(threshold: u32, signer_count: u32) -> Result<(), Error> {
+        if threshold < 2 || threshold > signer_count {
+            return Err(Error::InvalidThreshold);
+        }
+        Ok(())
+    }
+
+    fn index_of(values: &Vec<Address>, target: &Address) -> Option<u32> {
+        for i in 0..values.len() {
+            if let Some(value) = values.get(i) {
+                if &value == target {
+                    return Some(i);
+                }
+            }
+        }
+        None
     }
 
     fn assert_initialized(env: &Env) -> Result<(), Error> {

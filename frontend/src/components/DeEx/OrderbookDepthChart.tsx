@@ -809,21 +809,40 @@ export default function OrderbookDepthChart({
       ctx.fillText(detail, detailX + 6, detailY + 13);
     }
 
-    // Re-request frame if any flashes are currently decaying
+    // If flashes are still decaying, keep the animation loop alive by scheduling
+    // the next frame directly (renderCanvas → RAF → renderCanvas). This is the
+    // only place renderCanvas drives its own continuation; all other call sites
+    // must use scheduleFrame() to avoid unbounded synchronous redraws.
     if (activeFlashes.size > 0 && mountedRef.current && rafIdRef.current === null) {
-      rafIdRef.current = requestAnimationFrame(renderCanvas);
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        renderCanvas();
+      });
     }
   }, [aggregatedBids, aggregatedAsks, stats, zoom, step, selectedSimulation]);
 
-  // Request Animation Frame on state changes and release any pending frame on
-  // rerender or unmount.
+  // ── RAF Scheduler ──────────────────────────────────────────────────────────
+  // All canvas redraws must go through scheduleFrame(). It deduplicates pending
+  // animation frame requests so at most one frame is queued at any time,
+  // capping redraws to the display refresh rate (~60 FPS) regardless of how
+  // rapidly props or mouse events arrive.
+  //
+  // Declared after renderCanvas so the dependency is defined at call time.
+  const scheduleFrame = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (rafIdRef.current !== null) return; // frame already queued — skip
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      renderCanvas();
+    });
+  }, [renderCanvas]);
+
+  // Schedule a RAF-throttled repaint whenever aggregated data, zoom, or the
+  // simulation changes. Cancel any pending frame first so stale renders don't
+  // pile up during rapid prop updates.
   useEffect(() => {
     mountedRef.current = true;
-    if (rafIdRef.current !== null) {
-      cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-    }
-    renderCanvas();
+    scheduleFrame();
     return () => {
       mountedRef.current = false;
       if (rafIdRef.current !== null) {
@@ -831,9 +850,12 @@ export default function OrderbookDepthChart({
         rafIdRef.current = null;
       }
     };
-  }, [renderCanvas]);
+  }, [scheduleFrame]);
 
-  // Handle ResizeObserver for responsive layout & High-DPI support
+  // Handle ResizeObserver for responsive layout & High-DPI support.
+  // Physical canvas pixels are committed here — before any paint — so the
+  // render callback always sees correct dimensions and never starts with a
+  // stale 1×1 canvas on first mount or container resize.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -842,15 +864,28 @@ export default function OrderbookDepthChart({
       const entry = entries[0];
       if (!entry) return;
       const { width } = entry.contentRect;
-      if (width > 0) {
-        dimensionsRef.current = { width, height };
-        renderCanvas();
+      if (width <= 0) return;
+
+      dimensionsRef.current = { width, height };
+
+      // Resize the canvas backing store immediately so the upcoming RAF frame
+      // paints into correctly-sized physical pixels (Retina / High-DPI).
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const dpr =
+          typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
       }
+
+      scheduleFrame();
     });
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [height, renderCanvas]);
+  }, [height, scheduleFrame]);
 
   // ── Mouse & Touch Event Handlers ──────────────────────────────────────────
 
@@ -935,16 +970,19 @@ export default function OrderbookDepthChart({
         `Hovered ${side} price ${price.toFixed(4)}, quantity ${volume}, cumulative depth ${cumulativeVolume}.`
       );
 
-      renderCanvas();
+      // Gate the crosshair repaint through RAF so rapid mousemove events
+      // (which fire at pointer frequency, up to 1000 Hz) are coalesced into
+      // a single frame per display refresh cycle.
+      scheduleFrame();
     },
-    [aggregatedBids, aggregatedAsks, stats, zoom, renderCanvas]
+    [aggregatedBids, aggregatedAsks, stats, zoom, scheduleFrame]
   );
 
   const handleMouseLeave = useCallback(() => {
     hoverRef.current = null;
     setHoverAnnouncement("");
-    renderCanvas();
-  }, [renderCanvas]);
+    scheduleFrame();
+  }, [scheduleFrame]);
 
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1109,7 +1147,10 @@ export default function OrderbookDepthChart({
         />
 
         {hoverAnnouncement && (
-          <div className="absolute left-3 top-3 rounded bg-slate-900/95 border border-slate-700 px-2 py-1 text-[11px] font-mono text-slate-100 pointer-events-none">
+          <div
+            data-testid="depth-chart-crosshair-tooltip"
+            className="absolute left-3 top-3 rounded bg-slate-900/95 border border-slate-700 px-2 py-1 text-[11px] font-mono text-slate-100 pointer-events-none"
+          >
             {hoverAnnouncement}
           </div>
         )}

@@ -20,19 +20,47 @@
  * The pending reconnect timer handle is stored in `reconnectTimerRef` and
  * cancelled both on unmount and at the start of each `connect()` call so
  * duplicate timers are never queued.
+ *
+ * Bridge events
+ * ─────────────
+ * Messages of type "bridge_event" carry cross-chain transfer status updates
+ * and are delivered through the same `data` channel as other WebSocketData.
  */
 
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
+export type BridgeEventStage =
+  | "source_confirmed"
+  | "relayer_picked_up"
+  | "proof_generated"
+  | "destination_minted"
+  | "failed";
+
+export interface BridgeEventData {
+  transferId: string;
+  stage: BridgeEventStage;
+  sourceTxHash?: string;
+  destinationTxHash?: string;
+  sourceChain?: string;
+  destinationChain?: string;
+  message?: string;
+}
+
 export interface WebSocketData {
-  type: "price_update" | "liquidation_alert" | "position_update" | "error";
+  type:
+    | "price_update"
+    | "liquidation_alert"
+    | "position_update"
+    | "bridge_event"
+    | "error";
   assetSymbol?: string;
   price?: number;
   positionId?: number;
   message?: string;
   timestamp?: number;
+  bridge?: BridgeEventData;
 }
 
 export const useWebSocket = () => {

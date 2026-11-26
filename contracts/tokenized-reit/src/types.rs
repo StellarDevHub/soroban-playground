@@ -22,6 +22,7 @@ pub enum Error {
     NothingToClaim = 13,
     NotActive = 14,
     ContractPaused = 15,
+    ArithmeticOverflow = 16,
 }
 
 /// A tokenized Real Estate Investment Trust.
@@ -42,6 +43,10 @@ pub struct ReitTrust {
     pub annual_yield_bps: u32,
     /// Whether the trust is active for investment.
     pub is_active: bool,
+    /// Scaled by 10^18 cumulative dividend per share.
+    pub acc_dividend_per_share: i128,
+    /// Undistributed fractional remainder retained across distributions.
+    pub dust_reserve: i128,
 }
 
 /// Tracks an investor's fractional ownership in a REIT.
@@ -52,6 +57,10 @@ pub struct Holding {
     pub shares: u64,
     /// Dividend income snapshot at time of last claim/purchase (for pro-rata).
     pub dividends_claimed: i128,
+    /// Snapshot of trust's acc_dividend_per_share at last evaluation.
+    pub last_acc_dividend_per_share: i128,
+    /// Accrued fractional dividends awaiting withdrawal.
+    pub accrued_dividends: i128,
 }
 
 #[contracttype]
