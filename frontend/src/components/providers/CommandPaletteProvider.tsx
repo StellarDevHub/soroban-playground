@@ -23,6 +23,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import CommandPalette from "@/components/CommandPalette";
 import SpotlightModal from "@/components/CommandPalette/SpotlightModal";
+import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { useOffline } from "@/components/providers/OfflineProvider";
 import type { PaletteAction } from "@/lib/commandRegistry";
@@ -55,6 +56,8 @@ export function CommandPaletteProvider({
   const [open, setOpen] = useState(false);
   /** Spotlight-style palette (#1725) — the Cmd/Ctrl+K surface. */
   const [spotlightOpen, setSpotlightOpen] = useState(false);
+  /** Keyboard shortcuts customizer modal (#2077). */
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const { state: theme, toggle: toggleTheme } = useTheme();
   const { flush, queuedCount, isOnline, status } = useOffline();
 
@@ -98,6 +101,18 @@ export function CommandPaletteProvider({
         keywords: ["offline", "online", "connection", "network", "status"],
         run: () => setOpen(false),
       },
+      {
+        id: "settings.shortcuts",
+        label: "Keyboard Shortcuts Customizer",
+        description: "Configure keymap presets, remap hotkeys, and toggle Vim editing",
+        keywords: ["shortcuts", "hotkeys", "keymap", "vim", "sublime", "vscode", "rebind", "keys"],
+        shortcut: "Mod+/",
+        run: () => {
+          setOpen(false);
+          setSpotlightOpen(false);
+          setShortcutsModalOpen(true);
+        },
+      },
     ];
 
     if (onResetWorkspace) {
@@ -132,9 +147,17 @@ export function CommandPaletteProvider({
   );
 
   // Cmd/Ctrl+K is bound by SpotlightModal itself (#1725). The provider keeps
-  // only bare "/" — a familiar "search" affordance, but only outside a field.
+  // bare "/" for quick search outside fields, and Mod+/ (or ?) for shortcut help.
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.key === "/" && (event.metaKey || event.ctrlKey)) || (event.key === "?" && !isTypingTarget(event.target))) {
+        event.preventDefault();
+        setOpen(false);
+        setSpotlightOpen(false);
+        setShortcutsModalOpen((prev) => !prev);
+        return;
+      }
+
       if (event.key === "/" && !isTypingTarget(event.target)) {
         event.preventDefault();
         setSpotlightOpen(false);
@@ -172,6 +195,11 @@ export function CommandPaletteProvider({
         onOpenChange={onSpotlightOpenChange}
         actions={spotlightShellActions}
         onOpenClassicPalette={() => setOpen(true)}
+      />
+      {/* #2077 — Keyboard shortcuts customizer modal */}
+      <KeyboardShortcutsModal
+        isOpen={shortcutsModalOpen}
+        onClose={() => setShortcutsModalOpen(false)}
       />
     </>
   );

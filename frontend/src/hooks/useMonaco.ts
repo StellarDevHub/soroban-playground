@@ -12,6 +12,7 @@ import { getAppliedTheme } from "@/lib/theme/engine";
 import { MONACO_THEME_NAME, registerMonacoTheme } from "@/lib/theme/monaco";
 import { observeTheme } from "@/lib/theme/observe";
 import type { RustFormatDiagnostic } from "@/lib/rustfmtDiagnostics";
+import { loadVimModeEnabled } from "@/lib/shortcuts/storage";
 import "monaco-editor/min/vs/style.css";
 
 let instanceCounter = 0;
@@ -24,12 +25,14 @@ interface UseMonacoProps {
   viewStateKey?: string;
   onFormat?: (source?: string) => void;
   formatDiagnostics?: RustFormatDiagnostic[];
+  vimMode?: boolean;
 }
 
 interface UseMonacoResult {
   containerRef: RefObject<HTMLDivElement | null>;
   isEditorReady: boolean;
   languageServiceStatus?: string | null;
+  vimModeActive?: boolean;
 }
 
 export function useMonaco({
@@ -40,6 +43,7 @@ export function useMonaco({
   viewStateKey,
   onFormat,
   formatDiagnostics,
+  vimMode,
 }: UseMonacoProps): UseMonacoResult {
   const activeModelKey = modelKey ?? viewStateKey ?? "editor";
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -54,6 +58,10 @@ export function useMonaco({
   const onFormatRef = useRef(onFormat);
   const valueRef = useRef(value);
   const [isEditorReady, setIsEditorReady] = useState(false);
+  const [vimModeActive, setVimModeActive] = useState<boolean>(() => {
+    if (typeof vimMode === "boolean") return vimMode;
+    return loadVimModeEnabled();
+  });
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -388,5 +396,55 @@ export function useMonaco({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { containerRef, isEditorReady };
+  useEffect(() => {
+    if (typeof vimMode === "boolean") {
+      setVimModeActive(vimMode);
+    }
+  }, [vimMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleVimModeChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ enabled: boolean }>;
+      if (typeof customEvent.detail?.enabled === "boolean") {
+        setVimModeActive(customEvent.detail.enabled);
+      }
+    };
+    window.addEventListener("soroban:vim-mode-change", handleVimModeChange);
+    return () => {
+      window.removeEventListener("soroban:vim-mode-change", handleVimModeChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!isEditorReady || !editor) return;
+
+    let vimAdapter: any = null;
+    let cancelled = false;
+
+    if (vimModeActive) {
+      import("monaco-vim")
+        .then(({ initVimMode }) => {
+          if (!cancelled && editorRef.current) {
+            vimAdapter = initVimMode(editorRef.current, null);
+          }
+        })
+        .catch((err) => {
+          console.warn("Could not initialize monaco-vim:", err);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+      if (vimAdapter) {
+        try {
+          vimAdapter.dispose();
+        } catch {}
+        vimAdapter = null;
+      }
+    };
+  }, [isEditorReady, vimModeActive]);
+
+  return { containerRef, isEditorReady, vimModeActive };
 }
