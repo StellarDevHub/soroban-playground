@@ -110,21 +110,15 @@ mod tests {
     use super::*;
     use soroban_sdk::{bytes, Env};
 
-    fn setup() -> (Env, KeyValueStoreClient<'static>) {
-        let env = Env::default();
+    fn setup<'a>(env: &'a Env) -> KeyValueStoreClient<'a> {
         let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
-        // Leak env so client lifetime is satisfied — standard pattern in
-        // Soroban test helpers when returning both from a setup function.
-        let env = Box::leak(Box::new(env));
-        (env.clone(), KeyValueStoreClient::new(env, &id))
+        KeyValueStoreClient::new(env, &id)
     }
 
     #[test]
     fn test_set_and_get_roundtrip() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let key = bytes!(&env, 0x68656c6c6f); // "hello"
         let value = bytes!(&env, 0x776f726c64); // "world"
@@ -137,24 +131,17 @@ mod tests {
     #[test]
     fn test_get_missing_key_returns_error() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let key = bytes!(&env, 0x6d697373696e67); // "missing"
         let result = client.try_get(&key);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::KeyNotFound as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::KeyNotFound)));
     }
 
     #[test]
     fn test_has_returns_false_before_set() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let key = bytes!(&env, 0x6b6579); // "key"
         assert!(!client.has(&key));
@@ -163,8 +150,7 @@ mod tests {
     #[test]
     fn test_has_returns_true_after_set() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let key = bytes!(&env, 0x6b6579); // "key"
         let value = bytes!(&env, 0x76616c); // "val"
@@ -175,8 +161,7 @@ mod tests {
     #[test]
     fn test_remove_deletes_entry() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let key = bytes!(&env, 0x6b6579); // "key"
         let value = bytes!(&env, 0x76616c); // "val"
@@ -191,8 +176,7 @@ mod tests {
     #[test]
     fn test_remove_nonexistent_key_is_noop() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let key = bytes!(&env, 0x6e6f6e65); // "none"
                                             // Should not panic
@@ -202,8 +186,7 @@ mod tests {
     #[test]
     fn test_overwrite_existing_key() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let key = bytes!(&env, 0x6b6579);
         let value1 = bytes!(&env, 0x76616c31); // "val1"
@@ -219,41 +202,28 @@ mod tests {
     #[test]
     fn test_empty_key_rejected_on_set() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let empty = Bytes::new(&env);
         let value = bytes!(&env, 0x76616c);
         let result = client.try_set(&empty, &value);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::EmptyKey as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::EmptyKey)));
     }
 
     #[test]
     fn test_empty_key_rejected_on_get() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let empty = Bytes::new(&env);
         let result = client.try_get(&empty);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                Error::EmptyKey as u32
-            )))
-        );
+        assert_eq!(result, Err(Ok(Error::EmptyKey)));
     }
 
     #[test]
     fn test_different_keys_are_independent() {
         let env = Env::default();
-        let id = env.register_contract(None, KeyValueStore);
-        let client = KeyValueStoreClient::new(&env, &id);
+        let client = setup(&env);
 
         let key_a = bytes!(&env, 0x61); // "a"
         let key_b = bytes!(&env, 0x62); // "b"
