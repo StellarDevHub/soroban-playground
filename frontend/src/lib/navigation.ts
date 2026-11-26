@@ -313,6 +313,23 @@ export const NAVIGATION: NavigationGroup[] = [
     groupName: "Real World Assets",
     items: [
       {
+        name: "Crop Insurance",
+        href: "/crop-insurance",
+        icon: "shield",
+        description: "Parametric agricultural coverage with satellite weather radar.",
+        keywords: [
+          "crop",
+          "insurance",
+          "parametric",
+          "weather",
+          "radar",
+          "satellite",
+          "drought",
+          "payout",
+          "oracle",
+        ],
+      },
+      {
         name: "Tokenized REIT",
         href: "/reit",
         icon: "building",
