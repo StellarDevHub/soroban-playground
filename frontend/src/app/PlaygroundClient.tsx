@@ -78,6 +78,7 @@ import CallPanel from "@/components/CallPanel";
 import StateMachineModeler from "@/components/Visualizer/StateMachineModeler";
 import StorageViewer from "@/components/StorageViewer";
 import TransactionCallGraph from "@/components/TransactionCallGraph";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import StorageTimeline from "@/components/StorageTimeline";
 import PredictionMarketPanel, {
   MarketData,
@@ -131,7 +132,8 @@ import {
 } from "@/state/storageTimeline";
 import { parseContractAbiFromSource } from "@/utils/contractAbi";
 
-const DEFAULT_CODE = `#![no_std]
+const DEFAULT_CODE = `\
+#![no_std]
 use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
 
 #[contract]
@@ -386,6 +388,28 @@ export default function Home() {
       `Loaded template "${template.name}" into the editor.`,
     ]);
   }, []);
+
+  // Synchronize active code buffer to localStorage for instant recovery upon crash
+  useEffect(() => {
+    if (typeof window !== "undefined" && code) {
+      try {
+        localStorage.setItem("soroban_editor_code", code);
+      } catch {
+        // quota exceeded or private mode
+      }
+    }
+  }, [code]);
+
+  useEffect(() => {
+    const handleRecover = (e: Event) => {
+      const custom = e as CustomEvent<{ key: string; data: string }>;
+      if (custom.detail?.data) {
+        setCode(custom.detail.data);
+      }
+    };
+    window.addEventListener("soroban:recover-workspace", handleRecover);
+    return () => window.removeEventListener("soroban:recover-workspace", handleRecover);
+  }, [setCode]);
   const [formatDiagnostics, setFormatDiagnostics] = useState<
     RustFormatDiagnostic[]
   >([]);
@@ -2744,38 +2768,59 @@ export default function Home() {
                   onSelect={setActiveFile}
                   onCreate={createSourceFile}
                 />
-                <Editor
-                  code={code}
-                  setCode={setCode}
-                  modelKey={activeFile}
-                  viewStateKey={`playground/${activeFile}`}
-                  onFormat={handleFormat}
-                  formatDiagnostics={formatDiagnostics}
-                />
+                <ErrorBoundary
+                  level="widget"
+                  componentName="Monaco Editor"
+                  storageBackupKey="soroban_editor_code"
+                  onRecoverWorkspace={() => {
+                    try {
+                      const backup = localStorage.getItem("soroban_editor_code");
+                      if (backup) {
+                        setCode(backup);
+                      }
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  <Editor
+                    code={code}
+                    setCode={setCode}
+                    modelKey={activeFile}
+                    viewStateKey={`playground/${activeFile}`}
+                    onFormat={handleFormat}
+                    formatDiagnostics={formatDiagnostics}
+                  />
+                </ErrorBoundary>
               </section>
             }
             output={
               <aside className="flex flex-col gap-4 bg-slate-950/40 p-4">
-                <DeployPanel
-                  preflight={
-                    <PreflightChecklist
-                      apiBaseUrl={DEFAULT_API_BASE_URL}
-                      wasmPath={lastArtifactName}
-                      enabled={hasCompiled && !isCompiling && !isDeploying}
-                      onPlanChange={setDeploymentPlan}
-                    />
-                  }
-                  deploymentAllowed={Boolean(deploymentPlan)}
-                  networkLabel={deploymentPlan?.network || "selected network"}
-                  onCompile={handleCompile}
-                  onDeploy={handleDeploy}
-                  isCompiling={isCompiling}
-                  isDeploying={isDeploying}
-                  hasCompiled={hasCompiled}
-                  compileSummary={compileSummary}
-                  compileError={compileError}
-                  contractId={contractId}
-                />
+                <ErrorBoundary
+                  level="widget"
+                  componentName="Deploy & Build Panel"
+                >
+                  <DeployPanel
+                    preflight={
+                      <PreflightChecklist
+                        apiBaseUrl={DEFAULT_API_BASE_URL}
+                        wasmPath={lastArtifactName}
+                        enabled={hasCompiled && !isCompiling && !isDeploying}
+                        onPlanChange={setDeploymentPlan}
+                      />
+                    }
+                    deploymentAllowed={Boolean(deploymentPlan)}
+                    networkLabel={deploymentPlan?.network || "selected network"}
+                    onCompile={handleCompile}
+                    onDeploy={handleDeploy}
+                    isCompiling={isCompiling}
+                    isDeploying={isDeploying}
+                    hasCompiled={hasCompiled}
+                    compileSummary={compileSummary}
+                    compileError={compileError}
+                    contractId={contractId}
+                  />
+                </ErrorBoundary>
                 <BranchConflictResolver code={code} onApplyCode={setCode} />
                 <button
                   type="button"
@@ -2842,26 +2887,31 @@ export default function Home() {
                   abi={contractAbi}
                   prefill={lifecyclePrefill}
                 />
-                <StateMachineModeler
-                  sourceCode={code}
-                  abi={contractAbi}
-                  contractId={contractId}
-                  currentState={
-                    typeof storage.state === "string"
-                      ? storage.state
-                      : typeof storage.lifecycle === "string"
-                        ? storage.lifecycle
-                        : typeof storage.status === "string"
-                          ? storage.status
-                          : null
-                  }
-                  onTransitionSelected={(transition, args) => {
-                    setLifecyclePrefill({
-                      functionName: transition.functionName,
-                      args,
-                    });
-                  }}
-                />
+                <ErrorBoundary
+                  level="widget"
+                  componentName="State Machine Modeler"
+                >
+                  <StateMachineModeler
+                    sourceCode={code}
+                    abi={contractAbi}
+                    contractId={contractId}
+                    currentState={
+                      typeof storage.state === "string"
+                        ? storage.state
+                        : typeof storage.lifecycle === "string"
+                          ? storage.lifecycle
+                          : typeof storage.status === "string"
+                            ? storage.status
+                            : null
+                    }
+                    onTransitionSelected={(transition, args) => {
+                      setLifecyclePrefill({
+                        functionName: transition.functionName,
+                        args,
+                      });
+                    }}
+                  />
+                </ErrorBoundary>
                 <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
@@ -2981,11 +3031,16 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
-                <TransactionCallGraph
-                  graph={transactionGraph}
-                  selectedNodeId={selectedGraphNodeId}
-                  onNodeSelect={handleGraphNodeSelect}
-                />
+                <ErrorBoundary
+                  level="widget"
+                  componentName="Transaction Call Graph"
+                >
+                  <TransactionCallGraph
+                    graph={transactionGraph}
+                    selectedNodeId={selectedGraphNodeId}
+                    onNodeSelect={handleGraphNodeSelect}
+                  />
+                </ErrorBoundary>
                 <StorageTimeline
                   totalFrames={storageTimeline.snapshots.length}
                   currentFrame={Math.max(storageTimeline.currentIndex, 0)}
