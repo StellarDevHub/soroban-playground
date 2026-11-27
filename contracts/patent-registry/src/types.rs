@@ -87,7 +87,6 @@ pub struct Patent {
     pub description: String,
     pub owner: Address,
     pub filing_date: u64,
-    pub ledger_seq: u64,
     pub expiry_date: u64,
     pub status: PatentStatus,
     pub license_count: u32,

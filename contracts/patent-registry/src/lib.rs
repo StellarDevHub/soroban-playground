@@ -25,7 +25,7 @@ use crate::storage::{
     get_license_count, get_milestone, get_milestone_count, get_patent, get_patent_count,
     is_initialized, is_paused, next_dispute_id, next_escrow_id, next_license_id, next_milestone_id,
     next_patent_id, set_admin, set_dispute, set_escrow, set_license, set_milestone, set_patent,
-    set_paused, has_patent_hash, set_patent_hash,
+    set_paused,
 };
 use crate::types::{
     Dispute, DisputeStatus, Error, Escrow, EscrowStatus, License, LicenseType, Milestone,
@@ -113,7 +113,7 @@ impl PatentRegistryContract {
         }
 
         let now = env.ledger().timestamp();
-        let seq = env.ledger().sequence() as u64;
+        let seq = env.ledger().sequence();
         let id = next_patent_id(&env);
         let patent = Patent {
             title,
