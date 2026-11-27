@@ -18,14 +18,14 @@ mod storage;
 mod test;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, BytesN};
 
 use crate::storage::{
     get_admin, get_dispute, get_dispute_count, get_escrow, get_escrow_count, get_license,
     get_license_count, get_milestone, get_milestone_count, get_patent, get_patent_count,
     is_initialized, is_paused, next_dispute_id, next_escrow_id, next_license_id, next_milestone_id,
     next_patent_id, set_admin, set_dispute, set_escrow, set_license, set_milestone, set_patent,
-    set_paused,
+    set_paused, has_patent_hash, set_patent_hash,
 };
 use crate::types::{
     Dispute, DisputeStatus, Error, Escrow, EscrowStatus, License, LicenseType, Milestone,
@@ -96,6 +96,7 @@ impl PatentRegistryContract {
         title: String,
         description: String,
         expiry_date: u64,
+        doc_hash: BytesN<32>,
     ) -> Result<u32, Error> {
         Self::assert_not_paused(&env)?;
         inventor.require_auth();
@@ -106,19 +107,28 @@ impl PatentRegistryContract {
         if description.len() == 0 {
             return Err(Error::EmptyField);
         }
+        // Ensure hash uniqueness
+        if has_patent_hash(&env, &doc_hash) {
+            return Err(Error::AlreadyExists);
+        }
 
         let now = env.ledger().timestamp();
+        let seq = env.ledger().sequence() as u64;
         let id = next_patent_id(&env);
         let patent = Patent {
             title,
             description,
             owner: inventor.clone(),
             filing_date: now,
+            ledger_seq: seq,
             expiry_date,
             status: PatentStatus::Pending,
             license_count: 0,
+            doc_hash,
         };
         set_patent(&env, id, &patent);
+        // Record hash to prevent duplicates
+        set_patent_hash(&env, &patent.doc_hash);
 
         env.events().publish((symbol_short!("filed"), inventor), id);
 
