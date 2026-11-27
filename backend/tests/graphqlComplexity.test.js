@@ -98,7 +98,7 @@ describe('complexity.js — static scoring & per-role limits', () => {
   const score = (q) => computeComplexity(schema, parse(q));
 
   it('exposes role limits, default role, and the backwards-compatible alias', () => {
-    expect(ROLE_LIMITS).toEqual({ guest: 100, user: 500, admin: 1000 });
+    expect(ROLE_LIMITS).toEqual({ guest: 100, user: 500, admin: 500 });
     expect(DEFAULT_ROLE).toBe('guest');
     expect(MAX_COMPLEXITY).toBe(ROLE_LIMITS.guest);
   });
@@ -106,12 +106,12 @@ describe('complexity.js — static scoring & per-role limits', () => {
   it('maps each role to its ceiling and defaults unknown roles to guest', () => {
     expect(getMaxComplexityForRole(['guest'])).toBe(100);
     expect(getMaxComplexityForRole(['user'])).toBe(500);
-    expect(getMaxComplexityForRole(['admin'])).toBe(1000);
+    expect(getMaxComplexityForRole(['admin'])).toBe(500);
     expect(getMaxComplexityForRole(['mystery'])).toBe(100);
   });
 
   it('picks the most permissive limit when several roles are present', () => {
-    expect(getMaxComplexityForRole(['guest', 'admin'])).toBe(1000);
+    expect(getMaxComplexityForRole(['guest', 'admin'])).toBe(500);
     expect(getMaxComplexityForRole(['user', 'guest'])).toBe(500);
   });
 

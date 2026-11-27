@@ -13,7 +13,7 @@ const { getComplexity, directiveEstimator, simpleEstimator } = nodeRequire(
 export const ROLE_LIMITS = {
   guest: 100,
   user: 500,
-  admin: 1000,
+  admin: 500,
 };
 
 export const DEFAULT_ROLE = 'guest';

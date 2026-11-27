@@ -62,8 +62,8 @@ describe('computeDepth', () => {
 });
 
 describe('MAX_DEPTH boundary', () => {
-  it('is 6 levels', () => {
-    expect(MAX_DEPTH).toBe(6);
+  it('is 5 levels', () => {
+    expect(MAX_DEPTH).toBe(5);
   });
 
   it('allows a query exactly at the limit', () => {

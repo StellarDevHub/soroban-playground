@@ -6,6 +6,12 @@ import redisService from '../services/redisService.js';
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 30;
 const KEY_PREFIX = 'graphql:persisted-query';
 
+function isProduction() {
+  return [process.env.NODE_ENV, process.env.APP_ENV].some(
+    (environment) => environment?.toLowerCase() === 'production'
+  );
+}
+
 function getTtlSeconds() {
   const configured = Number(process.env.PERSISTED_QUERY_TTL_SECONDS);
   return Number.isFinite(configured) && configured > 0
@@ -88,12 +94,51 @@ export async function loadPersistedQuery(hash) {
 
 export function createPersistedQueryMiddleware() {
   return async function persistedQueryMiddleware(req, res, next) {
-    if (req.method !== 'POST') return next();
+    const production = isProduction();
+    if (req.method !== 'POST') {
+      if (
+        production &&
+        (typeof req.query?.query === 'string' ||
+          typeof req.body?.query === 'string')
+      ) {
+        return res.status(400).json({
+          errors: [
+            {
+              message: 'Persisted queries are required in production.',
+              extensions: { code: 'PERSISTED_QUERY_REQUIRED' },
+            },
+          ],
+        });
+      }
+      return next();
+    }
 
     const hash = getPersistedQueryHash(req.body);
-    if (!hash) return next();
+    if (!hash) {
+      if (production && typeof req.body?.query === 'string') {
+        return res.status(400).json({
+          errors: [
+            {
+              message: 'Persisted queries are required in production.',
+              extensions: { code: 'PERSISTED_QUERY_REQUIRED' },
+            },
+          ],
+        });
+      }
+      return next();
+    }
 
     if (req.body?.query) {
+      if (production) {
+        return res.status(400).json({
+          errors: [
+            {
+              message: 'Send a persisted query hash without a query string.',
+              extensions: { code: 'PERSISTED_QUERY_REQUIRED' },
+            },
+          ],
+        });
+      }
       return next();
     }
 
@@ -124,6 +169,12 @@ export function createPersistedQueryRouter() {
   router.post('/persisted-queries', async (req, res, next) => {
     try {
       const { query, hash, signature } = req.body ?? {};
+      if (isProduction() && !process.env.PERSISTED_QUERY_SECRET) {
+        return res.status(503).json({
+          success: false,
+          error: 'persisted query registration is disabled in production',
+        });
+      }
       if (!validateRegistrationSignature(query, signature)) {
         return res.status(401).json({
           success: false,

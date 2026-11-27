@@ -10,13 +10,27 @@ function makeApp() {
   const app = express();
   app.use(express.json());
   app.use('/graphql', createPersistedQueryRouter());
-  app.post('/graphql', createPersistedQueryMiddleware(), (req, res) => {
+  app.use('/graphql', createPersistedQueryMiddleware());
+  app.post('/graphql', (req, res) => {
     res.json({ query: req.body.query ?? null });
   });
   return app;
 }
 
 describe('persisted GraphQL queries', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousAppEnv = process.env.APP_ENV;
+  const previousSecret = process.env.PERSISTED_QUERY_SECRET;
+
+  afterEach(() => {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousAppEnv === undefined) delete process.env.APP_ENV;
+    else process.env.APP_ENV = previousAppEnv;
+    if (previousSecret === undefined) delete process.env.PERSISTED_QUERY_SECRET;
+    else process.env.PERSISTED_QUERY_SECRET = previousSecret;
+  });
+
   it('registers and resolves a persisted query by hash', async () => {
     const app = makeApp();
     const query = '{ health }';
@@ -63,6 +77,43 @@ describe('persisted GraphQL queries', () => {
       .send({ query: '{ health }', hash: 'b'.repeat(64) });
 
     expect(response.status).toBe(409);
+    expect(response.body.success).toBe(false);
+  });
+
+  it('rejects ad-hoc GraphQL strings in production', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.APP_ENV = 'test';
+    const app = makeApp();
+
+    const response = await request(app)
+      .post('/graphql')
+      .send({ query: '{ health }' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.errors[0].extensions.code).toBe(
+      'PERSISTED_QUERY_REQUIRED'
+    );
+
+    const getResponse = await request(app)
+      .get('/graphql')
+      .query({ query: '{ health }' });
+    expect(getResponse.status).toBe(400);
+    expect(getResponse.body.errors[0].extensions.code).toBe(
+      'PERSISTED_QUERY_REQUIRED'
+    );
+  });
+
+  it('rejects unsigned persisted-query registration in production', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.APP_ENV = 'test';
+    delete process.env.PERSISTED_QUERY_SECRET;
+    const app = makeApp();
+
+    const response = await request(app)
+      .post('/graphql/persisted-queries')
+      .send({ query: '{ health }' });
+
+    expect(response.status).toBe(503);
     expect(response.body.success).toBe(false);
   });
 });

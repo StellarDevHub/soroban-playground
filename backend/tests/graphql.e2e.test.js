@@ -378,23 +378,36 @@ describe('GraphQL E2E — Error handling', () => {
   });
 
   it('rejects query exceeding complexity limit', async () => {
-    // compileBatch has complexity 20, nesting many of these should trip the limit
+    // Five deployHistory fields cost 120 points each, above the 500-point cap.
     const heavyQuery = Array.from(
       { length: 5 },
-      (_, i) => `q${i}: compileHistory { requestId hash }`
+      (_, i) => `q${i}: deployHistory(first: 30) { totalCount }`
     ).join('\n');
-
-    getCompileSnapshot.mockResolvedValue({ history: [], artifacts: [] });
 
     const res = await gql(app, `{ ${heavyQuery} }`);
     expect(res.status).toBe(200);
-    // Either succeeds (if limit is high) or returns a complexity error — both are valid
-    if (res.body.errors) {
-      const hasComplexityError = res.body.errors.some((e) =>
-        /complex/i.test(e.message)
-      );
-      expect(hasComplexityError || res.body.errors.length > 0).toBe(true);
-    }
+    expect(res.body.errors[0].extensions.code).toBe(
+      'QUERY_COMPLEXITY_EXCEEDED'
+    );
+    expect(res.body.errors[0].extensions.complexity).toMatchObject({
+      score: 600,
+      max: 500,
+    });
+  });
+
+  it('rejects deeply recursive project and file queries', async () => {
+    const res = await gql(
+      app,
+      '{ projects { files { project { files { project { id } } } } } }'
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toBeUndefined();
+    expect(res.body.errors[0].extensions.code).toBe('QUERY_DEPTH_EXCEEDED');
+    expect(res.body.errors[0].extensions.depth).toEqual({
+      depth: 6,
+      max: 5,
+    });
   });
 });
 

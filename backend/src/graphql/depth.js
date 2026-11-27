@@ -3,7 +3,7 @@
 // resolver runs. Fragments are expanded in place; introspection fields
 // (`__schema`, `__type`, ...) are ignored so GraphiQL keeps working.
 
-export const MAX_DEPTH = 6;
+export const MAX_DEPTH = 5;
 
 function selectionDepth(selectionSet, fragments, visited) {
   if (!selectionSet) return 0;
