@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, String, BytesN};
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
@@ -90,6 +90,7 @@ pub struct Patent {
     pub expiry_date: u64,
     pub status: PatentStatus,
     pub license_count: u32,
+    pub doc_hash: BytesN<32>,
 }
 
 /// A license granted on a patent.
@@ -167,4 +168,5 @@ pub enum DataKey {
     Dispute(u32),
     Escrow(u32),
     Milestone(u32),
+    PatentHash(BytesN<32>),
 }

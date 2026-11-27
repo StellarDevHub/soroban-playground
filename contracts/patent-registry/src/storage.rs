@@ -1,7 +1,7 @@
 // Copyright (c) 2026 StellarDevTools
 // SPDX-License-Identifier: MIT
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, BytesN};
 
 use crate::types::{DataKey, Dispute, Error, Escrow, InstanceKey, License, Milestone, Patent};
 
@@ -133,7 +133,15 @@ pub fn get_milestone_count(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-// ── Patent ────────────────────────────────────────────────────────────────────
+// ── Patent Hash ───────────────────────────────────────────────────────────────────
+
+pub fn set_patent_hash(env: &Env, hash: &BytesN<32>) {
+    env.storage().persistent().set(&DataKey::PatentHash(hash.clone()), &());
+}
+
+pub fn has_patent_hash(env: &Env, hash: &BytesN<32>) -> bool {
+    env.storage().persistent().has(&DataKey::PatentHash(hash.clone()))
+}
 
 pub fn set_patent(env: &Env, id: u32, patent: &Patent) {
     env.storage().persistent().set(&DataKey::Patent(id), patent);

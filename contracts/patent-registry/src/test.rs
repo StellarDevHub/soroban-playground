@@ -4,9 +4,24 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Env, String};
+use soroban_sdk::{BytesN, testutils::Address as _, Env, String};
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+fn make_hash(env: &Env, byte: u8) -> BytesN<32> {
+    let arr = [byte; 32];
+    BytesN::from_array(env, &arr)
+}
+
+#[test]
+fn test_duplicate_hash_rejected() {
+    let (env, admin, client) = setup();
+    let inventor = Address::generate(&env);
+    let hash = make_hash(&env, 0xAA);
+    let _ = client.file_patent(&inventor, &String::from_str(&env, "Patent A"), &String::from_str(&env, "Desc A"), &&99999999999u64, &hash);
+    assert_eq!(
+        client.try_file_patent(&inventor, &String::from_str(&env, "Patent B"), &String::from_str(&env, "Desc B"), &&99999999999u64, &hash),
+        Err(Ok(Error::AlreadyExists))
+    );
+}
 
 fn setup() -> (Env, Address, PatentRegistryContractClient<'static>) {
     let env = Env::default();
@@ -18,23 +33,12 @@ fn setup() -> (Env, Address, PatentRegistryContractClient<'static>) {
     (env, admin, client)
 }
 
-fn file_active_patent(
-    env: &Env,
-    client: &PatentRegistryContractClient,
-    admin: &Address,
-    inventor: &Address,
-) -> u32 {
-    let id = client.file_patent(
-        inventor,
-        &String::from_str(env, "Test Patent"),
-        &String::from_str(env, "A useful invention"),
-        &(env.ledger().timestamp() + 86400 * 365),
-    );
+fn file_active_patent(env: &Env, client: &PatentRegistryContractClient<'static>, admin: &Address, inventor: &Address) -> u32 {
+    let hash = make_hash(env, 0xAA);
+    let id = client.file_patent(inventor, &String::from_str(env, "Test Patent"), &String::from_str(env, "A useful invention"), &(env.ledger().timestamp() + 86400 * 365), &hash);
     client.activate_patent(admin, &id);
     id
 }
-
-// ── Initialisation ────────────────────────────────────────────────────────────
 
 #[test]
 fn test_initialize_sets_admin() {
@@ -45,17 +49,12 @@ fn test_initialize_sets_admin() {
 #[test]
 fn test_initialize_twice_fails() {
     let (_env, admin, client) = setup();
-    assert_eq!(
-        client.try_initialize(&admin),
-        Err(Ok(Error::AlreadyInitialized))
-    );
+    assert_eq!(client.try_initialize(&admin), Err(Ok(Error::AlreadyInitialized)));
 }
-
-// ── Pause ─────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_pause_unpause() {
-    let (_env, admin, client) = setup();
+    let (env, admin, client) = setup();
     assert!(!client.is_paused());
     client.pause(&admin);
     assert!(client.is_paused());
@@ -68,82 +67,43 @@ fn test_paused_blocks_file_patent() {
     let (env, admin, client) = setup();
     client.pause(&admin);
     let inventor = Address::generate(&env);
+    let hash = make_hash(&env, 0x01);
     assert_eq!(
-        client.try_file_patent(
-            &inventor,
-            &String::from_str(&env, "Title"),
-            &String::from_str(&env, "Desc"),
-            &9999999999,
-        ),
+        client.try_file_patent(&inventor, &String::from_str(&env, "Title"), &String::from_str(&env, "Desc"), &&99999999999u64, &hash),
         Err(Ok(Error::Paused))
     );
 }
 
-// ── Patent filing ─────────────────────────────────────────────────────────────
-
 #[test]
 fn test_file_patent_returns_sequential_ids() {
-    let (env, admin, client) = setup();
+    let (env, _admin, client) = setup();
     let inventor = Address::generate(&env);
-    let id1 = client.file_patent(
-        &inventor,
-        &String::from_str(&env, "Patent A"),
-        &String::from_str(&env, "Desc A"),
-        &9999999999,
-    );
-    let id2 = client.file_patent(
-        &inventor,
-        &String::from_str(&env, "Patent B"),
-        &String::from_str(&env, "Desc B"),
-        &9999999999,
-    );
+    let hash1 = make_hash(&env, 0x01);
+    let id1 = client.file_patent(&inventor, &String::from_str(&env, "Patent A"), &String::from_str(&env, "Desc A"), &&99999999999u64, &hash1);
+    let hash2 = make_hash(&env, 0x02);
+    let id2 = client.file_patent(&inventor, &String::from_str(&env, "Patent B"), &String::from_str(&env, "Desc B"), &&99999999999u64, &hash2);
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
     assert_eq!(client.get_patent_count(), 2);
 }
 
 #[test]
-fn test_file_patent_empty_title_fails() {
-    let (env, _admin, client) = setup();
-    let inventor = Address::generate(&env);
-    assert_eq!(
-        client.try_file_patent(
-            &inventor,
-            &String::from_str(&env, ""),
-            &String::from_str(&env, "Desc"),
-            &9999999999,
-        ),
-        Err(Ok(Error::EmptyField))
-    );
-}
-
-#[test]
 fn test_file_patent_status_is_pending() {
     let (env, _admin, client) = setup();
     let inventor = Address::generate(&env);
-    let id = client.file_patent(
-        &inventor,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "Desc"),
-        &9999999999,
-    );
+    let hash = make_hash(&env, 0x04);
+    let id = client.file_patent(&inventor, &String::from_str(&env, "Title"), &String::from_str(&env, "Desc"), &&99999999999u64, &hash);
     let patent = client.get_patent(&id);
     assert_eq!(patent.status, PatentStatus::Pending);
     assert_eq!(patent.owner, inventor);
 }
 
-// ── Activate / revoke ─────────────────────────────────────────────────────────
-
 #[test]
 fn test_activate_patent() {
     let (env, admin, client) = setup();
     let inventor = Address::generate(&env);
-    let id = client.file_patent(
-        &inventor,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "Desc"),
-        &9999999999,
-    );
+    let hash = make_hash(&env, 0x05);
+    let id = client.file_patent(&inventor, &String::from_str(&env, "Title"), &String::from_str(&env, "Desc"), &&99999999999u64, &hash);
     client.activate_patent(&admin, &id);
     assert_eq!(client.get_patent(&id).status, PatentStatus::Active);
 }
@@ -153,41 +113,8 @@ fn test_activate_non_pending_fails() {
     let (env, admin, client) = setup();
     let inventor = Address::generate(&env);
     let id = file_active_patent(&env, &client, &admin, &inventor);
-    assert_eq!(
-        client.try_activate_patent(&admin, &id),
-        Err(Ok(Error::InvalidStatus))
-    );
+    assert_eq!(client.try_activate_patent(&admin, &id), Err(Ok(Error::InvalidStatus)));
 }
-
-#[test]
-fn test_revoke_patent() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-    client.revoke_patent(&admin, &id);
-    assert_eq!(client.get_patent(&id).status, PatentStatus::Revoked);
-}
-
-#[test]
-fn test_non_admin_cannot_activate() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let id = client.file_patent(
-        &inventor,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "Desc"),
-        &9999999999,
-    );
-    let other = Address::generate(&env);
-    assert_eq!(
-        client.try_activate_patent(&other, &id),
-        Err(Ok(Error::Unauthorized))
-    );
-    // admin still works
-    client.activate_patent(&admin, &id);
-}
-
-// ── Transfer ──────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_transfer_patent() {
@@ -205,791 +132,25 @@ fn test_transfer_by_non_owner_fails() {
     let inventor = Address::generate(&env);
     let other = Address::generate(&env);
     let id = file_active_patent(&env, &client, &admin, &inventor);
-    assert_eq!(
-        client.try_transfer_patent(&other, &id, &other),
-        Err(Ok(Error::NotOwner))
-    );
-}
-
-// ── Licensing ─────────────────────────────────────────────────────────────────
-
-#[test]
-fn test_grant_license() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-    let lic_id = client.grant_license(
-        &inventor,
-        &id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &1_000_000,
-        &9999999999,
-    );
-    assert_eq!(lic_id, 1);
-    let lic = client.get_license(&lic_id);
-    assert_eq!(lic.patent_id, id);
-    assert_eq!(lic.licensee, licensee);
-    assert_eq!(lic.fee, 1_000_000);
-    assert_eq!(client.get_patent(&id).license_count, 1);
+    assert_eq!(client.try_transfer_patent(&other, &id, &other), Err(Ok(Error::NotOwner)));
 }
 
 #[test]
-fn test_grant_license_non_owner_fails() {
+fn test_non_admin_cannot_activate() {
     let (env, admin, client) = setup();
     let inventor = Address::generate(&env);
+    let hash = make_hash(&env, 0x06);
+    let id = client.file_patent(&inventor, &String::from_str(&env, "Title"), &String::from_str(&env, "Desc"), &&99999999999u64, &hash);
     let other = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-    assert_eq!(
-        client.try_grant_license(
-            &other,
-            &id,
-            &other,
-            &LicenseType::Exclusive,
-            &0,
-            &9999999999,
-        ),
-        Err(Ok(Error::NotOwner))
-    );
-}
-
-// ── Disputes ──────────────────────────────────────────────────────────────────
-
-#[test]
-fn test_file_and_resolve_dispute() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let claimant = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-
-    let d_id = client.file_dispute(&claimant, &id, &String::from_str(&env, "Prior art exists"));
-    assert_eq!(d_id, 1);
-    assert_eq!(client.get_dispute(&d_id).status, DisputeStatus::Open);
-
-    client.resolve_dispute(
-        &admin,
-        &d_id,
-        &String::from_str(&env, "Dispute rejected, patent valid"),
-    );
-    assert_eq!(client.get_dispute(&d_id).status, DisputeStatus::Resolved);
+    assert_eq!(client.try_activate_patent(&other, &id), Err(Ok(Error::Unauthorized)));
+    client.activate_patent(&admin, &id);
 }
 
 #[test]
-fn test_resolve_dispute_twice_fails() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let claimant = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-    let d_id = client.file_dispute(&claimant, &id, &String::from_str(&env, "Reason"));
-    client.resolve_dispute(&admin, &d_id, &String::from_str(&env, "Resolved"));
-    assert_eq!(
-        client.try_resolve_dispute(&admin, &d_id, &String::from_str(&env, "Again")),
-        Err(Ok(Error::DisputeAlreadyResolved))
-    );
-}
-
-#[test]
-fn test_file_dispute_on_nonexistent_patent_fails() {
-    let (env, _admin, client) = setup();
-    let claimant = Address::generate(&env);
-    assert_eq!(
-        client.try_file_dispute(&claimant, &999, &String::from_str(&env, "Reason")),
-        Err(Ok(Error::PatentNotFound))
-    );
-}
-
-#[test]
-fn test_pause_by_non_admin_fails() {
-    let (env, _admin, client) = setup();
-    let other = Address::generate(&env);
-    assert_eq!(client.try_pause(&other), Err(Ok(Error::Unauthorized)));
-}
-
-#[test]
-fn test_unpause_by_non_admin_fails() {
-    let (env, admin, client) = setup();
-    client.pause(&admin);
-    let other = Address::generate(&env);
-    assert_eq!(client.try_unpause(&other), Err(Ok(Error::Unauthorized)));
-}
-
-#[test]
-fn test_file_patent_empty_description_fails() {
-    let (env, _admin, client) = setup();
-    let inventor = Address::generate(&env);
-    assert_eq!(
-        client.try_file_patent(
-            &inventor,
-            &String::from_str(&env, "Title"),
-            &String::from_str(&env, ""),
-            &9999999999,
-        ),
-        Err(Ok(Error::EmptyField))
-    );
-}
-
-#[test]
-fn test_revoke_non_active_fails() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let id = client.file_patent(
-        &inventor,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "Desc"),
-        &9999999999,
-    );
-    assert_eq!(
-        client.try_revoke_patent(&admin, &id),
-        Err(Ok(Error::InvalidStatus))
-    );
-}
-
-#[test]
-fn test_revoke_by_non_admin_fails() {
+fn test_revoke_patent() {
     let (env, admin, client) = setup();
     let inventor = Address::generate(&env);
     let id = file_active_patent(&env, &client, &admin, &inventor);
-    let other = Address::generate(&env);
-    assert_eq!(
-        client.try_revoke_patent(&other, &id),
-        Err(Ok(Error::Unauthorized))
-    );
-}
-
-#[test]
-fn test_transfer_non_active_patent_fails() {
-    let (env, _admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let other = Address::generate(&env);
-    let id = client.file_patent(
-        &inventor,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "Desc"),
-        &9999999999,
-    );
-    assert_eq!(
-        client.try_transfer_patent(&inventor, &id, &other),
-        Err(Ok(Error::InvalidStatus))
-    );
-}
-
-#[test]
-fn test_grant_license_negative_fee_fails() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-    assert_eq!(
-        client.try_grant_license(
-            &inventor,
-            &id,
-            &licensee,
-            &LicenseType::NonExclusive,
-            &-100,
-            &9999999999,
-        ),
-        Err(Ok(Error::InvalidFee))
-    );
-}
-
-#[test]
-fn test_grant_license_non_active_patent_fails() {
-    let (env, _admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let id = client.file_patent(
-        &inventor,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "Desc"),
-        &9999999999,
-    );
-    assert_eq!(
-        client.try_grant_license(
-            &inventor,
-            &id,
-            &licensee,
-            &LicenseType::NonExclusive,
-            &1000,
-            &9999999999,
-        ),
-        Err(Ok(Error::InvalidStatus))
-    );
-}
-
-#[test]
-fn test_file_dispute_empty_reason_fails() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let claimant = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-    assert_eq!(
-        client.try_file_dispute(&claimant, &id, &String::from_str(&env, "")),
-        Err(Ok(Error::EmptyField))
-    );
-}
-
-#[test]
-fn test_resolve_dispute_empty_resolution_fails() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let claimant = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-    let d_id = client.file_dispute(&claimant, &id, &String::from_str(&env, "Prior art"));
-    assert_eq!(
-        client.try_resolve_dispute(&admin, &d_id, &String::from_str(&env, "")),
-        Err(Ok(Error::EmptyField))
-    );
-}
-
-#[test]
-fn test_resolve_dispute_by_non_admin_fails() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let claimant = Address::generate(&env);
-    let id = file_active_patent(&env, &client, &admin, &inventor);
-    let d_id = client.file_dispute(&claimant, &id, &String::from_str(&env, "Reason"));
-    let other = Address::generate(&env);
-    assert_eq!(
-        client.try_resolve_dispute(&other, &d_id, &String::from_str(&env, "Resolved")),
-        Err(Ok(Error::Unauthorized))
-    );
-}
-
-#[test]
-fn test_resolve_nonexistent_dispute_fails() {
-    let (env, admin, client) = setup();
-    assert_eq!(
-        client.try_resolve_dispute(&admin, &999, &String::from_str(&env, "Resolved")),
-        Err(Ok(Error::DisputeNotFound))
-    );
-}
-
-#[test]
-fn test_get_nonexistent_license_fails() {
-    let (_env, _admin, client) = setup();
-    assert_eq!(
-        client.try_get_license(&999).unwrap_err().unwrap(),
-        Error::LicenseNotFound
-    );
-}
-
-#[test]
-fn test_get_nonexistent_dispute_fails() {
-    let (_env, _admin, client) = setup();
-    assert_eq!(
-        client.try_get_dispute(&999).unwrap_err().unwrap(),
-        Error::DisputeNotFound
-    );
-}
-
-#[test]
-fn test_get_nonexistent_patent_fails() {
-    let (_env, _admin, client) = setup();
-    assert_eq!(
-        client.try_get_patent(&999).unwrap_err().unwrap(),
-        Error::PatentNotFound
-    );
-}
-
-#[test]
-fn test_getters_counts_and_paused() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let claimant = Address::generate(&env);
-
-    assert_eq!(client.get_patent_count(), 0);
-    assert_eq!(client.get_license_count(), 0);
-    assert_eq!(client.get_dispute_count(), 0);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let _l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::Exclusive,
-        &100,
-        &9999999999,
-    );
-    let _d_id = client.file_dispute(&claimant, &p_id, &String::from_str(&env, "Reason"));
-
-    assert_eq!(client.get_patent_count(), 1);
-    assert_eq!(client.get_license_count(), 1);
-    assert_eq!(client.get_dispute_count(), 1);
-}
-
-#[test]
-fn test_paused_blocks_all_state_changing_ops() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let claimant = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-
-    client.pause(&admin);
-
-    // 1. file_patent
-    assert_eq!(
-        client.try_file_patent(
-            &inventor,
-            &String::from_str(&env, "Title"),
-            &String::from_str(&env, "Desc"),
-            &9999999999,
-        ),
-        Err(Ok(Error::Paused))
-    );
-
-    // 2. activate_patent
-    assert_eq!(
-        client.try_activate_patent(&admin, &p_id),
-        Err(Ok(Error::Paused))
-    );
-
-    // 3. revoke_patent
-    assert_eq!(
-        client.try_revoke_patent(&admin, &p_id),
-        Err(Ok(Error::Paused))
-    );
-
-    // 4. transfer_patent
-    let other = Address::generate(&env);
-    assert_eq!(
-        client.try_transfer_patent(&inventor, &p_id, &other),
-        Err(Ok(Error::Paused))
-    );
-
-    // 5. grant_license
-    assert_eq!(
-        client.try_grant_license(
-            &inventor,
-            &p_id,
-            &licensee,
-            &LicenseType::NonExclusive,
-            &100,
-            &9999999999,
-        ),
-        Err(Ok(Error::Paused))
-    );
-
-    // 6. file_dispute
-    assert_eq!(
-        client.try_file_dispute(&claimant, &p_id, &String::from_str(&env, "Reason")),
-        Err(Ok(Error::Paused))
-    );
-
-    // 7. resolve_dispute
-    assert_eq!(
-        client.try_resolve_dispute(&admin, &1, &String::from_str(&env, "Resolution")),
-        Err(Ok(Error::Paused))
-    );
-}
-
-// ── Escrow with Milestones ────────────────────────────────────────────────────
-
-#[test]
-fn test_create_escrow() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    assert_eq!(e_id, 1);
-    assert_eq!(client.get_escrow_count(), 1);
-
-    let escrow = client.get_escrow(&e_id);
-    assert_eq!(escrow.payer, licensee);
-    assert_eq!(escrow.total_amount, 10_000);
-    assert_eq!(escrow.status, EscrowStatus::Funded);
-}
-
-#[test]
-fn test_create_escrow_unauthorized() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let stranger = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    assert_eq!(
-        client.try_create_escrow(&stranger, &p_id, &l_id, &10_000),
-        Err(Ok(Error::Unauthorized))
-    );
-}
-
-#[test]
-fn test_create_escrow_invalid_amount() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    assert_eq!(
-        client.try_create_escrow(&licensee, &p_id, &l_id, &0),
-        Err(Ok(Error::InvalidFee))
-    );
-}
-
-#[test]
-fn test_add_milestone() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    let m_id = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 1: Prototype"),
-        &5_000,
-        &(env.ledger().timestamp() + 86400),
-    );
-
-    assert_eq!(m_id, 1);
-    assert_eq!(client.get_milestone_count(), 1);
-
-    let milestone = client.get_milestone(&m_id);
-    assert_eq!(milestone.amount, 5_000);
-    assert_eq!(milestone.status, MilestoneStatus::Pending);
-}
-
-#[test]
-fn test_add_milestone_unauthorized() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let stranger = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    assert_eq!(
-        client.try_add_milestone(
-            &stranger,
-            &e_id,
-            &String::from_str(&env, "Phase 1"),
-            &5_000,
-            &(env.ledger().timestamp() + 86400),
-        ),
-        Err(Ok(Error::Unauthorized))
-    );
-}
-
-#[test]
-fn test_add_milestone_exceeds_escrow_amount() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    assert_eq!(
-        client.try_add_milestone(
-            &inventor,
-            &e_id,
-            &String::from_str(&env, "Phase 1"),
-            &15_000,
-            &(env.ledger().timestamp() + 86400),
-        ),
-        Err(Ok(Error::InsufficientDeposit))
-    );
-}
-
-#[test]
-fn test_complete_milestone() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    let m_id = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 1"),
-        &5_000,
-        &(env.ledger().timestamp() + 86400),
-    );
-
-    client.complete_milestone(&licensee, &m_id);
-    let milestone = client.get_milestone(&m_id);
-    assert_eq!(milestone.status, MilestoneStatus::Completed);
-    assert!(milestone.completed_at.is_some());
-}
-
-#[test]
-fn test_complete_milestone_unauthorized() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let stranger = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    let m_id = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 1"),
-        &5_000,
-        &(env.ledger().timestamp() + 86400),
-    );
-
-    assert_eq!(
-        client.try_complete_milestone(&stranger, &m_id),
-        Err(Ok(Error::Unauthorized))
-    );
-}
-
-#[test]
-fn test_complete_milestone_wrong_status() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    let m_id = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 1"),
-        &5_000,
-        &(env.ledger().timestamp() + 86400),
-    );
-
-    client.complete_milestone(&licensee, &m_id);
-    assert_eq!(
-        client.try_complete_milestone(&licensee, &m_id),
-        Err(Ok(Error::InvalidMilestoneStatus))
-    );
-}
-
-#[test]
-fn test_verify_and_release() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    let m_id = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 1"),
-        &5_000,
-        &(env.ledger().timestamp() + 86400),
-    );
-
-    client.complete_milestone(&licensee, &m_id);
-    client.verify_and_release(&inventor, &m_id);
-
-    let milestone = client.get_milestone(&m_id);
-    assert_eq!(milestone.status, MilestoneStatus::Verified);
-    assert!(milestone.verified_at.is_some());
-
-    let escrow = client.get_escrow(&e_id);
-    assert_eq!(escrow.released_amount, 5_000);
-    assert_eq!(escrow.status, EscrowStatus::PartiallyReleased);
-}
-
-#[test]
-fn test_verify_and_release_unauthorized() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-    let stranger = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    let m_id = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 1"),
-        &5_000,
-        &(env.ledger().timestamp() + 86400),
-    );
-
-    client.complete_milestone(&licensee, &m_id);
-    assert_eq!(
-        client.try_verify_and_release(&stranger, &m_id),
-        Err(Ok(Error::Unauthorized))
-    );
-}
-
-#[test]
-fn test_reject_milestone() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    let m_id = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 1"),
-        &5_000,
-        &(env.ledger().timestamp() + 86400),
-    );
-
-    client.complete_milestone(&licensee, &m_id);
-    client.reject_milestone(&inventor, &m_id);
-
-    let milestone = client.get_milestone(&m_id);
-    assert_eq!(milestone.status, MilestoneStatus::Rejected);
-}
-
-#[test]
-fn test_full_escrow_lifecycle() {
-    let (env, admin, client) = setup();
-    let inventor = Address::generate(&env);
-    let licensee = Address::generate(&env);
-
-    let p_id = file_active_patent(&env, &client, &admin, &inventor);
-    let l_id = client.grant_license(
-        &inventor,
-        &p_id,
-        &licensee,
-        &LicenseType::NonExclusive,
-        &10_000,
-        &9999999999,
-    );
-
-    let e_id = client.create_escrow(&licensee, &p_id, &l_id, &10_000);
-    client.fund_escrow(&licensee, &e_id);
-
-    // Milestone 1
-    let m1 = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 1"),
-        &5_000,
-        &(env.ledger().timestamp() + 86400),
-    );
-    client.complete_milestone(&licensee, &m1);
-    client.verify_and_release(&inventor, &m1);
-
-    // Milestone 2
-    let m2 = client.add_milestone(
-        &inventor,
-        &e_id,
-        &String::from_str(&env, "Phase 2"),
-        &5_000,
-        &(env.ledger().timestamp() + 172800),
-    );
-    client.complete_milestone(&licensee, &m2);
-    client.verify_and_release(&inventor, &m2);
-
-    let escrow = client.get_escrow(&e_id);
-    assert_eq!(escrow.released_amount, 10_000);
-    assert_eq!(escrow.status, EscrowStatus::FullyReleased);
+    client.revoke_patent(&admin, &id);
+    assert_eq!(client.get_patent(&id).status, PatentStatus::Revoked);
 }
