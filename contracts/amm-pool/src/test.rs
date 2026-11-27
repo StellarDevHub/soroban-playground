@@ -4,6 +4,7 @@
 #![cfg(test)]
 
 use super::*;
+use proptest::prelude::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Env,
@@ -213,6 +214,66 @@ fn test_pool_metrics_track_volume() {
     let (volume, fees) = client.get_pool_metrics();
     assert_eq!(volume, 3_000); // Total input volume
     assert!(fees > 0); // Fees collected
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+
+    #[test]
+    fn liquidity_operations_preserve_lp_supply(
+        operations in prop::collection::vec(
+            (0u8..3, 0usize..2, 2_000i128..10_000, 2_000i128..10_000),
+            1..30
+        )
+    ) {
+        let (env, token_a, token_b, _admin, client) = setup();
+        let providers = [Address::generate(&env), Address::generate(&env)];
+
+        for (operation, provider_index, amount_a, amount_b) in operations {
+            let provider = &providers[provider_index];
+            match operation {
+                0 => {
+                    let _ = client.try_add_liquidity(
+                        provider,
+                        &amount_a,
+                        &amount_b,
+                        &0,
+                    );
+                }
+                1 => {
+                    let available = client.get_lp_balance(provider);
+                    let requested = amount_a.min(available);
+                    if requested > 0 {
+                        let _ = client.try_remove_liquidity(
+                            provider,
+                            &requested,
+                            &0,
+                            &0,
+                        );
+                    }
+                }
+                _ => {
+                    let token_in = if amount_a % 2 == 0 {
+                        &token_a
+                    } else {
+                        &token_b
+                    };
+                    let _ = client.try_swap(provider, token_in, &amount_b, &1);
+                }
+            }
+
+            let total_lp = client.get_total_lp();
+            let provider_lp: i128 = providers
+                .iter()
+                .map(|address| client.get_lp_balance(address))
+                .sum();
+            if total_lp == 0 {
+                prop_assert_eq!(provider_lp, 0);
+            } else {
+                prop_assert_eq!(total_lp, provider_lp + MIN_LIQUIDITY);
+            }
+        }
+    }
 }
 
 #[test]

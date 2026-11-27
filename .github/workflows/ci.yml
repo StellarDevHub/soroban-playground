@@ -165,9 +165,31 @@ jobs:
         with:
           sarif_file: snyk-container.sarif
 
+  formal-invariants:
+    name: K Framework Protocol Invariants
+    runs-on: ubuntu-latest
+    container:
+      image: runtimeverificationinc/kframework-k:ubuntu-jammy-4a46d1231473b599c699160132fd6e76a5c46406
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prove AMM invariant
+        working-directory: contracts/formal
+        run: |
+          kompile amm.k --backend haskell --main-module AMM-FORMAL
+          kprove --definition amm-kompiled --spec-module AMM-FORMAL-VERIFICATION amm.k
+
+      - name: Prove lending pool invariants
+        working-directory: contracts/formal
+        run: |
+          kompile lending-pool.k --backend haskell --main-module LENDING-POOL-FORMAL
+          kprove --definition lending-pool-kompiled --spec-module LENDING-POOL-FORMAL-VERIFICATION lending-pool.k
+
   # Covers every workspace member, including the `indexer` service.
   rust-contracts:
     name: Rust / Soroban Contracts Build & Clippy
+    needs: formal-invariants
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -190,6 +212,8 @@ jobs:
 
       - name: Run Rust Tests (release artifact gate)
         run: cargo test --all-targets --all-features
+        env:
+          PROPTEST_CASES: "10000"
 
       # Contracts on SDK 20-22 need std and only build for wasm32-unknown-unknown.
       # account-abstraction uses SDK 26, rejects that target, and builds only for

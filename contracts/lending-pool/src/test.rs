@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use proptest::prelude::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env,
@@ -149,6 +150,56 @@ fn test_pool_stats() {
     assert_eq!(stats.total_deposited, 8_000);
     assert_eq!(stats.total_borrowed, 2_000);
     assert_eq!(stats.bad_debt, 0);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn randomized_pool_operations_preserve_accounting_invariants(
+        operations in prop::collection::vec(
+            (0u8..4, 0usize..2, 1i128..10_000),
+            1..40
+        )
+    ) {
+        let (env, client, _) = setup();
+        let users = [Address::generate(&env), Address::generate(&env)];
+
+        for (operation, user_index, amount) in operations {
+            let user = &users[user_index];
+            match operation {
+                0 => { client.deposit(user, &amount); }
+                1 => { let _ = client.try_withdraw(user, &amount); }
+                2 => { let _ = client.try_borrow(user, &amount); }
+                _ => { let _ = client.try_repay(user, &amount); }
+            }
+
+            let positions = [
+                client.get_user_position(&users[0]),
+                client.get_user_position(&users[1]),
+            ];
+            let stats = client.get_stats();
+
+            prop_assert!(positions.iter().all(|position| {
+                position.deposited >= 0
+                    && position.borrowed >= 0
+                    && position.s_tokens >= 0
+                    && position.borrowed * 10_000 <= position.deposited * 8_000
+            }));
+            prop_assert_eq!(
+                stats.total_deposited,
+                positions.iter().map(|position| position.deposited).sum::<i128>()
+            );
+            prop_assert_eq!(
+                stats.total_borrowed,
+                positions.iter().map(|position| position.borrowed).sum::<i128>()
+            );
+            prop_assert_eq!(
+                stats.s_token_supply,
+                positions.iter().map(|position| position.s_tokens).sum::<i128>()
+            );
+        }
+    }
 }
 
 // ── Two-Phase Collateralized Debt Auction Tests ───────────────────────────────
