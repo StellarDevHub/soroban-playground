@@ -8,62 +8,75 @@ const xdrVariant = (kind, value) => ({
 });
 const specType = (kind, value = {}) => xdrVariant(kind, value);
 const specEntry = (kind, value) => xdrVariant(kind, value);
+const typedVariant = (prefix, kind, value) => ({
+  type: `${prefix}${kind[0].toUpperCase()}${kind.slice(1)}`,
+  value,
+});
+const typedSpecType = (kind, value = {}) =>
+  typedVariant('scSpecType', kind, value);
+const typedSpecEntry = (kind, value) =>
+  typedVariant('scSpecEntry', kind, value);
 const field = (name, type, doc = '') => ({
   name: xdrValue(name),
   type: xdrValue(type),
   doc: xdrValue(doc),
 });
+const eventParam = (name, type, location) => ({
+  ...field(name, type),
+  location: xdrValue(xdrEnum(location)),
+});
 
 describe('contractAbiParser', () => {
-  it.each(['v20', 'v21', 'v22'])(
-    'parses function specs built with SDK %s XDR layouts',
-    () => {
-      const spec = [
-        specEntry('functionV0', {
-          name: xdrValue('transfer'),
-          doc: xdrValue('Move tokens between addresses'),
-          inputs: xdrValue([
-            field('from', specType('address')),
-            field(
-              'amount',
-              specType('option', {
-                value: xdrValue(specType('u128')),
-              })
-            ),
-          ]),
-          outputs: xdrValue([specType('bool')]),
-        }),
-      ];
+  it('parses function specs from decoded XDR wrappers', () => {
+    const spec = [
+      specEntry('functionV0', {
+        name: xdrValue('transfer'),
+        doc: xdrValue('Move tokens between addresses'),
+        inputs: xdrValue([
+          field('from', specType('address')),
+          field(
+            'amount',
+            specType('option', {
+              value: xdrValue(specType('u128')),
+            })
+          ),
+        ]),
+        outputs: xdrValue([specType('bool')]),
+      }),
+    ];
 
-      const parsed = parseContractAbi(spec);
+    const parsed = parseContractAbi(spec);
 
-      expect(parsed.functions).toEqual([
-        {
-          name: 'transfer',
-          doc: 'Move tokens between addresses',
-          inputs: [
-            { name: 'from', type: { type: 'address' }, doc: undefined },
-            {
-              name: 'amount',
-              type: { type: 'option', value: { type: 'u128' } },
-              doc: undefined,
-            },
-          ],
-          outputs: [{ type: 'bool' }],
-        },
-      ]);
-      expect(parsed.functionSchemas.transfer.properties.amount).toEqual({
-        anyOf: [{ type: 'integer' }, { type: 'null' }],
-      });
-    }
-  );
+    expect(parsed.functions).toEqual([
+      {
+        name: 'transfer',
+        doc: 'Move tokens between addresses',
+        inputs: [
+          { name: 'from', type: { type: 'address' }, doc: undefined },
+          {
+            name: 'amount',
+            type: { type: 'option', value: { type: 'u128' } },
+            doc: undefined,
+          },
+        ],
+        outputs: [{ type: 'bool' }],
+      },
+    ]);
+    expect(parsed.functionSchemas.transfer.properties.amount).toEqual({
+      anyOf: [{ type: 'integer' }, { type: 'null' }],
+    });
+  });
 
   it('creates schemas and references for structs, enums, unions, and error codes', () => {
     const parsed = parseContractAbi([
       specEntry('udtStructV0', {
         name: xdrValue('Account'),
         doc: xdrValue('Account record'),
-        fields: xdrValue([field('owner', specType('address'))]),
+        fields: xdrValue([
+          field('owner', specType('address')),
+          field('status', specType('udt', { name: xdrValue('Status') })),
+          field('balance', specType('udt', { name: xdrValue('Balance') })),
+        ]),
       }),
       specEntry('udtEnumV0', {
         name: xdrValue('Status'),
@@ -92,6 +105,21 @@ describe('contractAbiParser', () => {
           },
         ]),
       }),
+      specEntry('eventV0', {
+        name: xdrValue('Transfer'),
+        lib: xdrValue('token'),
+        doc: xdrValue('Token transfer event'),
+        prefixTopics: xdrValue(['transfer']),
+        params: xdrValue([
+          eventParam(
+            'from',
+            specType('address'),
+            'scSpecEventParamLocationTopicList'
+          ),
+          eventParam('amount', specType('i128'), 'scSpecEventParamLocationData'),
+        ]),
+        dataFormat: xdrEnum('scSpecEventDataFormatSingleValue'),
+      }),
       specEntry('functionV0', {
         name: xdrValue('get_account'),
         inputs: xdrValue([]),
@@ -103,8 +131,12 @@ describe('contractAbiParser', () => {
 
     expect(parsed.jsonSchema.$defs.Account).toMatchObject({
       type: 'object',
-      properties: { owner: { type: 'string' } },
-      required: ['owner'],
+      properties: {
+        owner: { type: 'string' },
+        status: { $ref: '#/$defs/Status' },
+        balance: { $ref: '#/$defs/Balance' },
+      },
+      required: ['owner', 'status', 'balance'],
     });
     expect(parsed.jsonSchema.$defs.Status).toEqual({
       type: 'string',
@@ -126,6 +158,51 @@ describe('contractAbiParser', () => {
     expect(parsed.functions[0].outputs).toEqual([
       { type: 'udt', name: 'Account' },
     ]);
+    expect(parsed.events[0]).toMatchObject({
+      name: 'Transfer',
+      lib: 'token',
+      prefixTopics: ['transfer'],
+      dataFormat: 'single_value',
+      params: [
+        { name: 'from', location: 'topic_list', type: { type: 'address' } },
+        { name: 'amount', location: 'data', type: { type: 'i128' } },
+      ],
+    });
+    expect(parsed.eventSchemas.Transfer.properties.from).toMatchObject({
+      type: 'string',
+      'x-stellar-location': 'topic_list',
+    });
+  });
+
+  it('accepts current SDK typed XDR discriminants', () => {
+    const parsed = parseContractAbi([
+      typedSpecEntry('functionV0', {
+        name: 'get_count',
+        inputs: [],
+        outputs: [typedSpecType('u32')],
+      }),
+      typedSpecEntry('eventV0', {
+        name: 'CountChanged',
+        lib: 'counter',
+        prefixTopics: [],
+        params: [
+          {
+            name: 'count',
+            type: typedSpecType('u32'),
+            location: xdrEnum('scSpecEventParamLocationData'),
+          },
+        ],
+        dataFormat: xdrEnum('scSpecEventDataFormatSingleValue'),
+      }),
+    ]);
+
+    expect(parsed.functions[0].outputs).toEqual([{ type: 'u32' }]);
+    expect(parsed.events[0].params[0]).toMatchObject({
+      name: 'count',
+      type: { type: 'u32' },
+      location: 'data',
+    });
+    expect(parsed.unsupportedEntries).toEqual([]);
   });
 
   it('normalizes container and unknown spec variants without failing', () => {

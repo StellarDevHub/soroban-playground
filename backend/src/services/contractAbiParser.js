@@ -13,12 +13,51 @@ function nameOf(value) {
   return result && result !== '[object Object]' ? result : undefined;
 }
 
+function normalizeVariant(tag) {
+  if (typeof tag !== 'string') return undefined;
+
+  const prefixes = [
+    'scSpecEntry',
+    'scSpecType',
+    'scSpecUdtUnionCase',
+  ];
+  for (const prefix of prefixes) {
+    if (tag.startsWith(prefix)) {
+      const suffix = tag.slice(prefix.length);
+      return suffix ? suffix[0].toLowerCase() + suffix.slice(1) : undefined;
+    }
+  }
+
+  const xdrPrefixes = [
+    'SC_SPEC_ENTRY_',
+    'SC_SPEC_TYPE_',
+    'SC_SPEC_UDT_UNION_CASE_',
+  ];
+  for (const prefix of xdrPrefixes) {
+    if (tag.startsWith(prefix)) {
+      return tag
+        .slice(prefix.length)
+        .split('_')
+        .map((part, index) =>
+          /^V\d+$/.test(part)
+            ? part
+            : index === 0
+              ? part.toLowerCase()
+              : part[0] + part.slice(1).toLowerCase()
+        )
+        .join('');
+    }
+  }
+
+  return tag;
+}
+
 function variantOf(value) {
-  return (
+  const tag =
     nameOf(property(value, 'switch')) ??
     nameOf(property(value, 'kind')) ??
-    nameOf(property(value, 'type'))
-  );
+    nameOf(property(value, 'type'));
+  return normalizeVariant(tag);
 }
 
 function payloadOf(value) {
@@ -42,6 +81,20 @@ function list(value) {
 function optionalDoc(value) {
   const doc = text(value);
   return doc || undefined;
+}
+
+function enumTag(value, prefix) {
+  const tag = nameOf(value);
+  if (!tag) return undefined;
+  const normalized = tag
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toUpperCase();
+  const normalizedPrefix = prefix.toUpperCase();
+  return (
+    normalized
+      .replace(new RegExp(`^${normalizedPrefix}_?`), '')
+      .toLowerCase() || undefined
+  );
 }
 
 function pointerEscape(value) {
@@ -252,7 +305,7 @@ function parseUnionCase(specCase) {
   };
 }
 
-function definitionSchema(type) {
+function definitionSchema(type, definitions) {
   switch (type.kind) {
     case 'udtStructV0': {
       const properties = Object.fromEntries(
@@ -300,6 +353,43 @@ function definitionSchema(type) {
   }
 }
 
+function parseEventParam(specParam) {
+  const payload = payloadOf(specParam);
+  return {
+    name: text(field(specParam, payload, 'name')) ?? 'unnamed',
+    type: normalizeType(field(specParam, payload, 'type')),
+    location:
+      enumTag(
+        field(specParam, payload, 'location'),
+        'SC_SPEC_EVENT_PARAM_LOCATION'
+      ) ?? 'unknown',
+    doc: optionalDoc(field(specParam, payload, 'doc')),
+  };
+}
+
+function eventSchema(event, definitions) {
+  return {
+    type: 'object',
+    properties: Object.fromEntries(
+      event.params.map((param) => [
+        param.name,
+        {
+          ...typeToJsonSchema(param.type, definitions),
+          'x-stellar-location': param.location,
+          ...(param.doc ? { description: param.doc } : {}),
+        },
+      ])
+    ),
+    required: event.params.map((param) => param.name),
+    additionalProperties: false,
+    ...(event.doc ? { description: event.doc } : {}),
+    ...(event.prefixTopics.length
+      ? { 'x-stellar-prefix-topics': event.prefixTopics }
+      : {}),
+    ...(event.dataFormat ? { 'x-stellar-data-format': event.dataFormat } : {}),
+  };
+}
+
 /**
  * Parses decoded ScSpecEntry values from stellar-sdk into functions, custom
  * types, error codes, and JSON schemas. XDR union discriminants are read by
@@ -312,6 +402,7 @@ export function parseContractAbi(specEntries) {
 
   const functions = [];
   const types = [];
+  const events = [];
   const errors = [];
   const unsupportedEntries = [];
 
@@ -334,6 +425,7 @@ export function parseContractAbi(specEntries) {
         types.push({
           kind,
           name: name ?? 'unnamed',
+          lib: text(field(entry, value, 'lib')),
           doc,
           fields: list(field(entry, value, 'fields')).map(parseField),
         });
@@ -341,9 +433,16 @@ export function parseContractAbi(specEntries) {
       case 'udtEnumV0':
       case 'udtErrorEnumV0': {
         const cases = list(field(entry, value, 'cases')).map(enumCase);
-        types.push({ kind, name: name ?? 'unnamed', doc, cases });
+        const typeName = name ?? 'unnamed';
+        types.push({
+          kind,
+          name: typeName,
+          lib: text(field(entry, value, 'lib')),
+          doc,
+          cases,
+        });
         if (kind === 'udtErrorEnumV0') {
-          errors.push(...cases.map((item) => ({ ...item, type: name }));
+          errors.push(...cases.map((item) => ({ ...item, type: typeName })));
         }
         break;
       }
@@ -351,17 +450,35 @@ export function parseContractAbi(specEntries) {
         types.push({
           kind,
           name: name ?? 'unnamed',
+          lib: text(field(entry, value, 'lib')),
           doc,
           cases: list(field(entry, value, 'cases')).map(parseUnionCase),
         });
         break;
+      case 'eventV0': {
+        const prefixTopics = list(field(entry, value, 'prefixTopics')).map(
+          text
+        );
+        events.push({
+          name: name ?? 'unnamed',
+          lib: text(field(entry, value, 'lib')),
+          doc,
+          prefixTopics,
+          params: list(field(entry, value, 'params')).map(parseEventParam),
+          dataFormat: enumTag(
+            field(entry, value, 'dataFormat'),
+            'SC_SPEC_EVENT_DATA_FORMAT'
+          ),
+        });
+        break;
+      }
       default:
         unsupportedEntries.push(kind ?? 'unknown');
     }
   }
 
   const definitions = Object.fromEntries(
-    types.map((type) => [type.name, definitionSchema(type)])
+    types.map((type) => [type.name, definitionSchema(type, types)])
   );
   const functionSchemas = Object.fromEntries(
     functions.map((fn) => [
@@ -379,13 +496,21 @@ export function parseContractAbi(specEntries) {
       },
     ])
   );
+  const eventSchemas = Object.fromEntries(
+    events.map((event) => [
+      event.name,
+      eventSchema(event, definitions),
+    ])
+  );
 
   return {
     functions,
     types,
+    events,
     errors,
     unsupportedEntries,
     functionSchemas,
+    eventSchemas,
     jsonSchema: {
       $schema: 'https://json-schema.org/draft/2020-12/schema',
       $defs: definitions,
