@@ -32,7 +32,7 @@
     "persisted-query:warm": "node scripts/warm-persisted-queries.js",
     "load:http": "k6 run load-tests/http.js",
     "load:ws": "k6 run load-tests/websocket.js",
-    "dlq": "node scripts/dl.js"
+    "dlq": "node scripts/dlq.js"
   },
   "keywords": [
     "soroban",
