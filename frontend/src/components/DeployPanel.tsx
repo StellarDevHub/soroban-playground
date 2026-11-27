@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Play, Rocket, Hammer, CheckCircle2, AlertCircle } from "lucide-react";
+import { announceAsyncStatus } from "@/lib/accessibility";
 
 interface DeployPanelProps {
   onCompile: () => void;
@@ -36,6 +37,33 @@ export default function DeployPanel({
     : isDeploying
       ? "bg-gray-800 text-gray-500 cursor-not-allowed"
       : "bg-green-600 hover:bg-green-500 text-white shadow-[0_0_15px_rgba(22,163,74,0.3)] hover:shadow-[0_0_20px_rgba(22,163,74,0.5)]";
+
+  // Screen reader announcements for asynchronous actions
+  useEffect(() => {
+    if (isCompiling) {
+      announceAsyncStatus("compile", "pending");
+    }
+  }, [isCompiling]);
+
+  useEffect(() => {
+    if (compileSummary && !compileError) {
+      announceAsyncStatus("compile", "success", compileSummary);
+    } else if (compileError) {
+      announceAsyncStatus("compile", "error", compileError);
+    }
+  }, [compileSummary, compileError]);
+
+  useEffect(() => {
+    if (isDeploying) {
+      announceAsyncStatus("deploy", "pending", networkLabel);
+    }
+  }, [isDeploying, networkLabel]);
+
+  useEffect(() => {
+    if (contractId && !compileError) {
+      announceAsyncStatus("deploy", "success", contractId);
+    }
+  }, [contractId, compileError]);
 
   return (
     <div className="flex flex-col space-y-4 p-5 bg-gray-900 border border-gray-800 rounded-xl shadow-lg">
